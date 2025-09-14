@@ -3,7 +3,7 @@ import { useRouter } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { distanceBetween, geohashQueryBounds } from "geofire-common";
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { TouchableOpacity as RNGHTouchable } from "react-native-gesture-handler";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { firestore } from "../lib/firebase";
@@ -106,10 +106,32 @@ export default function Map() {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      setUserLocation({
+
+      const newUserLoc = {
         latitude: location.coords.latitude,
         longitude: location.coords.longitude,
-      });
+      };
+      setUserLocation(newUserLoc);
+
+      // center map on user location immediately (make user location the default)
+      const userRegion: Region = {
+        latitude: newUserLoc.latitude,
+        longitude: newUserLoc.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      };
+
+      // animate if map is ready
+      if (mapRef.current) {
+        try {
+          mapRef.current.animateToRegion(userRegion, 800);
+        } catch (e) {
+          // ignore animation errors on some platforms/emulators
+        }
+      }
+
+      // keep region state in sync
+      setRegion(userRegion);
     } catch (error) {
       console.error('Error getting current location:', error);
     }
@@ -154,14 +176,6 @@ export default function Map() {
     setRegion(newRegion);
   };
 
-  const debugTap = () => {
-    try {
-      router.push("/profile");
-    } catch {
-      /* silent */
-    }
-  };
-
   return (
     <View style={{ flex: 1 }}>
       <MapView
@@ -170,8 +184,8 @@ export default function Map() {
         provider={PROVIDER_GOOGLE}
         initialRegion={region}
         showsUserLocation={true}
-        showsMyLocationButton={false} // We'll create our own button
-        zoomControlEnabled={false}
+        showsMyLocationButton={true}
+        zoomControlEnabled={true}
         onRegionChangeComplete={(r) => {
           setRegion(r);
           onRegionChangeComplete(r, setPoints);
@@ -238,20 +252,8 @@ export default function Map() {
         </View>
       )}
 
-      {/* overlay must be absolutely positioned and allow touches */}
-      <View pointerEvents="box-none" style={{ position: "absolute", right: 12, top: Platform.OS === "ios" ? 48 : 24, zIndex: 999 }}>
-        <RNGHTouchable onPress={debugTap} style={{ backgroundColor: "#0008", padding: 8, borderRadius: 6 }}>
-          <Text style={{ color: "#fff" }}>Debug</Text>
-        </RNGHTouchable>
-      </View>
-
       {/* Location and zoom controls */}
       <View style={styles.controlsContainer}>
-        {/* Center on location button */}
-        <RNGHTouchable onPress={centerOnUserLocation} style={styles.locationButton}>
-          <Text style={styles.locationButtonText}>📍</Text>
-        </RNGHTouchable>
-        
         {/* Zoom controls */}
         <RNGHTouchable onPress={zoomIn} style={styles.zoomButton}>
           <Text style={styles.zoomText}>＋</Text>
@@ -285,7 +287,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#071023",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 10,
     borderWidth: 1,
     borderColor: "#ffffff",
   },
@@ -331,7 +333,7 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowRadius: 0,
     elevation: 5,
   },
   catchMarkerImage: {
@@ -397,28 +399,9 @@ const styles = StyleSheet.create({
   },
   controlsContainer: {
     position: "absolute",
-    right: 12,
-    bottom: 32,
+    left: 12,
+    bottom: 50, // moved higher (was 32) — increase this to move further up
     alignItems: "center",
-  },
-  
-  locationButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  
-  locationButtonText: {
-    fontSize: 20,
   },
   
   zoomButton: {

@@ -1,23 +1,24 @@
+import { FontAwesome } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
-import React, { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
+import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-    Alert,
-    FlatList,
-    Image,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  FlatList,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
-import AuthScreen from "../components/AuthScreen";
+import { auth, firestore } from "../lib/firebase";
 import { CatchItem, deleteCatch, getCatch, getCatches, updateCatch } from "../lib/storage";
-import { useAuth } from "../lib/useAuth";
-import { useCatches } from "../lib/useCatches";
 
 const fishSpecies = [
   { id: "pike", label: "Щука" },
@@ -52,9 +53,8 @@ function getSpeciesLabel(id: string | null | undefined) {
 }
 
 export default function Profile() {
-  // Always call all hooks at the top level - never conditionally
-  const { user, loading: authLoading, logout } = useAuth();
-  const { catches: firestoreCatches, loading: catchesLoading } = useCatches();
+  const router = useRouter();
+  const [loggedIn, setLoggedIn] = useState<boolean>(!!auth.currentUser);
   const [catches, setCatches] = useState<CatchItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -66,55 +66,84 @@ export default function Profile() {
   const [editLength, setEditLength] = useState("");
   const [editWeight, setEditWeight] = useState("");
 
-  const load = async () => {
-    if (!user) return; // Early return if no user, but hooks are already called
-    
-    // Load both local catches and Firestore catches
-    const list = await getCatches();
-    
-    // Filter Firestore catches for current user
-    const userFirestoreCatches = firestoreCatches
-      .filter(catch_item => catch_item.userId === user.uid)
-      .map(catch_item => {
-        const ci = catch_item as any;
-        return {
-          id: ci.id,
-          image: ci.imageUrl || "",
-          extraPhotos: [],
-          description: ci.description || "",
-          length: ci.length?.toString() || "",
-          weight: ci.weight?.toString() || "",
-          species: ci.species || "",
-          date: ci.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-        } as CatchItem;
-      }) as CatchItem[];
-    
-    // Combine local and Firestore catches (avoid duplicates by checking IDs)
-    const allCatches = [...list];
-    userFirestoreCatches.forEach(firestoreCatch => {
-      if (!allCatches.find(localCatch => localCatch.id === firestoreCatch.id)) {
-        allCatches.push(firestoreCatch);
+  const load = async (opts: { force?: boolean } = {}) => {
+    try {
+      const list = await getCatches();
+      if (!Array.isArray(list)) {
+        console.warn("load: getCatches did not return an array");
+        return;
       }
-    });
-    
-    // Sort by date (newest first)
-    allCatches.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    
-    setCatches(allCatches);
+
+      // sort newest first
+      list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      // Only replace state if we actually fetched results, or if caller forces replace.
+      if (list.length > 0 || opts.force) {
+        setCatches(list);
+      } else {
+        console.log("load: empty result — keeping existing catches in state");
+      }
+    } catch (e) {
+      console.error("load error:", e);
+      // preserve existing state on error
+    }
   };
 
   useFocusEffect(
     useCallback(() => {
-      if (user) {
-        load();
-      }
-    }, [firestoreCatches, user])
+      load();
+    }, [])
   );
+
+  useEffect(() => {
+    const uid = auth.currentUser?.uid;
+    console.log("profile useEffect uid:", uid);
+    if (!uid) return; // wait until signed in
+
+    // show snapshot errors and log them
+    const q = query(collection(firestore, "catches"), where("userId", "==", uid), orderBy("createdAt", "desc"));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: CatchItem[] = [];
+        snap.forEach((doc) => {
+          const data = doc.data() as CatchItem;
+          list.push({ ...data, id: doc.id });
+        });
+        console.log("Firestore snapshot count:", list.length);
+        setCatches(list);
+      },
+      (err) => {
+        console.error("onSnapshot error (likely missing index):", err);
+        // fallback: fetch recent docs and filter client-side (slow for big datasets)
+        (async () => {
+          try {
+            const recentQ = query(collection(firestore, "catches"), orderBy("createdAt", "desc")); // top N if desired
+            const snap = await getDocs(recentQ);
+            const list: CatchItem[] = [];
+            snap.forEach((doc) => {
+              const d = doc.data() as any;
+              if (d.userId === uid) list.push({ ...d, id: doc.id });
+            });
+            console.log("Fallback client-side filter count:", list.length);
+            setCatches(list);
+          } catch (e) {
+            console.error("Fallback fetch error:", e);
+          }
+        })();
+      }
+    );
+    return unsub;
+  }, [auth.currentUser?.uid]);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await load();
-    setRefreshing(false);
+    try {
+      // attempt to refresh, but don't clobber existing catches if load returns empty
+      await load({ force: false });
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const openModal = async (id: string) => {
@@ -155,7 +184,6 @@ export default function Profile() {
         onPress: async () => {
           await deleteCatch(id);
           await load();
-          // close modal if deleted item was open
           if (activeCatch?.id === id) {
             setModalVisible(false);
             setActiveCatch(null);
@@ -177,7 +205,8 @@ export default function Profile() {
     >
       <TouchableOpacity style={styles.item} onPress={() => openModal(item.id)}>
        <Image
-         source={item.image ? { uri: item.image } : require("../assets/placeholder.png")}
+         // show local image OR fallback to Firestore imageUrl
+         source={ (item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png") }
          style={styles.thumb}
        />
        <View style={styles.info}>
@@ -192,43 +221,23 @@ export default function Profile() {
        <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
       </TouchableOpacity>
     </Swipeable>
-   );
- 
-   const handleLogout = () => {
-    Alert.alert("Выход", "Вы уверены, что хотите выйти из аккаунта?", [
-      { text: "Отмена", style: "cancel" },
-      {
-        text: "Выйти",
-        style: "destructive",
-        onPress: logout,
-      },
-    ]);
-  };
-
-  // Conditional rendering AFTER all hooks are called
-  if (authLoading) {
-    return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
-        <Text style={styles.title}>Загрузка...</Text>
-      </View>
-    );
-  }
-
-  if (!user) {
-    return <AuthScreen />;
-  }
+  );
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Мои пойманные</Text>
-          <Text style={styles.subtitle}>{user.email}</Text>
-        </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Text style={styles.logoutText}>Выйти</Text>
+      {/* top-right login button (shown when not signed in) */}
+      {!loggedIn && (
+        <TouchableOpacity
+          style={styles.loginButton}
+          onPress={() => router.push("/login")}
+          activeOpacity={0.8}
+        >
+          <FontAwesome name="user" size={18} color="#001219" />
+          <Text style={styles.loginButtonText}>Войти</Text>
         </TouchableOpacity>
-      </View>
+      )}
+
+      <Text style={styles.title}>Мои пойманные</Text>
 
       <FlatList
         data={catches}
@@ -255,7 +264,8 @@ export default function Profile() {
               ) : (
                 <>
                   <Image
-                    source={activeCatch.image ? { uri: activeCatch.image } : require("../assets/placeholder.png")}
+                    // fallback to imageUrl if image is missing
+                    source={ (activeCatch?.image ?? activeCatch?.imageUrl) ? { uri: (activeCatch?.image ?? activeCatch?.imageUrl) } : require("../assets/placeholder.png") }
                     style={styles.mainImage}
                   />
                   <Text style={styles.label}>Вид</Text>
@@ -334,28 +344,7 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0f172a", padding: 16 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
   title: { color: "#e6eef8", fontSize: 18, marginBottom: 4 },
-  subtitle: { 
-    color: "#94a3b8", 
-    fontSize: 14 
-  },
-  logoutButton: {
-    backgroundColor: "#ef4444",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  logoutText: { 
-    color: "#ffffff", 
-    fontSize: 12, 
-    fontWeight: "bold" 
-  },
   empty: { color: "#94a3b8", textAlign: "center" },
   item: {
     flexDirection: "row",
@@ -394,7 +383,6 @@ const styles = StyleSheet.create({
   btnClose: { backgroundColor: "#64748b", padding: 12, borderRadius: 8, flex: 1, alignItems: "center" },
   btnText: { color: "#001219", fontWeight: "700" },
 
-  // swipe delete styles
   deleteAction: { justifyContent: "center" },
   deleteButton: {
     backgroundColor: "#ef4444",
@@ -405,4 +393,27 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   deleteText: { color: "#fff", fontWeight: "700" },
+
+  loginButton: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    zIndex: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#60a5fa",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 6,
+  },
+  loginButtonText: {
+    color: "#001219",
+    fontWeight: "700",
+    marginLeft: 8,
+  },
 });
