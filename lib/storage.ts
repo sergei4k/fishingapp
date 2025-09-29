@@ -73,7 +73,7 @@ export async function getCatch(id: string): Promise<CatchItem | null> {
  * Update a catch locally and in Firestore (if a doc exists).
  * Keeps fields: description, length, weight, species, image, extraPhotos, date
  */
-export async function updateCatch(item: CatchItem): Promise<void> {
+export async function updateCatch(id: string, p0: { description: string; length: number | undefined; weight: number | undefined; }, item: CatchItem): Promise<void> {
   try {
     // Update local AsyncStorage
     const list = await getCatches();

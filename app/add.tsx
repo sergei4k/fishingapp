@@ -18,7 +18,9 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import { auth, firestore } from "../lib/firebase"; // ensure auth is imported
 import { uploadImageAndSaveCatch } from "../lib/firebaseHelpers";
@@ -224,11 +226,12 @@ export default function Add() {
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={90}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <View style={styles.imageRow}>
-          <TouchableOpacity onPress={pickImage} style={styles.photoBox}>
-            {image ? <Image source={{ uri: image }} style={styles.photo} /> : <Text style={styles.placeholderText}>Добавить фото</Text>}
-          </TouchableOpacity>
+      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f172a" }}>
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+          <View style={styles.imageRow}>
+            <TouchableOpacity onPress={pickImage} style={styles.photoBox}>
+              {image ? <Image source={{ uri: image }} style={styles.photo} /> : <Text style={styles.placeholderText}>Добавить фото</Text>}
+            </TouchableOpacity>
           <View style={styles.rightColumn}>
             <TouchableOpacity onPress={addExtraPhoto} style={styles.plusButton}><Text style={styles.plusText}>+</Text></TouchableOpacity>
             <View style={styles.extraThumbs}>
@@ -278,6 +281,7 @@ export default function Add() {
           </View>
         </Modal>
       </ScrollView>
+      </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }

@@ -1,13 +1,17 @@
+
+import "react-native-gesture-handler"; // MUST be first
+import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { distanceBetween, geohashQueryBounds } from "geofire-common";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { TouchableOpacity as RNGHTouchable } from "react-native-gesture-handler";
-import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
+import MapViewWithClustering from 'react-native-map-clustering'; // Add this import
+import { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { firestore } from "../lib/firebase";
 import { useCatches } from "../lib/useCatches";
+
 
 let regionQueryTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -56,9 +60,34 @@ function onRegionChangeComplete(region: Region, setPoints: (pts: any[]) => void)
   }, 350); // 300–500ms debounce to reduce reads
 }
 
+// Add species data (same as in add.tsx)
+const fishSpecies = [
+  { id: "pike", label: "Щука", image: require("../assets/fishicons/schuka.420x420.png") },
+  { id: "perch", label: "Окунь", image: require("../assets/fishicons/perch.png") },
+  { id: "carp", label: "Карп", image: require("../assets/fishicons/carp.png") },
+  { id: "pikeperch", label: "Берш", image: require("../assets/fishicons/pikeperch.png") },
+];
+
+const moreSpecies = [
+  { id: "shchuka", label: "Щука" }, { id: "okun", label: "Окунь" }, { id: "sudak", label: "Судак" },
+  { id: "karp", label: "Карп" }, { id: "leshch", label: "Лещ" }, { id: "nalim", label: "Налим" },
+  { id: "som", label: "Сом" }, { id: "forel", label: "Форель" }, { id: "sig", label: "Сиг" },
+  { id: "kharius", label: "Хариус" }, { id: "gustera", label: "Густера" }, { id: "karas", label: "Карась" },
+  { id: "lin", label: "Линь" }, { id: "golavl", label: "Голавль" }, { id: "yaz", label: "Язь" },
+  { id: "plotva", label: "Плотва" }, { id: "sazan", label: "Сазан" },
+  { id: "rotan", label: "Ротан" },
+  { id: "peskar", label: "Пескарь" }, { id: "ukleya", label: "Уклея" },
+];
+
+// Add helper function
+const getSpeciesLabel = (id: string | null) => {
+  if (!id) return null;
+  return [...fishSpecies, ...moreSpecies].find((s) => s.id === id)?.label || id;
+};
+
 export default function Map() {
   const router = useRouter();
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<any>(null);
   const { catches, loading } = useCatches(50);
   const [selectedCatch, setSelectedCatch] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<{
@@ -66,6 +95,9 @@ export default function Map() {
     longitude: number;
   } | null>(null);
   const [locationPermission, setLocationPermission] = useState(false);
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['60%', '80%'], []);
+
 
   const [region, setRegion] = useState<Region>({
     latitude: 37.78825,
@@ -79,6 +111,14 @@ export default function Map() {
   useEffect(() => {
     requestLocationPermission();
   }, []);
+  
+  useEffect(() => {
+    if (selectedCatch) {
+      bottomSheetRef.current?.snapToIndex(0);
+    } else {
+      bottomSheetRef.current?.close();
+    }
+  }, [selectedCatch]);
 
   const requestLocationPermission = async () => {
     try {
@@ -178,7 +218,7 @@ export default function Map() {
 
   return (
     <View style={{ flex: 1 }}>
-      <MapView
+      <MapViewWithClustering 
         ref={(r) => { mapRef.current = r; }}
         style={{ flex: 1 }}
         provider={PROVIDER_GOOGLE}
@@ -191,76 +231,78 @@ export default function Map() {
           onRegionChangeComplete(r, setPoints);
         }}
       >
-        
-
-        {/* Catch markers */}
-        {catches.map((catch_item) => (
-          <Marker
-            key={catch_item.id}
-            coordinate={{
-              latitude: catch_item.lat!,
-              longitude: catch_item.lon!,
-            }}
-            onPress={() => setSelectedCatch(catch_item)}
-          >
-            <View style={styles.catchMarker}>
-              {catch_item.imageUrl ? (
-                <Image
-                  source={{ uri: catch_item.imageUrl }}
-                  style={styles.catchMarkerImage}
-                />
-              ) : (
-                <Text style={styles.catchMarkerText}>🐟</Text>
-              )}
-            </View>
-          </Marker>
-        ))}
-      </MapView>
-
-      {/* Catch details modal/overlay */}
-      {selectedCatch && (
-        <View style={styles.catchDetailsOverlay}>
-          <View style={styles.catchDetailsContent}>
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setSelectedCatch(null)}
+        {catches.map((catch_item) => {
+          if (catch_item.lat == null || catch_item.lon == null) return null;
+          const item = {
+            id: catch_item.id,
+            imageUrl: catch_item.imageUrl,
+            species: catch_item.species,
+            description: catch_item.description,
+            createdAt: catch_item.createdAt,
+          };
+          return (
+            <Marker
+              key={catch_item.id}
+              coordinate={{ latitude: catch_item.lat!, longitude: catch_item.lon! }}
+              onPress={() => setSelectedCatch(item)}
             >
-              <Text style={styles.closeButtonText}>✕</Text>
-            </TouchableOpacity>
-            
-            {selectedCatch.imageUrl && (
-              <Image
-                source={{ uri: selectedCatch.imageUrl }}
-                style={styles.catchPreviewImage}
-              />
-            )}
-            
-            <Text style={styles.catchSpecies}>
-              {selectedCatch.species || "Unknown species"}
-            </Text>
-            
-            {selectedCatch.description && (
-              <Text style={styles.catchDescription}>
-                {selectedCatch.description}
+              <View style={styles.catchMarker}>
+                {catch_item.imageUrl ? (
+                  <Image source={{ uri: catch_item.imageUrl }} style={styles.catchMarkerImage} />
+                ) : (
+                  <Text style={styles.catchMarkerText}>🐟</Text>
+                )}
+              </View>
+            </Marker>
+          );
+        })}
+      </MapViewWithClustering>
+
+      {/* BottomSheet for selected catch */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onChange={(index) => {
+          if (index === -1) setSelectedCatch(null);
+        }}
+        handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
+        backgroundStyle={{ backgroundColor: "rgba(2,6,23,0.95)" }}
+      >
+        <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+          {!selectedCatch ? (
+            <Text style={{ color: "#94a3b8" }}>No selection</Text>
+          ) : (
+            <View style={styles.catchDetailsContent}>
+              <TouchableOpacity
+                style={styles.closeButton}
+                onPress={() => setSelectedCatch(null)}
+              >
+                <Text style={styles.closeButtonText}>X</Text>
+              </TouchableOpacity>
+              {selectedCatch.imageUrl && (
+                <Image source={{ uri: selectedCatch.imageUrl }} style={styles.catchPreviewImage} />
+              )}
+              <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species) || "Unknown species"}</Text>  
+              {selectedCatch.description && (
+                <Text style={styles.catchDescription}>{selectedCatch.description}</Text>
+              )}
+              <Text style={styles.catchDate}>
+                {selectedCatch.createdAt?.toDate?.()?.toLocaleDateString() || "Recent"}
               </Text>
-            )}
             
-            <Text style={styles.catchDate}>
-              {selectedCatch.createdAt?.toDate?.()?.toLocaleDateString() || "Recent"}
-            </Text>
-          </View>
-        </View>
-      )}
+
+              
+            </View>
+          )}
+        </BottomSheetView>
+      </BottomSheet>
 
       {/* Location and zoom controls */}
       <View style={styles.controlsContainer}>
         {/* Zoom controls */}
-        <RNGHTouchable onPress={zoomIn} style={styles.zoomButton}>
-          <Text style={styles.zoomText}>＋</Text>
-        </RNGHTouchable>
-        <RNGHTouchable onPress={zoomOut} style={[styles.zoomButton, styles.zoomButtonLast]}>
-          <Text style={styles.zoomText}>－</Text>
-        </RNGHTouchable>
+
       </View>
     </View>
   );
@@ -272,6 +314,7 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
+  
   zoomContainerBottom: {
     position: "absolute",
     left: 12,
@@ -346,21 +389,19 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   catchDetailsOverlay: {
-    position: "absolute",
-    bottom: 100,
-    left: 16,
-    right: 16,
-    backgroundColor: "rgba(0, 0, 0, 0.8)",
-    borderRadius: 12,
-    padding: 16,
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.8)",  // Semi-transparent background
+    justifyContent: "center",  // Center content vertically
+    alignItems: "center",  // Center content horizontally
+    padding: 20,
   },
   catchDetailsContent: {
-    alignItems: "center",
+    alignItems: "flex-start",  // Changed from "center" to "flex-start" for left alignment
   },
   closeButton: {
     position: "absolute",
-    top: -8,
-    right: -8,
+    top: 0,
+    right: 0,
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -368,10 +409,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
+
   },
   closeButtonText: {
     color: "#ffffff",
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "bold",
   },
   catchPreviewImage: {
@@ -400,8 +442,10 @@ const styles = StyleSheet.create({
   controlsContainer: {
     position: "absolute",
     left: 12,
-    bottom: 50, // moved higher (was 32) — increase this to move further up
+    bottom: 50,
     alignItems: "center",
+    zIndex: 9999,
+    elevation: 9999,
   },
   
   zoomButton: {
@@ -426,6 +470,21 @@ const styles = StyleSheet.create({
   zoomText: {
     fontSize: 18,
     color: "#333333",
+    fontWeight: "bold",
+  },
+  clusterMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0ea5e9",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+  },
+  clusterText: {
+    color: "#ffffff",
+    fontSize: 14,
     fontWeight: "bold",
   },
 });

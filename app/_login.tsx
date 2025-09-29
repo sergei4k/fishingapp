@@ -1,11 +1,14 @@
+import "react-native-gesture-handler"; // <- MUST be the very first import
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, TouchableNativeFeedback, TouchableOpacity, View } from "react-native";
 import { signInWithEmail, signUpWithEmail } from "../lib/auth";
+
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
+  const [name, setName] = useState("");
   const router = useRouter();
 
   const onSignIn = async () => {
@@ -18,6 +21,10 @@ export default function Login() {
   };
 
   const onSignUp = async () => {
+    if (!name.trim()) {
+      Alert.alert("Ошибка", "Пожалуйста, введите имя для регистрации.");
+      return;
+    }
     try {
       await signUpWithEmail(email.trim(), pw);
       router.replace("/profile");
@@ -28,6 +35,18 @@ export default function Login() {
 
   return (
     <View style={styles.container}>
+      <Text style={styles.title}>Создать Аккаунт</Text>
+
+      <TextInput
+        placeholder="Имя"
+        placeholderTextColor="#94a3b8"
+        value={name}
+        onChangeText={setName}
+        style={styles.input}
+        keyboardType="default"
+        autoCapitalize="none"
+      />
+
       <TextInput
         placeholder="Почта"
         placeholderTextColor="#94a3b8"
@@ -47,15 +66,31 @@ export default function Login() {
       />
 
       <View style={styles.buttons}>
-        <TouchableOpacity style={styles.btn} onPress={onSignIn}>
-          <Text style={styles.btnText}>Войти</Text>
+        <TouchableOpacity style={styles.btn} onPress={onSignUp}>
+          <Text style={styles.btnText}>Зарегистрироваться</Text>
         </TouchableOpacity>
       </View>
 
+      <View style={{ 
+        marginVertical: 12, flexDirection: "row", alignItems: "center", gap: 8, }}>
+        <Text style={{ color: "#ffffff", fontWeight: "bold" }}>Или</Text>  // 
+      </View>
+
+      <View style={styles.buttons}>
+        <TouchableOpacity style={[styles.btn, styles.btnSecondary]} onPress={onSignIn}>
+          <TouchableNativeFeedback>
+            <Text style={styles.btnText}>Войти с Яндекс</Text>
+          </TouchableNativeFeedback>  
+        </TouchableOpacity>
+      </View>
+
+
       <View style={styles.registerRow}>
-        <Text style={styles.registerText}>Нет аккаунта?</Text>
-        <TouchableOpacity onPress={onSignUp}>
-          <Text style={styles.registerLink}> Зарегистрироваться</Text>
+        <Text style={styles.registerText}>Есть аккаунта?</Text>
+        <TouchableOpacity onPress={onSignIn}>
+          <TouchableNativeFeedback>
+            <Text style={styles.registerLink}> Войти</Text>
+          </TouchableNativeFeedback>
         </TouchableOpacity>
       </View>
     </View>
@@ -64,7 +99,7 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: "#0f172a", padding: 16, alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 18, marginBottom: 12, textAlign: "center", color: "#e6eef8" },
+  title: { fontSize: 24, marginBottom: 12, fontWeight: "bold", textAlign: "center", color: "#e6eef8" },
   input: {
     width: "100%",
     borderWidth: 1,

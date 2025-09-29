@@ -1,15 +1,14 @@
 import { FontAwesome } from "@expo/vector-icons";
+import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
 import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
   Image,
-  Modal,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,8 +16,10 @@ import {
   View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
+import { SafeAreaView } from 'react-native-safe-area-context';
+
 import { auth, firestore } from "../lib/firebase";
-import { CatchItem, deleteCatch, getCatch, getCatches, updateCatch } from "../lib/storage";
+import { CatchItem, deleteCatch, getCatches, updateCatch } from "../lib/storage";
 
 const fishSpecies = [
   { id: "pike", label: "Щука" },
@@ -57,14 +58,15 @@ export default function Profile() {
   const [loggedIn, setLoggedIn] = useState<boolean>(!!auth.currentUser);
   const [catches, setCatches] = useState<CatchItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-
-  // modal + editing state
-  const [modalVisible, setModalVisible] = useState(false);
-  const [activeCatch, setActiveCatch] = useState<CatchItem | null>(null);
+  const [selectedCatch, setSelectedCatch] = useState<CatchItem | null>(null);
   const [editing, setEditing] = useState(false);
   const [editDescription, setEditDescription] = useState("");
   const [editLength, setEditLength] = useState("");
   const [editWeight, setEditWeight] = useState("");
+
+  // BottomSheet setup
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ["50%", "90%"], []);
 
   const load = async (opts: { force?: boolean } = {}) => {
     try {
@@ -77,7 +79,7 @@ export default function Profile() {
       // sort newest first
       list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-      // Only replace state if we actually fetched results, or if caller forces replace.
+      // Only replace state if we actually fetched results, or if caller forces.
       if (list.length > 0 || opts.force) {
         setCatches(list);
       } else {
@@ -146,35 +148,6 @@ export default function Profile() {
     }
   };
 
-  const openModal = async (id: string) => {
-    const c = await getCatch(id);
-    if (!c) {
-      Alert.alert("Ошибка", "Запись не найдена");
-      return;
-    }
-    setActiveCatch(c);
-    setEditDescription(c.description ?? "");
-    setEditLength(c.length ?? "");
-    setEditWeight(c.weight ?? "");
-    setEditing(false);
-    setModalVisible(true);
-  };
-
-  const onSave = async () => {
-    if (!activeCatch) return;
-    const updated: CatchItem = {
-      ...activeCatch,
-      description: editDescription,
-      length: editLength,
-      weight: editWeight,
-    };
-    await updateCatch(updated);
-    setActiveCatch(updated);
-    setEditing(false);
-    await load();
-    setModalVisible(false);
-  };
-
   const handleDelete = (id: string) => {
     Alert.alert("Удалить запись", "Вы уверены, что хотите удалить эту запись?", [
       { text: "Отмена", style: "cancel" },
@@ -184,13 +157,25 @@ export default function Profile() {
         onPress: async () => {
           await deleteCatch(id);
           await load();
-          if (activeCatch?.id === id) {
-            setModalVisible(false);
-            setActiveCatch(null);
-          }
         },
       },
     ]);
+  };
+
+  const onSave = async () => {
+    if (!selectedCatch) return;
+    try {
+      await updateCatch(selectedCatch.id, {
+        description: editDescription,
+        length: parseFloat(editLength) || undefined,
+        weight: parseFloat(editWeight) || undefined,
+      });
+      setEditing(false);
+      await load();
+    } catch (e) {
+      console.error("Save error:", e);
+      Alert.alert("Ошибка", "Не удалось сохранить изменения");
+    }
   };
 
   const renderItem = ({ item }: { item: CatchItem }) => (
@@ -203,29 +188,29 @@ export default function Profile() {
         </View>
       )}
     >
-      <TouchableOpacity style={styles.item} onPress={() => openModal(item.id)}>
-       <Image
-         // show local image OR fallback to Firestore imageUrl
-         source={ (item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png") }
-         style={styles.thumb}
-       />
-       <View style={styles.info}>
-         <Text style={styles.species}>{getSpeciesLabel(item.species)}</Text>
-         <Text style={styles.desc} numberOfLines={1}>
-           {item.description || "Без описания"}
-         </Text>
-         <Text style={styles.meta}>
-           {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
-         </Text>
-       </View>
-       <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
+      <TouchableOpacity style={styles.item} onPress={() => setSelectedCatch(item)}>
+        <Image
+          // show local image OR fallback to Firestore imageUrl
+          source={ (item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png") }
+          style={styles.thumb}
+        />
+        <View style={styles.info}>  
+          <Text style={styles.species}>{getSpeciesLabel(item.species)}</Text>
+          <Text style={styles.desc} numberOfLines={1}>
+            {item.description || "Без описания"}
+          </Text>
+          <Text style={styles.meta}>
+            {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
+          </Text>
+        </View>
+        <Text style={styles.date}>{new Date(item.date).toLocaleDateString()}</Text>
       </TouchableOpacity>
     </Swipeable>
   );
 
   return (
     <View style={styles.container}>
-      {/* top-right login button (shown when not signed in) */}
+      {/* top-right login button */}
       {!loggedIn && (
         <TouchableOpacity
           style={styles.loginButton}
@@ -236,7 +221,7 @@ export default function Profile() {
           <Text style={styles.loginButtonText}>Войти</Text>
         </TouchableOpacity>
       )}
-
+      <SafeAreaView />
       <Text style={styles.title}>Мои пойманные</Text>
 
       <FlatList
@@ -250,94 +235,98 @@ export default function Profile() {
         }
       />
 
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setModalVisible(false)}
+      {/* BottomSheet for selected catch */}
+      <BottomSheet
+        ref={bottomSheetRef}
+        index={-1}
+        snapPoints={snapPoints}
+        enablePanDownToClose
+        onChange={(index) => {
+          if (index === -1) setSelectedCatch(null);
+        }}
+        handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
+        backgroundStyle={{ backgroundColor: "rgba(2,6,23,0.95)" }}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <ScrollView>
-              {!activeCatch ? (
-                <Text style={styles.title}>Загрузка...</Text>
-              ) : (
-                <>
-                  <Image
-                    // fallback to imageUrl if image is missing
-                    source={ (activeCatch?.image ?? activeCatch?.imageUrl) ? { uri: (activeCatch?.image ?? activeCatch?.imageUrl) } : require("../assets/placeholder.png") }
-                    style={styles.mainImage}
-                  />
-                  <Text style={styles.label}>Вид</Text>
-                  <Text style={styles.value}>{getSpeciesLabel(activeCatch.species)}</Text>
+        <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+          {!selectedCatch ? (
+            <Text style={{ color: "#94a3b8" }}>No selection</Text>
+          ) : (
+            <View>
+              <Image
+                source={ (selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png") }
+                style={{ width: "100%", height: 200, borderRadius: 10, marginTop: 8 }}
+              />
+              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
+                {getSpeciesLabel(selectedCatch.species)}
+              </Text>
+              <Text style={{ color: "#94a3b8", marginTop: 8 }}>
+                {new Date(selectedCatch.date).toLocaleString()}
+              </Text>
 
-                  <Text style={styles.label}>Дата</Text>
-                  <Text style={styles.value}>{new Date(activeCatch.date).toLocaleString()}</Text>
-
-                  <Text style={styles.label}>Описание</Text>
-                  {editing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editDescription}
-                      onChangeText={setEditDescription}
-                      multiline
-                      textAlignVertical="top"
-                    />
-                  ) : (
-                    <Text style={styles.value}>{activeCatch.description || "Без описания"}</Text>
-                  )}
-
-                  <Text style={styles.label}>Длина (cm)</Text>
-                  {editing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editLength}
-                      onChangeText={setEditLength}
-                      keyboardType="numeric"
-                    />
-                  ) : (
-                    <Text style={styles.value}>{activeCatch.length || "--"}</Text>
-                  )}
-
-                  <Text style={styles.label}>Вес (kg)</Text>
-                  {editing ? (
-                    <TextInput
-                      style={styles.input}
-                      value={editWeight}
-                      onChangeText={setEditWeight}
-                      keyboardType="numeric"
-                    />
-                  ) : (
-                    <Text style={styles.value}>{activeCatch.weight || "--"}</Text>
-                  )}
-                </>
-              )}
-            </ScrollView>
-
-            <View style={styles.modalActions}>
+              <Text style={styles.label}>Описание</Text>
               {editing ? (
-                <>
-                  <TouchableOpacity style={styles.btnSave} onPress={onSave}>
-                    <Text style={styles.btnText}>Сохранить</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
-                    <Text style={styles.btnText}>Отмена</Text>
-                  </TouchableOpacity>
-                </>
+                <TextInput
+                  style={styles.input}
+                  value={editDescription}
+                  onChangeText={setEditDescription}
+                  multiline
+                  textAlignVertical="top"
+                />
               ) : (
-                <>
-                  <TouchableOpacity style={styles.btnEdit} onPress={() => setEditing(true)}>
-                    <Text style={styles.btnText}>Редактировать</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.btnClose} onPress={() => setModalVisible(false)}>
-                    <Text style={styles.btnText}>Закрыть</Text>
-                  </TouchableOpacity>
-                </>
+                <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
               )}
+
+              <Text style={styles.label}>Длина (cm)</Text>
+              {editing ? (
+                <TextInput
+                  style={styles.input}
+                  value={editLength}
+                  onChangeText={setEditLength}
+                  keyboardType="numeric"
+                />
+              ) : (
+                <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
+              )}
+
+              <Text style={styles.label}>Вес (kg)</Text>
+              {editing ? (
+                <TextInput
+                  style={styles.input}
+                  value={editWeight}
+                  onChangeText={setEditWeight}
+                  keyboardType="numeric"
+                />
+              ) : (
+                <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
+              )}
+
+              <View style={styles.modalActions}>
+                {editing ? (
+                  <>
+                    <TouchableOpacity style={styles.btnSave} onPress={onSave}>
+                      <Text style={styles.btnText}>Сохранить</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
+                      <Text style={styles.btnText}>Отмена</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <TouchableOpacity style={styles.btnEdit} onPress={() => setEditing(true)}>
+                      <Text style={styles.btnText}>Редактировать</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.btnClose} onPress={() => setSelectedCatch(null)}>
+                      <Text style={styles.btnText}>Закрыть</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
             </View>
-          </View>
-        </View>
-      </Modal>
+          )}
+        </BottomSheetView>
+      </BottomSheet>
+
+      <SafeAreaView />
     </View>
   );
 }
@@ -360,28 +349,6 @@ const styles = StyleSheet.create({
   desc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
   meta: { color: "#7ea8c9", fontSize: 12, marginTop: 6 },
   date: { color: "#94a3b8", fontSize: 12, marginLeft: 8 },
-
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
-  modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "90%", padding: 12 },
-  mainImage: { width: "100%", height: 260, resizeMode: "cover", backgroundColor: "#071023", borderRadius: 8 },
-  label: { color: "#94a3b8", marginTop: 10 },
-  value: { color: "#e6eef8", fontSize: 16, marginTop: 4 },
-  input: {
-    backgroundColor: "#071023",
-    color: "#ffffff",
-    borderColor: "#1f2937",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 6,
-  },
-  modalActions: { flexDirection: "row", marginTop: 12, justifyContent: "space-between" },
-  btnEdit: { backgroundColor: "#0ea5e9", padding: 12, borderRadius: 8, flex: 1, marginRight: 8, alignItems: "center" },
-  btnSave: { backgroundColor: "#10b981", padding: 12, borderRadius: 8, flex: 1, marginRight: 8, alignItems: "center" },
-  btnCancel: { backgroundColor: "#ef4444", padding: 12, borderRadius: 8, flex: 1, alignItems: "center" },
-  btnClose: { backgroundColor: "#64748b", padding: 12, borderRadius: 8, flex: 1, alignItems: "center" },
-  btnText: { color: "#001219", fontWeight: "700" },
 
   deleteAction: { justifyContent: "center" },
   deleteButton: {
@@ -416,4 +383,24 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 8,
   },
+  label: { color: "#fff", fontSize: 14, fontWeight: "600", marginTop: 12 },
+  value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
+  input: {
+    backgroundColor: "#1e293b",
+    color: "#fff",
+    padding: 8,
+    borderRadius: 8,
+    marginTop: 4,
+    minHeight: 40,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginTop: 16,
+  },
+  btnEdit: { backgroundColor: "#60a5fa", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnSave: { backgroundColor: "#10b981", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnCancel: { backgroundColor: "#f59e0b", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnClose: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnText: { color: "#fff", fontWeight: "700" },
 });

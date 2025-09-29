@@ -8,8 +8,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <Tabs
         screenOptions={{
-          headerStyle: { backgroundColor: "#0b1220" },
-          headerTintColor: "#e6eef8",
+          headerShown: false,
           tabBarStyle: { backgroundColor: "#071023", borderTopColor: "#0b1220" },
           tabBarActiveTintColor: "#60a5fa",
           tabBarInactiveTintColor: "#94a3b8",
