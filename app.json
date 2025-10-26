@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "fishingapp",
     "userInterfaceStyle": "automatic",
-  
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -22,8 +21,15 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
+        "ACCESS_FINE_LOCATION",
         "ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyBP8zOnStZitS_20fIgOkEZpVz1cS6vwyQ"
+        }
+      },
+      "package": "com.anonymous.fishingapp"
     },
     "web": {
       "bundler": "metro",
@@ -41,7 +47,9 @@
           "backgroundColor": "#ffffff"
         }
       ],
-      "expo-maps"
+      "expo-maps",
+      "expo-web-browser",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,7 +1,8 @@
+
 import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
+import Location from "expo-location";
+import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { geohashForLocation } from "geofire-common";
 import React, { useEffect, useState } from "react";
 import {
@@ -18,12 +19,12 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { auth, firestore } from "../lib/firebase"; // ensure auth is imported
-import { uploadImageAndSaveCatch } from "../lib/firebaseHelpers";
+import { Image as ExpoImage } from 'expo-image';
+import * as ImageManipulator from 'expo-image-manipulator';
+import { useSQLiteContext } from 'expo-sqlite';
 
 // **SAFER** Helper function to save a catch to local storage
 async function addCatch(item: {
@@ -61,7 +62,21 @@ async function addCatch(item: {
   }
 }
 
+type NewCatch = {
+  imageUri: string | null;
+  extraUris: string[];
+  description: string;
+  lengthCm: number | null;
+  weightKg: number | null;
+  species: string | null;
+  lat: number | null;
+  lon: number | null;
+};
+
+
 export default function Add() {
+  const db = useSQLiteContext();
+
   const [image, setImage] = useState<string | null>(null);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
   const [description, setDescription] = useState("");
@@ -73,61 +88,40 @@ export default function Add() {
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const router = useRouter();
 
-  useEffect(() => {
-    ImagePicker.requestMediaLibraryPermissionsAsync().then(({ status }) => {
-      if (status !== "granted") {
-        Alert.alert("Permission required", "Please grant photo library permission.");
-      }
-    });
-  }, []);
 
-  const pickImage = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [1, 1],
-        quality: 1,
-      });
+const pickImageAndGetGps = async () => {
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsEditing: true,
+    quality: 1,
+    selectionLimit: 1,
+    exif: true,
+  });
 
-      if (!result.canceled && result.assets?.[0]) {
-        const asset = result.assets[0];
-        setImage(asset.uri);
-
-        // EXIF removed: use device location as best-effort alternative
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === "granted") {
-            const pos = await Location.getCurrentPositionAsync({});
-            setImageCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude });
-          } else {
-            setImageCoords(null);
-          }
-        } catch (e) {
-          console.warn("Failed to get device location after image pick", e);
-          setImageCoords(null);
-        }
-      }
-    } catch (e) {
-      console.error("Image pick error", e);
-      Alert.alert("Error Picking Image", "An unexpected error occurred.");
+  if (!result.canceled && result.assets?.[0]?.assetId) {
+    const assetInfo = await MediaLibrary.getAssetInfoAsync(result.assets[0].assetId);
+    if (assetInfo.location) {
+      console.log('lat:', assetInfo.location.latitude, 'lng:', assetInfo.location.longitude);
+      setImage(result.assets[0].uri);
+      // optionally store coords for later
+      // setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
+    } else {
+      setImage(result.assets[0].uri);
     }
-  };
+  } // ← closes the outer if
+}; // ← closes the function
 
-  const addExtraPhoto = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets?.[0]) {
-        setExtraPhotos((p) => [...p, result.assets[0].uri]);
-      }
-    } catch (e) {
-      console.error("Add extra photo error", e);
-    }
-  };
-
+const addMultiplePhotos = async () => {
+  const res = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    selectionLimit: 10, // adjust as needed
+    quality: 1,
+  });
+  if (!res.canceled && res.assets?.length) {
+    setExtraPhotos(prev => [...prev, ...res.assets.map(a => a.uri)]);
+  }
+};
+  
   const fishSpecies = [
     { id: "pike", label: "Щука", image: require("../assets/fishicons/schuka.420x420.png") },
     { id: "perch", label: "Окунь", image: require("../assets/fishicons/perch.png") },
@@ -172,42 +166,17 @@ export default function Add() {
     try {
       let lat: number | null = null, lon: number | null = null, geohash: string | null = null;
 
-      // prefer coordinates from image pick (device location captured at pick time), fallback to current device location
-      if (imageCoords) {
-        lat = imageCoords.lat;
-        lon = imageCoords.lon;
-        geohash = geohashForLocation([lat, lon]);
-      } else {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === "granted") {
-          const pos = await Location.getCurrentPositionAsync({});
-          lat = pos.coords.latitude;
-          lon = pos.coords.longitude;
-        }
-      }
 
-      const uid = auth.currentUser?.uid ?? null; // ensure null, not undefined
-
-      if (image) {
-        await uploadImageAndSaveCatch({
-          imageUri: image,
-          lat,
-          lon,
-          meta: { species: selectedSpecies, description, length, weight, visibility: "public", geohash },
-          userId: uid ?? "<null>" // now acceptable: string | null
-        });
-      } else {
-        const geohash = lat != null && lon != null ? geohashForLocation([lat, lon]) : null;
-        await addDoc(collection(firestore, "catches"), {
-          lat, lon, geohash, species: selectedSpecies, description, length, weight,
-          visibility: "public", createdAt: serverTimestamp(),
-          userId: uid, // store null if not signed in
-        });
-      }
 
       await addCatch({
-        id: Date.now().toString(), image, extraPhotos, description, length, weight,
-        species: selectedSpecies, date: new Date().toISOString(),
+        id: Date.now().toString(),
+        image,
+        extraPhotos,
+        description,
+        length,
+        weight,
+        species: selectedSpecies,
+        date: new Date().toISOString(),
       });
 
       Toast.show({ type: "success", text1: "Успешно", text2: "Запись добавлена." });
@@ -220,8 +189,12 @@ export default function Add() {
       console.error("handleUpload error", e);
       Toast.show({ type: "error", text1: "Ошибка", text2: e.message });
     } finally {
+
+      setExtraPhotos([]);
+
       setIsUploading(false);
     }
+  
   };
 
   return (
@@ -229,13 +202,16 @@ export default function Add() {
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f172a" }}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.imageRow}>
-            <TouchableOpacity onPress={pickImage} style={styles.photoBox}>
-              {image ? <Image source={{ uri: image }} style={styles.photo} /> : <Text style={styles.placeholderText}>Добавить фото</Text>}
+            <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
+              {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
+              <Text style={styles.placeholderText}>Добавить фото</Text>}
             </TouchableOpacity>
           <View style={styles.rightColumn}>
-            <TouchableOpacity onPress={addExtraPhoto} style={styles.plusButton}><Text style={styles.plusText}>+</Text></TouchableOpacity>
+            <TouchableOpacity onPress={addMultiplePhotos} style={styles.plusButton}><Text style={styles.plusText}>+</Text></TouchableOpacity>
             <View style={styles.extraThumbs}>
-              {extraPhotos.slice(0, 3).map((uri, i) => <Image key={i} source={{ uri }} style={styles.extraThumb} />)}
+              {extraPhotos.slice(0, 3).map((uri, i) => (
+                <ExpoImage key={i} source={{ uri }} style={styles.extraThumb} />
+              ))}
               {extraPhotos.length > 3 && <View style={styles.moreBadge}><Text style={styles.moreBadgeText}>+{extraPhotos.length - 3}</Text></View>}
             </View>
           </View>
@@ -289,7 +265,7 @@ export default function Add() {
 const styles = StyleSheet.create({
   container: { flexGrow: 1, backgroundColor: "#0f172a", padding: 16, alignItems: "center" },
   imageRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
-  photoBox: { width: 160, height: 160, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
+  photoBox: { width: 200, height: 160, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160, resizeMode: "cover" },
   rightColumn: { marginLeft: 12, alignItems: "center" },
@@ -318,4 +294,5 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "80%", padding: 12 },
   modalItem: { paddingVertical: 12, paddingHorizontal: 8, borderBottomColor: "#0b1220", borderBottomWidth: 1 },
   modalItemText: { color: "#e6eef8", fontSize: 16 },
-  modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },});
+  modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
+});

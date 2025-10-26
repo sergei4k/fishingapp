@@ -2,8 +2,8 @@ import { FontAwesome } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-import { collection, getDocs, onSnapshot, orderBy, query, where } from "firebase/firestore";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -17,9 +17,9 @@ import {
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { auth, firestore } from "../lib/firebase";
 import { CatchItem, deleteCatch, getCatches, updateCatch } from "../lib/storage";
+import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
+
 
 const fishSpecies = [
   { id: "pike", label: "Щука" },
@@ -55,7 +55,6 @@ function getSpeciesLabel(id: string | null | undefined) {
 
 export default function Profile() {
   const router = useRouter();
-  const [loggedIn, setLoggedIn] = useState<boolean>(!!auth.currentUser);
   const [catches, setCatches] = useState<CatchItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCatch, setSelectedCatch] = useState<CatchItem | null>(null);
@@ -97,47 +96,6 @@ export default function Profile() {
     }, [])
   );
 
-  useEffect(() => {
-    const uid = auth.currentUser?.uid;
-    console.log("profile useEffect uid:", uid);
-    if (!uid) return; // wait until signed in
-
-    // show snapshot errors and log them
-    const q = query(collection(firestore, "catches"), where("userId", "==", uid), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const list: CatchItem[] = [];
-        snap.forEach((doc) => {
-          const data = doc.data() as CatchItem;
-          list.push({ ...data, id: doc.id });
-        });
-        console.log("Firestore snapshot count:", list.length);
-        setCatches(list);
-      },
-      (err) => {
-        console.error("onSnapshot error (likely missing index):", err);
-        // fallback: fetch recent docs and filter client-side (slow for big datasets)
-        (async () => {
-          try {
-            const recentQ = query(collection(firestore, "catches"), orderBy("createdAt", "desc")); // top N if desired
-            const snap = await getDocs(recentQ);
-            const list: CatchItem[] = [];
-            snap.forEach((doc) => {
-              const d = doc.data() as any;
-              if (d.userId === uid) list.push({ ...d, id: doc.id });
-            });
-            console.log("Fallback client-side filter count:", list.length);
-            setCatches(list);
-          } catch (e) {
-            console.error("Fallback fetch error:", e);
-          }
-        })();
-      }
-    );
-    return unsub;
-  }, [auth.currentUser?.uid]);
-
   const onRefresh = async () => {
     setRefreshing(true);
     try {
@@ -165,12 +123,25 @@ export default function Profile() {
   const onSave = async () => {
     if (!selectedCatch) return;
     try {
-      await updateCatch(selectedCatch.id, {
+      const parsedLength = parseFloat(editLength);
+      const parsedWeight = parseFloat(editWeight);
+
+      const patch = {
         description: editDescription,
-        length: parseFloat(editLength) || undefined,
-        weight: parseFloat(editWeight) || undefined,
-      });
+        length: isNaN(parsedLength) ? undefined : parsedLength,
+        weight: isNaN(parsedWeight) ? undefined : parsedWeight,
+      };
+
+      const updatedItem: CatchItem = {
+        ...selectedCatch,
+        description: patch.description,
+        length: patch.length === undefined ? undefined : String(patch.length),
+        weight: patch.weight === undefined ? undefined : String(patch.weight),
+      };
+
+      await updateCatch(selectedCatch.id, patch, updatedItem);
       setEditing(false);
+      setSelectedCatch(updatedItem);
       await load();
     } catch (e) {
       console.error("Save error:", e);
@@ -210,17 +181,9 @@ export default function Profile() {
 
   return (
     <View style={styles.container}>
-      {/* top-right login button */}
-      {!loggedIn && (
-        <TouchableOpacity
-          style={styles.loginButton}
-          onPress={() => router.push("/login")}
-          activeOpacity={0.8}
-        >
-          <FontAwesome name="user" size={18} color="#001219" />
-          <Text style={styles.loginButtonText}>Войти</Text>
-        </TouchableOpacity>
-      )}
+
+
+    
       <SafeAreaView />
       <Text style={styles.title}>Мои пойманные</Text>
 
@@ -229,7 +192,7 @@ export default function Profile() {
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<Text style={styles.empty}>Нет загруженных ловов</Text>}
+        ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто...</Text>}
         contentContainerStyle={
           catches.length === 0 ? { flex: 1, justifyContent: "center" } : { paddingBottom: 24 }
         }
@@ -383,7 +346,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 8,
   },
-  label: { color: "#fff", fontSize: 14, fontWeight: "600", marginTop: 12 },
+  label: { color: "#07134cff", fontSize: 14, fontWeight: "600", marginTop: 12 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   input: {
     backgroundColor: "#1e293b",

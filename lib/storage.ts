@@ -1,19 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getStorage, ref as storageRef, deleteObject } from "firebase/storage";
-import {
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  query,
-  orderBy,
-  limit,
-} from "firebase/firestore";
-import { firestore } from "./firebase";
 
 /**
  * Local CatchItem shape used by the app UI
@@ -27,7 +12,9 @@ export type CatchItem = {
   weight?: string;
   species?: string;
   date: string; // ISO string
-  // optional fields present in Firestore: lat, lon, geohash, imageUrl, storagePath, userId
+  lat?: number | null;
+  lon?: number | null;
+  geohash?: string | null;
   [k: string]: any;
 };
 
@@ -49,20 +36,13 @@ export async function getCatches(): Promise<CatchItem[]> {
 }
 
 /**
- * Get a single catch from local storage first, then Firestore as fallback.
+ * Get a single catch from local storage
  */
 export async function getCatch(id: string): Promise<CatchItem | null> {
   try {
     const local = await getCatches();
     const found = local.find((c) => c.id === id);
-    if (found) return found;
-
-    // fallback to Firestore
-    const docRef = doc(firestore, "catches", id);
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) return null;
-    const data = snap.data() as any;
-    return mapFirestoreToCatch(snap.id, data);
+    return found ?? null;
   } catch (err) {
     console.error("getCatch error:", err);
     return null;
@@ -70,35 +50,18 @@ export async function getCatch(id: string): Promise<CatchItem | null> {
 }
 
 /**
- * Update a catch locally and in Firestore (if a doc exists).
- * Keeps fields: description, length, weight, species, image, extraPhotos, date
+ * Add or update a catch locally
  */
-export async function updateCatch(id: string, p0: { description: string; length: number | undefined; weight: number | undefined; }, item: CatchItem): Promise<void> {
+export async function updateCatch(id: string, item: CatchItem): Promise<void> {
   try {
-    // Update local AsyncStorage
     const list = await getCatches();
-    const idx = list.findIndex((c) => c.id === item.id);
+    const idx = list.findIndex((c) => c.id === id);
     if (idx !== -1) {
       list[idx] = item;
     } else {
       list.unshift(item);
     }
     await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(list));
-
-    // Try update Firestore document if it exists
-    const docRef = doc(firestore, "catches", item.id);
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const payload: any = {
-        description: item.description ?? "",
-        length: item.length ?? null,
-        weight: item.weight ?? null,
-        species: item.species ?? null,
-        updatedAt: serverTimestamp(),
-      };
-      // If imageUrl/storagePath present in the Firestore doc, preserve them (don't overwrite with local image field)
-      await updateDoc(docRef, payload);
-    }
   } catch (err) {
     console.error("updateCatch error:", err);
     throw err;
@@ -106,80 +69,29 @@ export async function updateCatch(id: string, p0: { description: string; length:
 }
 
 /**
- * Delete catch locally and attempt to delete Firestore doc + storage file if present.
+ * Add a new catch locally
  */
-export async function deleteCatch(id: string): Promise<void> {
+export async function addCatch(item: CatchItem): Promise<void> {
   try {
-    // remove local
     const list = await getCatches();
-    const filtered = list.filter((c) => c.id !== id);
-    await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(filtered));
-
-    // remove firestore doc if exists
-    const docRef = doc(firestore, "catches", id);
-    const snap = await getDoc(docRef);
-    if (!snap.exists()) return;
-
-    const data = snap.data() as any;
-    // if storagePath stored, try delete storage object
-    if (data?.storagePath) {
-      try {
-        const storage = getStorage();
-        const sRef = storageRef(storage, data.storagePath);
-        await deleteObject(sRef);
-      } catch (e) {
-        // ignore storage deletion errors but log
-        console.warn("deleteCatch: failed to delete storage object:", e);
-      }
-    }
-
-    // delete firestore doc
-    await deleteDoc(docRef);
+    list.unshift(item);
+    await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(list));
   } catch (err) {
-    console.error("deleteCatch error:", err);
+    console.error("addCatch error:", err);
     throw err;
   }
 }
 
 /**
- * Helper: map Firestore document data to CatchItem used by UI
+ * Delete catch locally
  */
-function mapFirestoreToCatch(id: string, data: any): CatchItem {
-  const createdAt = data?.createdAt?.toDate?.()?.toISOString?.() ?? new Date().toISOString();
-  return {
-    id,
-    image: data.imageUrl ?? data.image ?? "",
-    extraPhotos: data.extraPhotos ?? [],
-    description: data.description ?? "",
-    length: data.length != null ? String(data.length) : "",
-    weight: data.weight != null ? String(data.weight) : "",
-    species: data.species ?? "",
-    date: createdAt,
-    // attach raw firestore fields for advanced use
-    lat: data.lat ?? null,
-    lon: data.lon ?? null,
-    geohash: data.geohash ?? null,
-    imageUrl: data.imageUrl ?? null,
-    storagePath: data.storagePath ?? null,
-    userId: data.userId ?? null,
-  } as CatchItem;
-}
-
-/**
- * OPTIONAL helper: fetch recent Firestore catches
- */
-export async function fetchRecentFirestoreCatches(limitCount = 20): Promise<CatchItem[]> {
+export async function deleteCatch(id: string): Promise<void> {
   try {
-    const q = query(collection(firestore, "catches"), orderBy("createdAt", "desc"), limit(limitCount));
-    const snaps = await getDocs(q);
-    const results: CatchItem[] = [];
-    snaps.forEach((d) => {
-      const data = d.data();
-      results.push(mapFirestoreToCatch(d.id, data));
-    });
-    return results;
+    const list = await getCatches();
+    const filtered = list.filter((c) => c.id !== id);
+    await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(filtered));
   } catch (err) {
-    console.error("fetchRecentFirestoreCatches error:", err);
-    return [];
+    console.error("deleteCatch error:", err);
+    throw err;
   }
 }

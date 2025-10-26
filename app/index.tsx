@@ -1,111 +1,62 @@
-
-import "react-native-gesture-handler"; // MUST be first
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { collection, getDocs, query, where } from "firebase/firestore";
-import { distanceBetween, geohashQueryBounds } from "geofire-common";
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import MapViewWithClustering from 'react-native-map-clustering'; // Add this import
-import { Marker, PROVIDER_DEFAULT, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import { firestore } from "../lib/firebase";
-import { useCatches } from "../lib/useCatches";
+import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import "react-native-gesture-handler"; // MUST be the very first import
+import MapViewWithClustering from 'react-native-map-clustering';
+import { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
 
-let regionQueryTimer: ReturnType<typeof setTimeout> | null = null;
-
-async function fetchForRegion(region: Region, setPoints: (pts: any[]) => void) {
-  // center + approximate radius (meters)
-  const center: [number, number] = [region.latitude, region.longitude];
-  // approximate radius: half of the larger delta in degrees -> meters
-  const radiusInM = (Math.max(region.latitudeDelta, region.longitudeDelta) * 111000) / 2;
-
-  // geohash range bounds
-  const bounds = geohashQueryBounds(center, radiusInM);
-  const collectionRef = collection(firestore, "catches");
-
-  try {
-    const prom = bounds.map((b) => {
-      const q = query(collectionRef, where("geohash", ">=", b[0]), where("geohash", "<=", b[1]));
-      return getDocs(q);
-    });
-
-    const snaps = await Promise.all(prom);
-    const matches: any[] = [];
-    snaps.forEach((snap) => {
-      snap.forEach((doc) => {
-        const data = doc.data() as any;
-        if (data.lat == null || data.lon == null) return;
-        const dkm = distanceBetween([data.lat, data.lon], center); // km
-        if (dkm * 1000 <= radiusInM) {
-          matches.push({ id: doc.id, ...data });
-        }
-      });
-    });
-
-    // optionally dedupe and sort; then set state
-    setPoints(matches);
-  } catch (e) {
-    console.error("fetchForRegion error", e);
-    setPoints([]);
-  }
-}
-
-// Example usage inside your onRegionChangeComplete handler with simple debounce
-function onRegionChangeComplete(region: Region, setPoints: (pts: any[]) => void) {
-  if (regionQueryTimer) clearTimeout(regionQueryTimer);
-  regionQueryTimer = setTimeout(() => {
-    fetchForRegion(region, setPoints);
-  }, 350); // 300–500ms debounce to reduce reads
-}
-
-// Add species data (same as in add.tsx)
-const fishSpecies = [
-  { id: "pike", label: "Щука", image: require("../assets/fishicons/schuka.420x420.png") },
-  { id: "perch", label: "Окунь", image: require("../assets/fishicons/perch.png") },
-  { id: "carp", label: "Карп", image: require("../assets/fishicons/carp.png") },
-  { id: "pikeperch", label: "Берш", image: require("../assets/fishicons/pikeperch.png") },
-];
-
-const moreSpecies = [
-  { id: "shchuka", label: "Щука" }, { id: "okun", label: "Окунь" }, { id: "sudak", label: "Судак" },
-  { id: "karp", label: "Карп" }, { id: "leshch", label: "Лещ" }, { id: "nalim", label: "Налим" },
-  { id: "som", label: "Сом" }, { id: "forel", label: "Форель" }, { id: "sig", label: "Сиг" },
-  { id: "kharius", label: "Хариус" }, { id: "gustera", label: "Густера" }, { id: "karas", label: "Карась" },
-  { id: "lin", label: "Линь" }, { id: "golavl", label: "Голавль" }, { id: "yaz", label: "Язь" },
-  { id: "plotva", label: "Плотва" }, { id: "sazan", label: "Сазан" },
-  { id: "rotan", label: "Ротан" },
-  { id: "peskar", label: "Пескарь" }, { id: "ukleya", label: "Уклея" },
-];
-
-// Add helper function
-const getSpeciesLabel = (id: string | null) => {
-  if (!id) return null;
-  return [...fishSpecies, ...moreSpecies].find((s) => s.id === id)?.label || id;
+type CatchMarker = {
+  id: number;
+  lat: number | null;
+  lon: number | null;
+  image_uri: string | null;
+  species: string | null;
+  description: string | null;
+  created_at: number;
 };
+
+async function getCatchesInBounds(
+  db: SQLiteDatabase | null | undefined,
+  minLat: number,
+  minLon: number,
+  maxLat: number,
+  maxLon: number
+): Promise<CatchMarker[]> {
+  if (!db || typeof db.getAllAsync !== "function") {
+    // DB not ready — return empty list instead of throwing
+    return [];
+  }
+  return db.getAllAsync<CatchMarker>(
+    `SELECT id, lat, lon, image_uri, species, description, created_at
+     FROM catches
+     WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`,
+    [minLat, maxLat, minLon, maxLon]
+  );
+}
 
 export default function Map() {
   const router = useRouter();
+  const db = useSQLiteContext(); // may be undefined until provider mounts
   const mapRef = useRef<any>(null);
-  const { catches, loading } = useCatches(50);
+
+  const [markers, setMarkers] = useState<CatchMarker[]>([]);
   const [selectedCatch, setSelectedCatch] = useState<any>(null);
-  const [userLocation, setUserLocation] = useState<{
-    latitude: number;
-    longitude: number;
-  } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationPermission, setLocationPermission] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['60%', '80%'], []);
 
-
+  // Default region: New York City (was Los Angeles)
   const [region, setRegion] = useState<Region>({
-    latitude: 37.78825,
-    longitude: -122.4324,
-    latitudeDelta: 0.0922,
-    longitudeDelta: 0.0421,
+    latitude: 40.7128,
+    longitude: -74.0060,
+    latitudeDelta: 0.12,
+    longitudeDelta: 0.12,
   });
-  const [points, setPoints] = useState<any[]>([]);
 
   // Request location permission and get user location
   useEffect(() => {
@@ -205,6 +156,33 @@ export default function Map() {
     setRegion(newRegion);
   };
 
+    const refreshMarkers = useCallback(async () => {
+    if (!db) {
+      // don't attempt DB queries if no db
+      setMarkers([]);
+      return;
+    }
+    try {
+      const minLat = region.latitude - region.latitudeDelta / 2;
+      const maxLat = region.latitude + region.latitudeDelta / 2;
+      const minLon = region.longitude - region.longitudeDelta / 2;
+      const maxLon = region.longitude + region.longitudeDelta / 2;
+      const rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
+      // coerce numeric coords
+      const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
+        ...r,
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+      }));
+      setMarkers(parsed);
+    } catch (err) {
+      console.error("refreshMarkers error:", err);
+      setMarkers([]);
+    }
+  }, [db, region]);
+
+  useEffect(() => { refreshMarkers(); }, [refreshMarkers]);
+
   const zoomOut = () => {
     const factor = 2; // zoom out by increasing deltas
     const newRegion: Region = {
@@ -218,44 +196,39 @@ export default function Map() {
 
   return (
     <View style={{ flex: 1 }}>
-      <MapViewWithClustering 
-        ref={(r) => { mapRef.current = r; }}
+      <MapViewWithClustering
+        ref={mapRef}
         style={{ flex: 1 }}
-        provider={PROVIDER_GOOGLE}
-        initialRegion={region}
-        showsUserLocation={true}
-        showsMyLocationButton={true}
-        zoomControlEnabled={true}
-        onRegionChangeComplete={(r) => {
-          setRegion(r);
-          onRegionChangeComplete(r, setPoints);
-        }}
+        // Use Google provider only on Android (remove for iOS unless you configured Google Maps)
+        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+        region={region} // controlled region so setRegion actually recenters map
+        showsUserLocation
+        
+        onRegionChangeComplete={(r) => setRegion(r)}
       >
-        {catches.map((catch_item) => {
-          if (catch_item.lat == null || catch_item.lon == null) return null;
-          const item = {
-            id: catch_item.id,
-            imageUrl: catch_item.imageUrl,
-            species: catch_item.species,
-            description: catch_item.description,
-            createdAt: catch_item.createdAt,
-          };
-          return (
-            <Marker
-              key={catch_item.id}
-              coordinate={{ latitude: catch_item.lat!, longitude: catch_item.lon! }}
-              onPress={() => setSelectedCatch(item)}
-            >
-              <View style={styles.catchMarker}>
-                {catch_item.imageUrl ? (
-                  <Image source={{ uri: catch_item.imageUrl }} style={styles.catchMarkerImage} />
-                ) : (
-                  <Text style={styles.catchMarkerText}>🐟</Text>
-                )}
-              </View>
-            </Marker>
-          );
-        })}
+        {markers.map((m) => (
+          <Marker
+            key={m.id}
+            coordinate={{ latitude: Number(m.lat), longitude: Number(m.lon) }}
+            onPress={() =>
+              setSelectedCatch({
+                id: m.id,
+                imageUrl: m.image_uri,
+                species: m.species,
+                description: m.description,
+                createdAt: m.created_at,
+              })
+            }
+          >
+            <View style={styles.catchMarker}>
+              {m.image_uri ? (
+                <Image source={{ uri: m.image_uri }} style={styles.catchMarkerImage} />
+              ) : (
+                <Text style={styles.catchMarkerText}>🐟</Text>
+              )}
+            </View>
+          </Marker>
+        ))}
       </MapViewWithClustering>
 
       {/* BottomSheet for selected catch */}
@@ -284,7 +257,7 @@ export default function Map() {
               {selectedCatch.imageUrl && (
                 <Image source={{ uri: selectedCatch.imageUrl }} style={styles.catchPreviewImage} />
               )}
-              <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species) || "Unknown species"}</Text>  
+              <Text style={styles.catchSpecies}>{(selectedCatch.species) || "Unknown species"}</Text>
               {selectedCatch.description && (
                 <Text style={styles.catchDescription}>{selectedCatch.description}</Text>
               )}
@@ -301,8 +274,20 @@ export default function Map() {
 
       {/* Location and zoom controls */}
       <View style={styles.controlsContainer}>
-        {/* Zoom controls */}
+        <TouchableOpacity
+          style={[styles.zoomButtonSmall, styles.zoomButtonSmallBottom]}
+          onPress={zoomIn}
+        >
+          <Text style={styles.zoomTextSmall}>＋</Text>
+        </TouchableOpacity>
 
+        <TouchableOpacity style={styles.zoomButton} onPress={centerOnUserLocation}>
+          <Text style={styles.zoomText}>◎</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.zoomButtonSmall, styles.zoomButtonLast]} onPress={zoomOut}>
+          <Text style={styles.zoomTextSmall}>－</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -323,6 +308,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  
   zoomButtonSmall: {
     width: 36,
     height: 36,
@@ -330,7 +316,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#071023",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    marginBottom: 6,
     borderWidth: 1,
     borderColor: "#ffffff",
   },
@@ -390,9 +376,9 @@ const styles = StyleSheet.create({
   },
   catchDetailsOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.8)",  // Semi-transparent background
-    justifyContent: "center",  // Center content vertically
-    alignItems: "center",  // Center content horizontally
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
+    justifyContent: "center", 
+    alignItems: "center",  
     padding: 20,
   },
   catchDetailsContent: {
@@ -441,7 +427,7 @@ const styles = StyleSheet.create({
   },
   controlsContainer: {
     position: "absolute",
-    left: 12,
+    right: 12,
     bottom: 50,
     alignItems: "center",
     zIndex: 9999,
