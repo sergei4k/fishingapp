@@ -42,6 +42,8 @@ export default function Map() {
   const router = useRouter();
   const db = useSQLiteContext(); // may be undefined until provider mounts
   const mapRef = useRef<any>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const didCenterRef = useRef(false); // ensure we only auto-center once
 
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
   const [selectedCatch, setSelectedCatch] = useState<any>(null);
@@ -50,13 +52,14 @@ export default function Map() {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['60%', '80%'], []);
 
-  // Default region: New York City (was Los Angeles)
-  const [region, setRegion] = useState<Region>({
+  // Default region: New York City (used as initialRegion to avoid forcing controlled re-renders)
+  const initialRegion: Region = {
     latitude: 40.7128,
     longitude: -74.0060,
     latitudeDelta: 0.12,
     longitudeDelta: 0.12,
-  });
+  };
+  const [region, setRegion] = useState<Region>(initialRegion);
 
   // Request location permission and get user location
   useEffect(() => {
@@ -104,24 +107,19 @@ export default function Map() {
       };
       setUserLocation(newUserLoc);
 
-      // center map on user location immediately (make user location the default)
+      // center map on user location once (when map is ready)
       const userRegion: Region = {
         latitude: newUserLoc.latitude,
         longitude: newUserLoc.longitude,
         latitudeDelta: 0.01,
         longitudeDelta: 0.01,
       };
-
-      // animate if map is ready
-      if (mapRef.current) {
-        try {
-          mapRef.current.animateToRegion(userRegion, 800);
-        } catch (e) {
-          // ignore animation errors on some platforms/emulators
-        }
+      // only auto-center once to avoid repeated reloading of tiles
+      if (mapReady && !didCenterRef.current) {
+        try { mapRef.current?.animateToRegion?.(userRegion, 800); } catch (e) {}
+        didCenterRef.current = true;
       }
-
-      // keep region state in sync
+      // keep local region state for zoom controls (no longer passed directly to MapView)
       setRegion(userRegion);
     } catch (error) {
       console.error('Error getting current location:', error);
@@ -199,12 +197,14 @@ export default function Map() {
       <MapViewWithClustering
         ref={mapRef}
         style={{ flex: 1 }}
-        // Use Google provider only on Android (remove for iOS unless you configured Google Maps)
         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        region={region} // controlled region so setRegion actually recenters map
+        initialRegion={initialRegion} // use initialRegion to avoid forcing re-renders
         showsUserLocation
-        
-        onRegionChangeComplete={(r) => setRegion(r)}
+        onMapReady={() => { console.debug("map ready"); setMapReady(true); }}
+        onRegionChangeComplete={(newRegion) => {
+          // update region state so refreshMarkers runs with new bounds
+          setRegion(newRegion);
+        }}
       >
         {markers.map((m) => (
           <Marker

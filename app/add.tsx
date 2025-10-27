@@ -1,13 +1,13 @@
-
+import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from "expo-image-picker";
 import Location from "expo-location";
 import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
+import { useSQLiteContext } from 'expo-sqlite';
 import { geohashForLocation } from "geofire-common";
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import {
   ActionSheetIOS,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -18,13 +18,10 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { Image as ExpoImage } from 'expo-image';
-import * as ImageManipulator from 'expo-image-manipulator';
-import { useSQLiteContext } from 'expo-sqlite';
 
 // **SAFER** Helper function to save a catch to local storage
 async function addCatch(item: {
@@ -89,27 +86,57 @@ export default function Add() {
   const router = useRouter();
 
 
-const pickImageAndGetGps = async () => {
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: true,
-    quality: 1,
-    selectionLimit: 1,
-    exif: true,
-  });
+  // SQLiteProvider in app/_layout.tsx initializes the DB and creates tables.
+  // Here we only use the provided `db` via useSQLiteContext().
+  // If db is not available at runtime, inserts will fail (handled below).
+ 
+  // helper to run exec on provider-backed db, throws if no db available
+  // note: expo-sqlite's execAsync accepts a single SQL string parameter,
+  // so we substitute `?` placeholders with escaped values before calling it.
+  const runSql = async (sql: string, params: any[] = []) => {
+    if (!db || typeof db.execAsync !== "function") throw new Error("no sqlite db available");
 
-  if (!result.canceled && result.assets?.[0]?.assetId) {
-    const assetInfo = await MediaLibrary.getAssetInfoAsync(result.assets[0].assetId);
-    if (assetInfo.location) {
-      console.log('lat:', assetInfo.location.latitude, 'lng:', assetInfo.location.longitude);
-      setImage(result.assets[0].uri);
-      // optionally store coords for later
-      // setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
-    } else {
-      setImage(result.assets[0].uri);
+    // If there are no params just run the SQL directly.
+    if (!params || params.length === 0) {
+      return db.execAsync(sql);
     }
-  } // ← closes the outer if
-}; // ← closes the function
+
+    // Replace each `?` with the next parameter (simple escaping).
+    let idx = 0;
+    const finalSql = sql.replace(/\?/g, () => {
+      const p = params[idx++];
+      if (p === null || p === undefined) return "NULL";
+      if (typeof p === "number") return String(p);
+      if (typeof p === "boolean") return p ? "1" : "0";
+      // Escape single quotes for strings
+      const s = String(p).replace(/'/g, "''");
+      return `'${s}'`;
+    });
+
+    return db.execAsync(finalSql);
+  };
+
+ const pickImageAndGetGps = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 1,
+      selectionLimit: 1,
+      exif: true,
+    });
+
+    if (!result.canceled && result.assets?.[0]?.assetId) {
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(result.assets[0].assetId);
+      if (assetInfo.location) {
+        console.log('lat:', assetInfo.location.latitude, 'lng:', assetInfo.location.longitude);
+        setImage(result.assets[0].uri);
+        // optionally store coords for later
+        // setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
+      } else {
+        setImage(result.assets[0].uri);
+      }
+    } // ← closes the outer if
+ }; // ← closes the function
 
 const addMultiplePhotos = async () => {
   const res = await ImagePicker.launchImageLibraryAsync({
@@ -164,30 +191,93 @@ const addMultiplePhotos = async () => {
   const handleUpload = async () => {
     setIsUploading(true);
     try {
-      let lat: number | null = null, lon: number | null = null, geohash: string | null = null;
+      let lat: number | null = null,
+        lon: number | null = null,
+        geohash: string | null = null;
 
+      // prefer coordinates from picked image, fallback to device location
+      if (imageCoords) {
+        lat = imageCoords.lat;
+        lon = imageCoords.lon;
+      } else {
+        try {
+          const { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === "granted") {
+            const pos = await Location.getCurrentPositionAsync({});
+            lat = pos.coords.latitude;
+            lon = pos.coords.longitude;
+          }
+        } catch (e) {
+          console.warn("location request failed", e);
+        }
+      }
 
+      if (lat != null && lon != null) {
+        try {
+          geohash = geohashForLocation([lat, lon]);
+        } catch {}
+      }
 
-      await addCatch({
-        id: Date.now().toString(),
-        image,
-        extraPhotos,
-        description,
-        length,
-        weight,
-        species: selectedSpecies,
-        date: new Date().toISOString(),
-      });
+      // insert into sqlite if available, otherwise fallback to AsyncStorage addCatch
+      if (!db || typeof db.execAsync !== "function") {
+        throw new Error("SQLite database is not available. Cannot save catch.");
+      }
+
+      let insertedId: number | null = null;
+      try {
+        const lengthNum = length ? Number(length) : null;
+        const weightNum = weight ? Number(weight) : null;
+        const createdAt = Date.now();
+
+        const res = await runSql(
+          `INSERT INTO catches (image_uri, description, length_cm, weight_kg, species, lat, lon, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+          [image ?? null, description || null, lengthNum, weightNum, selectedSpecies ?? null, lat, lon, createdAt]
+        );
+        // execAsync may return an object with insertId or an array — try both
+        {
+          const anyRes = res as any;
+          const maybeInsertId =
+            (anyRes != null && anyRes.insertId != null)
+              ? anyRes.insertId
+              : (Array.isArray(anyRes) && anyRes[0] && anyRes[0].insertId)
+                ? anyRes[0].insertId
+                : undefined;
+          insertedId = typeof maybeInsertId !== "undefined" ? maybeInsertId : null;
+        }
+
+        if (insertedId != null && extraPhotos.length > 0) {
+          for (const uri of extraPhotos) {
+            try {
+              await runSql(`INSERT INTO extra_photos (catch_id, uri) VALUES (?, ?);`, [insertedId, uri]);
+            } catch (e) {
+              console.warn("insert extra photo failed", e);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("sqlite insert failed:", e);
+        Alert.alert("Ошибка", "Не удалось сохранить запись в SQLite.");
+        setIsUploading(false);
+        return;
+      }
+
+      // no fallback to AsyncStorage — purely SQLite-backed now
 
       Toast.show({ type: "success", text1: "Успешно", text2: "Запись добавлена." });
       router.push("/profile");
 
-      setImage(null); setExtraPhotos([]); setDescription(""); setLength("");
-      setWeight(""); setSelectedSpecies(null); setImageCoords(null);
+      setImage(null);
+      setExtraPhotos([]);
+      setDescription("");
+      setLength("");
+      setWeight("");
+      setSelectedSpecies(null);
+      setImageCoords(null);
 
     } catch (e: any) {
       console.error("handleUpload error", e);
-      Toast.show({ type: "error", text1: "Ошибка", text2: e.message });
+      Toast.show({ type: "error", text1: "Ошибка", text2: e.message || "Не удалось сохранить" });
     } finally {
 
       setExtraPhotos([]);

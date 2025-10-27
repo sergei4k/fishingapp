@@ -1,8 +1,7 @@
-import { FontAwesome } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
-
+import { useSQLiteContext } from "expo-sqlite"; // FIX: use context, not openDatabase
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   Alert,
@@ -16,10 +15,8 @@ import {
   View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { CatchItem, deleteCatch, getCatches, updateCatch } from "../lib/storage";
-import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
-
+import { SafeAreaView } from "react-native-safe-area-context";
+import { CatchItem } from "../lib/storage";
 
 const fishSpecies = [
   { id: "pike", label: "Щука" },
@@ -55,6 +52,7 @@ function getSpeciesLabel(id: string | null | undefined) {
 
 export default function Profile() {
   const router = useRouter();
+  const db = useSQLiteContext(); // FIX: use context provider
   const [catches, setCatches] = useState<CatchItem[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCatch, setSelectedCatch] = useState<CatchItem | null>(null);
@@ -67,40 +65,56 @@ export default function Profile() {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ["50%", "90%"], []);
 
+  // Helper to run SQL using expo-sqlite provider API
+  async function execSqlAsync(sql: string, params?: any[]): Promise<any[]> {
+    if (!db || typeof db.getAllAsync !== "function") {
+      console.error("SQLite DB not available in Profile screen");
+      return [];
+    }
+    try {
+      const result = await db.getAllAsync(sql, params || []);
+      return result as any[];
+    } catch (error) {
+      console.error("SQL execution error:", error);
+      return [];
+    }
+  }
+
   const load = async (opts: { force?: boolean } = {}) => {
     try {
-      const list = await getCatches();
-      if (!Array.isArray(list)) {
-        console.warn("load: getCatches did not return an array");
-        return;
-      }
-
-      // sort newest first
-      list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-
-      // Only replace state if we actually fetched results, or if caller forces.
-      if (list.length > 0 || opts.force) {
-        setCatches(list);
-      } else {
-        console.log("load: empty result — keeping existing catches in state");
-      }
+      const rows = await execSqlAsync(
+        `SELECT id, image_uri, description, length_cm, weight_kg, species, lat, lon, created_at
+         FROM catches
+         ORDER BY created_at DESC`
+      );
+      const list: CatchItem[] = (rows || []).map((r) => ({
+        id: String(r.id),
+        image: r.image_uri ?? null,
+        imageUrl: r.image_uri ?? null,
+        description: r.description ?? "",
+        length: r.length_cm != null ? String(r.length_cm) : "",
+        weight: r.weight_kg != null ? String(r.weight_kg) : "",
+        species: r.species ?? null,
+        date: new Date(r.created_at || Date.now()).toISOString(),
+        lat: r.lat ?? null,
+        lon: r.lon ?? null,
+      }));
+      setCatches(list);
     } catch (e) {
       console.error("load error:", e);
-      // preserve existing state on error
     }
   };
 
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [])
+    }, [db])
   );
 
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      // attempt to refresh, but don't clobber existing catches if load returns empty
-      await load({ force: false });
+      await load({ force: true });
     } finally {
       setRefreshing(false);
     }
@@ -113,8 +127,15 @@ export default function Profile() {
         text: "Удалить",
         style: "destructive",
         onPress: async () => {
-          await deleteCatch(id);
-          await load();
+          try {
+            await execSqlAsync("DELETE FROM extra_photos WHERE catch_id = ?;", [Number(id)]);
+            await execSqlAsync("DELETE FROM catches WHERE id = ?;", [Number(id)]);
+            await load({ force: true });
+            setSelectedCatch(null);
+          } catch (e) {
+            console.error("delete error:", e);
+            Alert.alert("Ошибка", "Не удалось удалить запись.");
+          }
         },
       },
     ]);
@@ -126,23 +147,25 @@ export default function Profile() {
       const parsedLength = parseFloat(editLength);
       const parsedWeight = parseFloat(editWeight);
 
-      const patch = {
-        description: editDescription,
-        length: isNaN(parsedLength) ? undefined : parsedLength,
-        weight: isNaN(parsedWeight) ? undefined : parsedWeight,
-      };
+      const patchDesc = editDescription ?? "";
+      const patchLength = isNaN(parsedLength) ? null : parsedLength;
+      const patchWeight = isNaN(parsedWeight) ? null : parsedWeight;
+
+      await execSqlAsync(
+        `UPDATE catches SET description = ?, length_cm = ?, weight_kg = ? WHERE id = ?;`,
+        [patchDesc, patchLength, patchWeight, Number(selectedCatch.id)]
+      );
 
       const updatedItem: CatchItem = {
         ...selectedCatch,
-        description: patch.description,
-        length: patch.length === undefined ? undefined : String(patch.length),
-        weight: patch.weight === undefined ? undefined : String(patch.weight),
+        description: patchDesc,
+        length: patchLength == null ? "" : String(patchLength),
+        weight: patchWeight == null ? "" : String(patchWeight),
       };
 
-      await updateCatch(selectedCatch.id, patch, updatedItem);
       setEditing(false);
       setSelectedCatch(updatedItem);
-      await load();
+      await load({ force: true });
     } catch (e) {
       console.error("Save error:", e);
       Alert.alert("Ошибка", "Не удалось сохранить изменения");
@@ -159,13 +182,20 @@ export default function Profile() {
         </View>
       )}
     >
-      <TouchableOpacity style={styles.item} onPress={() => setSelectedCatch(item)}>
+      <TouchableOpacity
+        style={styles.item}
+        onPress={() => {
+          setSelectedCatch(item);
+          try {
+            bottomSheetRef.current?.expand();
+          } catch {}
+        }}
+      >
         <Image
-          // show local image OR fallback to Firestore imageUrl
-          source={ (item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png") }
+          source={(item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png")}
           style={styles.thumb}
         />
-        <View style={styles.info}>  
+        <View style={styles.info}>
           <Text style={styles.species}>{getSpeciesLabel(item.species)}</Text>
           <Text style={styles.desc} numberOfLines={1}>
             {item.description || "Без описания"}
@@ -181,9 +211,6 @@ export default function Profile() {
 
   return (
     <View style={styles.container}>
-
-
-    
       <SafeAreaView />
       <Text style={styles.title}>Мои пойманные</Text>
 
@@ -198,7 +225,6 @@ export default function Profile() {
         }
       />
 
-      {/* BottomSheet for selected catch */}
       <BottomSheet
         ref={bottomSheetRef}
         index={-1}
@@ -216,7 +242,7 @@ export default function Profile() {
           ) : (
             <View>
               <Image
-                source={ (selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png") }
+                source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
                 style={{ width: "100%", height: 200, borderRadius: 10, marginTop: 8 }}
               />
               <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
@@ -241,24 +267,14 @@ export default function Profile() {
 
               <Text style={styles.label}>Длина (cm)</Text>
               {editing ? (
-                <TextInput
-                  style={styles.input}
-                  value={editLength}
-                  onChangeText={setEditLength}
-                  keyboardType="numeric"
-                />
+                <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} keyboardType="numeric" />
               ) : (
                 <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
               )}
 
               <Text style={styles.label}>Вес (kg)</Text>
               {editing ? (
-                <TextInput
-                  style={styles.input}
-                  value={editWeight}
-                  onChangeText={setEditWeight}
-                  keyboardType="numeric"
-                />
+                <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} keyboardType="numeric" />
               ) : (
                 <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
               )}
@@ -275,10 +291,19 @@ export default function Profile() {
                   </>
                 ) : (
                   <>
-                    <TouchableOpacity style={styles.btnEdit} onPress={() => setEditing(true)}>
+                    <TouchableOpacity
+                      style={styles.btnEdit}
+                      onPress={() => {
+                        if (!selectedCatch) return;
+                        setEditDescription(selectedCatch.description || "");
+                        setEditLength(selectedCatch.length || "");
+                        setEditWeight(selectedCatch.weight || "");
+                        setEditing(true);
+                      }}
+                    >
                       <Text style={styles.btnText}>Редактировать</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnClose} onPress={() => setSelectedCatch(null)}>
+                    <TouchableOpacity style={styles.btnClose} onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
                       <Text style={styles.btnText}>Закрыть</Text>
                     </TouchableOpacity>
                   </>
