@@ -1,13 +1,15 @@
+// MUST be the first import
+import "react-native-gesture-handler";
+
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
+import { useSQLiteContext, type SQLiteDatabase } from "expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import "react-native-gesture-handler"; // MUST be the very first import
-import MapViewWithClustering from 'react-native-map-clustering';
+import ClusteredMapView from "react-native-map-clustering";
 import { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-
+import { getSpeciesLabel } from "@/lib/species";
 
 type CatchMarker = {
   id: number;
@@ -18,6 +20,8 @@ type CatchMarker = {
   description: string | null;
   created_at: number;
 };
+
+
 
 async function getCatchesInBounds(
   db: SQLiteDatabase | null | undefined,
@@ -31,9 +35,14 @@ async function getCatchesInBounds(
     return [];
   }
   return db.getAllAsync<CatchMarker>(
-    `SELECT id, lat, lon, image_uri, species, description, created_at
+    `SELECT 
+       id,
+       lat AS lat,
+       lon AS lon,
+       image_uri, species, description, created_at
      FROM catches
-     WHERE lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`,
+     WHERE lat BETWEEN ? AND ?
+       AND lon BETWEEN ? AND ?`,
     [minLat, maxLat, minLon, maxLon]
   );
 }
@@ -44,6 +53,7 @@ export default function Map() {
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const didCenterRef = useRef(false); // ensure we only auto-center once
+  const didFitToDataRef = useRef(false);
 
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
   const [selectedCatch, setSelectedCatch] = useState<any>(null);
@@ -51,6 +61,7 @@ export default function Map() {
   const [locationPermission, setLocationPermission] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['60%', '80%'], []);
+  const [sheetIndex, setSheetIndex] = useState<number>(-1);
 
   // Default region: New York City (used as initialRegion to avoid forcing controlled re-renders)
   const initialRegion: Region = {
@@ -155,31 +166,61 @@ export default function Map() {
   };
 
     const refreshMarkers = useCallback(async () => {
-    if (!db) {
-      // don't attempt DB queries if no db
-      setMarkers([]);
-      return;
-    }
-    try {
-      const minLat = region.latitude - region.latitudeDelta / 2;
-      const maxLat = region.latitude + region.latitudeDelta / 2;
-      const minLon = region.longitude - region.longitudeDelta / 2;
-      const maxLon = region.longitude + region.longitudeDelta / 2;
-      const rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
-      // coerce numeric coords
-      const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
-        ...r,
-        lat: Number(r.lat),
-        lon: Number(r.lon),
-      }));
-      setMarkers(parsed);
-    } catch (err) {
-      console.error("refreshMarkers error:", err);
-      setMarkers([]);
-    }
-  }, [db, region]);
+     if (!db) {
+       // don't attempt DB queries if no db
+       setMarkers([]);
+       return;
+     }
+     try {
+       const minLat = region.latitude - region.latitudeDelta / 2;
+       const maxLat = region.latitude + region.latitudeDelta / 2;
+       const minLon = region.longitude - region.longitudeDelta / 2;
+       const maxLon = region.longitude + region.longitudeDelta / 2;
+       const rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
+       // coerce numeric coords
+       const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
+         ...r,
+         lat: Number(r.lat),
+         lon: Number(r.lon),
+       }));
+       if (parsed.length === 0) {
+         // Fallback: fetch recent markers anywhere (bounds may be empty)
+         const allRows = await db.getAllAsync<CatchMarker>(
+           `SELECT 
+             id,
+             lat AS lat,
+             lon AS lon,
+             image_uri, species, description, created_at
+           FROM catches
+           WHERE lat IS NOT NULL
+             AND lon IS NOT NULL
+           ORDER BY created_at DESC
+           LIMIT 200`
+         );
+         const allParsed = (allRows || []).map(r => ({ ...r, lat: Number(r.lat), lon: Number(r.lon) }));
+         setMarkers(allParsed);
+         // If nothing in view, auto-center to first marker once
+         if (allParsed.length > 0 && mapRef.current && !didFitToDataRef.current) {
+           const first = allParsed[0];
+           try {
+             mapRef.current.animateToRegion(
+               { latitude: first.lat, longitude: first.lon, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+               800
+             );
+             didFitToDataRef.current = true;
+           } catch {}
+         }
+       } else {
+         setMarkers(parsed);
+       }
+     } catch (err) {
+       console.error("refreshMarkers error:", err);
+       setMarkers([]);
+     }
+   }, [db, region]);
 
   useEffect(() => { refreshMarkers(); }, [refreshMarkers]);
+
 
   const zoomOut = () => {
     const factor = 2; // zoom out by increasing deltas
@@ -194,22 +235,26 @@ export default function Map() {
 
   return (
     <View style={{ flex: 1 }}>
-      <MapViewWithClustering
+      <ClusteredMapView
         ref={mapRef}
         style={{ flex: 1 }}
         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        initialRegion={initialRegion} // use initialRegion to avoid forcing re-renders
+        initialRegion={initialRegion}
         showsUserLocation
-        onMapReady={() => { console.debug("map ready"); setMapReady(true); }}
+        onMapReady={() => { setMapReady(true); refreshMarkers(); }}
         onRegionChangeComplete={(newRegion) => {
-          // update region state so refreshMarkers runs with new bounds
           setRegion(newRegion);
         }}
+        // optional cluster styling
+        clusterColor="#0ea5e9"
+        clusterTextColor="#ffffff"
+        radius={50}
       >
         {markers.map((m) => (
           <Marker
             key={m.id}
             coordinate={{ latitude: Number(m.lat), longitude: Number(m.lon) }}
+            tracksViewChanges={false}
             onPress={() =>
               setSelectedCatch({
                 id: m.id,
@@ -229,7 +274,7 @@ export default function Map() {
             </View>
           </Marker>
         ))}
-      </MapViewWithClustering>
+      </ClusteredMapView>
 
       {/* BottomSheet for selected catch */}
       <BottomSheet
@@ -238,6 +283,7 @@ export default function Map() {
         snapPoints={snapPoints}
         enablePanDownToClose
         onChange={(index) => {
+          setSheetIndex(index);
           if (index === -1) setSelectedCatch(null);
         }}
         handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
@@ -257,7 +303,7 @@ export default function Map() {
               {selectedCatch.imageUrl && (
                 <Image source={{ uri: selectedCatch.imageUrl }} style={styles.catchPreviewImage} />
               )}
-              <Text style={styles.catchSpecies}>{(selectedCatch.species) || "Unknown species"}</Text>
+              <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species)}</Text>
               {selectedCatch.description && (
                 <Text style={styles.catchDescription}>{selectedCatch.description}</Text>
               )}
@@ -273,18 +319,19 @@ export default function Map() {
       </BottomSheet>
 
       {/* Location and zoom controls */}
-      <View style={styles.controlsContainer}>
+      <View
+        style={[styles.controlsContainer, sheetIndex >= 0 ? { opacity: 0 } : null]}
+        pointerEvents={sheetIndex >= 0 ? "none" : "auto"}
+      >
         <TouchableOpacity
           style={[styles.zoomButtonSmall, styles.zoomButtonSmallBottom]}
           onPress={zoomIn}
         >
           <Text style={styles.zoomTextSmall}>＋</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={styles.zoomButton} onPress={centerOnUserLocation}>
           <Text style={styles.zoomText}>◎</Text>
         </TouchableOpacity>
-
         <TouchableOpacity style={[styles.zoomButtonSmall, styles.zoomButtonLast]} onPress={zoomOut}>
           <Text style={styles.zoomTextSmall}>－</Text>
         </TouchableOpacity>
@@ -294,7 +341,7 @@ export default function Map() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
+  container: { flex: 1, backgroundColor: "rgba(2,6,23,0.95)" },
   map: {
     width: "100%",
     height: "100%",
@@ -310,8 +357,8 @@ const styles = StyleSheet.create({
   },
   
   zoomButtonSmall: {
-    width: 36,
-    height: 36,
+    width: 44,
+    height: 44,
     borderRadius: 6,
     backgroundColor: "#071023",
     alignItems: "center",
@@ -319,9 +366,10 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     borderWidth: 1,
     borderColor: "#ffffff",
+    
   },
   zoomButtonSmallBottom: {
-    marginBottom: 0,
+    marginBottom: 10,
   },
   zoomTextSmall: {
     fontSize: 18,
@@ -340,7 +388,7 @@ const styles = StyleSheet.create({
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
-    shadowRadius: 3,
+    shadowRadius: 0,
     elevation: 5,
   },
   
@@ -391,7 +439,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: "#ff4444",
+    backgroundColor: "#ff3333ff",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
@@ -427,11 +475,12 @@ const styles = StyleSheet.create({
   },
   controlsContainer: {
     position: "absolute",
-    right: 12,
+    right: 20,
     bottom: 50,
     alignItems: "center",
     zIndex: 9999,
     elevation: 9999,
+    
   },
   
   zoomButton: {
@@ -441,7 +490,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
+    marginBottom: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,

@@ -1,3 +1,4 @@
+import { getSpeciesLabel } from "@/lib/species";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -18,37 +19,7 @@ import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CatchItem } from "../lib/storage";
 
-const fishSpecies = [
-  { id: "pike", label: "Щука" },
-  { id: "perch", label: "Окунь" },
-  { id: "carp", label: "Карп" },
-  { id: "pikeperch", label: "Берш" },
-  { id: "shchuka", label: "Щука" },
-  { id: "okun", label: "Окунь" },
-  { id: "sudak", label: "Судак" },
-  { id: "leshch", label: "Лещ" },
-  { id: "nalim", label: "Налим" },
-  { id: "som", label: "Сом" },
-  { id: "forel", label: "Форель" },
-  { id: "sig", label: "Сиг" },
-  { id: "kharius", label: "Хариус" },
-  { id: "gustera", label: "Густера" },
-  { id: "karas", label: "Карась" },
-  { id: "lin", label: "Линь" },
-  { id: "golavl", label: "Голавль" },
-  { id: "yaz", label: "Язь" },
-  { id: "plotva", label: "Плотва" },
-  { id: "sazan", label: "Сазан" },
-  { id: "rotan", label: "Ротан" },
-  { id: "peskar", label: "Пескарь" },
-  { id: "ukleya", label: "Уклея" },
-];
 
-function getSpeciesLabel(id: string | null | undefined) {
-  if (!id) return "Неизвестно";
-  const found = fishSpecies.find((s) => s.id === id);
-  return found ? found.label : id;
-}
 
 export default function Profile() {
   const router = useRouter();
@@ -210,117 +181,116 @@ export default function Profile() {
   );
 
   return (
-    <View style={styles.container}>
-      <SafeAreaView />
-      <Text style={styles.title}>Мои пойманные</Text>
+    <SafeAreaView style={styles.container}>
+       <Text style={styles.title}>Мои пойманные</Text>
 
-      <FlatList
-        data={catches}
-        keyExtractor={(i) => i.id}
-        renderItem={renderItem}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто...</Text>}
-        contentContainerStyle={
-          catches.length === 0 ? { flex: 1, justifyContent: "center" } : { paddingBottom: 24 }
-        }
-      />
+       <FlatList
+         data={catches}
+         keyExtractor={(i) => i.id}
+         renderItem={renderItem}
+         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+         ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто...</Text>}
+         contentContainerStyle={
+           catches.length === 0 
+             ? { flex: 1, justifyContent: "center" } 
+             : { paddingBottom: 100 }
+         }
+       />
 
-      <BottomSheet
-        ref={bottomSheetRef}
-        index={-1}
-        snapPoints={snapPoints}
-        enablePanDownToClose
-        onChange={(index) => {
-          if (index === -1) setSelectedCatch(null);
-        }}
-        handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
-        backgroundStyle={{ backgroundColor: "rgba(2,6,23,0.95)" }}
-      >
-        <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
-          {!selectedCatch ? (
-            <Text style={{ color: "#94a3b8" }}>No selection</Text>
-          ) : (
-            <View>
-              <Image
-                source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
-                style={{ width: "100%", height: 200, borderRadius: 10, marginTop: 8 }}
-              />
-              <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
-                {getSpeciesLabel(selectedCatch.species)}
-              </Text>
-              <Text style={{ color: "#94a3b8", marginTop: 8 }}>
-                {new Date(selectedCatch.date).toLocaleString()}
-              </Text>
+       <BottomSheet
+         ref={bottomSheetRef}
+         index={-1}
+         snapPoints={snapPoints}
+         enablePanDownToClose
+         onChange={(index) => {
+           if (index === -1) setSelectedCatch(null);
+         }}
+         handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
+         backgroundStyle={{ backgroundColor: "rgba(2,6,23,0.95)" }}
+       >
+         <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+           {!selectedCatch ? (
+             <Text style={{ color: "#94a3b8" }}>No selection</Text>
+           ) : (
+             <View>
+               <Image
+                 source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
+                 style={{ width: "100%", height: 200, borderRadius: 10, marginTop: 8 }}
+               />
+               <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
+                 {getSpeciesLabel(selectedCatch.species)}
+               </Text>
+               <Text style={{ color: "#94a3b8", marginTop: 8 }}>
+                 {new Date(selectedCatch.date).toLocaleString()}
+               </Text>
 
-              <Text style={styles.label}>Описание</Text>
-              {editing ? (
-                <TextInput
-                  style={styles.input}
-                  value={editDescription}
-                  onChangeText={setEditDescription}
-                  multiline
-                  textAlignVertical="top"
-                />
-              ) : (
-                <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
-              )}
+               <Text style={styles.label}>Описание</Text>
+               {editing ? (
+                 <TextInput
+                   style={styles.input}
+                   value={editDescription}
+                   onChangeText={setEditDescription}
+                   multiline
+                   textAlignVertical="top"
+                 />
+               ) : (
+                 <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
+               )}
 
-              <Text style={styles.label}>Длина (cm)</Text>
-              {editing ? (
-                <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} keyboardType="numeric" />
-              ) : (
-                <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
-              )}
+               <Text style={styles.label}>Длина (cm)</Text>
+               {editing ? (
+                 <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} keyboardType="numeric" />
+               ) : (
+                 <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
+               )}
 
-              <Text style={styles.label}>Вес (kg)</Text>
-              {editing ? (
-                <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} keyboardType="numeric" />
-              ) : (
-                <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
-              )}
+               <Text style={styles.label}>Вес (kg)</Text>
+               {editing ? (
+                 <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} keyboardType="numeric" />
+               ) : (
+                 <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
+               )}
 
-              <View style={styles.modalActions}>
-                {editing ? (
-                  <>
-                    <TouchableOpacity style={styles.btnSave} onPress={onSave}>
-                      <Text style={styles.btnText}>Сохранить</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
-                      <Text style={styles.btnText}>Отмена</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <>
-                    <TouchableOpacity
-                      style={styles.btnEdit}
-                      onPress={() => {
-                        if (!selectedCatch) return;
-                        setEditDescription(selectedCatch.description || "");
-                        setEditLength(selectedCatch.length || "");
-                        setEditWeight(selectedCatch.weight || "");
-                        setEditing(true);
-                      }}
-                    >
-                      <Text style={styles.btnText}>Редактировать</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnClose} onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
-                      <Text style={styles.btnText}>Закрыть</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            </View>
-          )}
-        </BottomSheetView>
-      </BottomSheet>
-
-      <SafeAreaView />
-    </View>
+               <View style={styles.modalActions}>
+                 {editing ? (
+                   <>
+                     <TouchableOpacity style={styles.btnSave} onPress={onSave}>
+                       <Text style={styles.btnText}>Сохранить</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
+                       <Text style={styles.btnText}>Отмена</Text>
+                     </TouchableOpacity>
+                   </>
+                 ) : (
+                   <>
+                     <TouchableOpacity
+                       style={styles.btnEdit}
+                       onPress={() => {
+                         if (!selectedCatch) return;
+                         setEditDescription(selectedCatch.description || "");
+                         setEditLength(selectedCatch.length || "");
+                         setEditWeight(selectedCatch.weight || "");
+                         setEditing(true);
+                       }}
+                     >
+                       <Text style={styles.btnText}>Редактировать</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity style={styles.btnClose} onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
+                       <Text style={styles.btnText}>Закрыть</Text>
+                     </TouchableOpacity>
+                   </>
+                 )}
+               </View>
+             </View>
+           )}
+         </BottomSheetView>
+       </BottomSheet>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a", padding: 16 },
+  container: { flex: 1, backgroundColor: "#0f172a", padding: 5 },
   title: { color: "#e6eef8", fontSize: 18, marginBottom: 4 },
   empty: { color: "#94a3b8", textAlign: "center" },
   item: {

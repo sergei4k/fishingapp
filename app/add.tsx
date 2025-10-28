@@ -8,6 +8,7 @@ import { geohashForLocation } from "geofire-common";
 import React, { useState } from "react";
 import {
   ActionSheetIOS,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -22,6 +23,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
+import { getSpeciesLabel } from '@/lib/species';
 
 // **SAFER** Helper function to save a catch to local storage
 async function addCatch(item: {
@@ -130,8 +132,8 @@ export default function Add() {
       if (assetInfo.location) {
         console.log('lat:', assetInfo.location.latitude, 'lng:', assetInfo.location.longitude);
         setImage(result.assets[0].uri);
-        // optionally store coords for later
-        // setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
+        // store coords so the map can render a marker
+        setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
       } else {
         setImage(result.assets[0].uri);
       }
@@ -212,13 +214,18 @@ const addMultiplePhotos = async () => {
         }
       }
 
-      if (lat != null && lon != null) {
-        try {
-          geohash = geohashForLocation([lat, lon]);
-        } catch {}
+      // Require coordinates to ensure markers can render on the map
+      if (lat == null || lon == null) {
+        Alert.alert("Нет координат", "Фото не содержит GPS и местоположение недоступно. Разрешите геолокацию или выберите фото с EXIF.");
+        setIsUploading(false);
+        return;
       }
 
-      // insert into sqlite if available, otherwise fallback to AsyncStorage addCatch
+      try {
+        geohash = geohashForLocation([lat, lon]);
+      } catch {}
+
+      // insert into sqlite if available
       if (!db || typeof db.execAsync !== "function") {
         throw new Error("SQLite database is not available. Cannot save catch.");
       }
@@ -288,9 +295,19 @@ const addMultiplePhotos = async () => {
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={90}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={{ flex: 1, backgroundColor: "#0f172a" }}
+      keyboardVerticalOffset={90}
+    >
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f172a" }}>
-        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={{ flex: 1, backgroundColor: "#0f172a" }}
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          contentInsetAdjustmentBehavior="never"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        >
           <View style={styles.imageRow}>
             <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
               {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
@@ -308,9 +325,33 @@ const addMultiplePhotos = async () => {
         </View>
 
         <View style={styles.inputs}>
-          <TextInput style={styles.descriptionInput} placeholder="Описание" placeholderTextColor="#94a3b8" value={description} onChangeText={setDescription} multiline />
-          <TextInput style={styles.input} placeholder="Длина (см)" placeholderTextColor="#94a3b8" keyboardType="numeric" value={length} onChangeText={setLength} />
-          <TextInput style={styles.input} placeholder="Вес (кг)" placeholderTextColor="#94a3b8" keyboardType="numeric" value={weight} onChangeText={setWeight} />
+          <TextInput
+            style={styles.descriptionInput}
+            placeholder="Описание"
+            placeholderTextColor="#94a3b8"
+            value={description}
+            onChangeText={setDescription}
+            multiline
+            keyboardAppearance="dark"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Длина (см)"
+            placeholderTextColor="#94a3b8"
+            keyboardType="numeric"
+            value={length}
+            onChangeText={setLength}
+            keyboardAppearance="dark"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Вес (кг)"
+            placeholderTextColor="#94a3b8"
+            keyboardType="numeric"
+            value={weight}
+            onChangeText={setWeight}
+            keyboardAppearance="dark"
+          />
         </View>
 
         <View style={styles.speciesWrapper}>
@@ -378,7 +419,7 @@ const styles = StyleSheet.create({
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
   moreText: { color: "#60a5fa", fontWeight: "700" },
   selectedSpeciesText: { color: "#cfe8ff", marginTop: 8, marginLeft: 6 },
-  uploadBtn: { backgroundColor: "#0ea5e9", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   uploadBtnText: { color: "#001219", fontWeight: "700", textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
   modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "80%", padding: 12 },
