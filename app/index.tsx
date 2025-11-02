@@ -1,15 +1,15 @@
 // MUST be the first import
 import "react-native-gesture-handler";
 
+import { getSpeciesLabel } from "@/lib/species";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useSQLiteContext, type SQLiteDatabase } from "expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import ClusteredMapView from "react-native-map-clustering";
 import { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
-import { getSpeciesLabel } from "@/lib/species";
 
 type CatchMarker = {
   id: number;
@@ -18,6 +18,8 @@ type CatchMarker = {
   image_uri: string | null;
   species: string | null;
   description: string | null;
+  length_cm: number | null;
+  weight_kg: number | null;
   created_at: number;
 };
 
@@ -39,7 +41,7 @@ async function getCatchesInBounds(
        id,
        lat AS lat,
        lon AS lon,
-       image_uri, species, description, created_at
+       image_uri, species, description, length_cm, weight_kg, created_at
      FROM catches
      WHERE lat BETWEEN ? AND ?
        AND lon BETWEEN ? AND ?`,
@@ -62,6 +64,9 @@ export default function Map() {
   const bottomSheetRef = useRef<BottomSheet>(null);
   const snapPoints = useMemo(() => ['60%', '80%'], []);
   const [sheetIndex, setSheetIndex] = useState<number>(-1);
+  // modal for full-screen image preview
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+  const [modalImageUri, setModalImageUri] = useState<string | null>(null);
 
   // Default region: New York City (used as initialRegion to avoid forcing controlled re-renders)
   const initialRegion: Region = {
@@ -190,7 +195,7 @@ export default function Map() {
              id,
              lat AS lat,
              lon AS lon,
-             image_uri, species, description, created_at
+             image_uri, species, description, length_cm, weight_kg, created_at
            FROM catches
            WHERE lat IS NOT NULL
              AND lon IS NOT NULL
@@ -261,6 +266,8 @@ export default function Map() {
                 imageUrl: m.image_uri,
                 species: m.species,
                 description: m.description,
+                length: m.length_cm,
+                weight: m.weight_kg,
                 createdAt: m.created_at,
               })
             }
@@ -301,14 +308,34 @@ export default function Map() {
                 <Text style={styles.closeButtonText}>X</Text>
               </TouchableOpacity>
               {selectedCatch.imageUrl && (
-                <Image source={{ uri: selectedCatch.imageUrl }} style={styles.catchPreviewImage} />
+                <View style={styles.previewWrapper}>
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      setModalImageUri(selectedCatch.imageUrl);
+                      setImageModalVisible(true);
+                    }}
+                  >
+                    <Image source={{ uri: selectedCatch.imageUrl }} style={styles.catchPreviewImage} />
+                  </TouchableOpacity>
+                </View>
               )}
+              
               <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species)}</Text>
               {selectedCatch.description && (
                 <Text style={styles.catchDescription}>{selectedCatch.description}</Text>
               )}
+             {(selectedCatch.length || selectedCatch.weight) && (
+               <Text style={styles.catchDescription}>
+                 {selectedCatch.length ? `${selectedCatch.length} см` : ""} 
+                 {selectedCatch.length && selectedCatch.weight ? " • " : ""}
+                 {selectedCatch.weight ? `${selectedCatch.weight} кг` : ""}
+               </Text>
+             )}
               <Text style={styles.catchDate}>
-                {selectedCatch.createdAt?.toDate?.()?.toLocaleDateString() || "Recent"}
+                {selectedCatch.createdAt 
+                  ? new Date(selectedCatch.createdAt).toLocaleDateString('en-GB')
+                  : "Недавно"}
               </Text>
             
 
@@ -317,6 +344,20 @@ export default function Map() {
           )}
         </BottomSheetView>
       </BottomSheet>
+
+      {/* Fullscreen image modal */}
+      <Modal
+        visible={imageModalVisible}
+        transparent={false}
+        animationType="slide"
+        onRequestClose={() => setImageModalVisible(false)}
+      >
+        <Pressable style={styles.fullscreenModal} onPress={() => setImageModalVisible(false)}>
+          {modalImageUri ? (
+            <Image source={{ uri: modalImageUri }} style={styles.fullscreenImage} resizeMode="contain" />
+          ) : null}
+        </Pressable>
+      </Modal>
 
       {/* Location and zoom controls */}
       <View
@@ -430,16 +471,17 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   catchDetailsContent: {
-    alignItems: "flex-start",  // Changed from "center" to "flex-start" for left alignment
+    alignItems: "flex-start",
+    padding: 2  // Changed from "center" to "flex-start" for left alignment
   },
   closeButton: {
     position: "absolute",
     top: 0,
     right: 0,
-    width: 24,
-    height: 24,
+    width: 26,
+    height: 26,
     borderRadius: 12,
-    backgroundColor: "#ff3333ff",
+    backgroundColor: "#676767ff",
     alignItems: "center",
     justifyContent: "center",
     zIndex: 1,
@@ -451,27 +493,43 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
   catchPreviewImage: {
-    width: 120,
-    height: 120,
+    width: 250,
+    height: 250,
     borderRadius: 8,
     marginBottom: 8,
     resizeMode: "cover",
   },
+  previewWrapper: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  fullscreenModal: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fullscreenImage: {
+    width: "100%",
+    height: "100%",
+  },
   catchSpecies: {
     color: "#ffffff",
-    fontSize: 16,
+    fontSize: 24,
     fontWeight: "bold",
     marginBottom: 4,
   },
   catchDescription: {
     color: "#cccccc",
-    fontSize: 14,
+    fontSize: 21,
     textAlign: "center",
     marginBottom: 4,
   },
   catchDate: {
     color: "#888888",
-    fontSize: 12,
+    fontSize: 20,
   },
   controlsContainer: {
     position: "absolute",
@@ -492,9 +550,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+
     elevation: 5,
   },
   

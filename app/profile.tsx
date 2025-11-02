@@ -9,24 +9,25 @@ import {
   FlatList,
   Image,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CatchItem } from "../lib/storage";
 
-
+type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 
 export default function Profile() {
   const router = useRouter();
   const db = useSQLiteContext(); // FIX: use context provider
-  const [catches, setCatches] = useState<CatchItem[]>([]);
+  const [catches, setCatches] = useState<CatchWithExtras[]>([]);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedCatch, setSelectedCatch] = useState<CatchItem | null>(null);
+  const [selectedCatch, setSelectedCatch] = useState<CatchWithExtras | null>(null);
   const [editing, setEditing] = useState(false);
   const [editDescription, setEditDescription] = useState("");
   const [editLength, setEditLength] = useState("");
@@ -58,7 +59,25 @@ export default function Profile() {
          FROM catches
          ORDER BY created_at DESC`
       );
-      const list: CatchItem[] = (rows || []).map((r) => ({
+
+      // collect ids to query extra_photos in one go
+      const ids = (rows || []).map((r: any) => r.id).filter(Boolean);
+      let extrasMap: Record<string, string[]> = {};
+      if (ids.length > 0) {
+        const placeholders = ids.map(() => "?").join(",");
+        const extraRows = await execSqlAsync(
+          `SELECT catch_id, uri FROM extra_photos WHERE catch_id IN (${placeholders})`,
+          ids
+        );
+        extrasMap = {};
+        for (const er of extraRows || []) {
+          const k = String(er.catch_id);
+          extrasMap[k] = extrasMap[k] || [];
+          if (er.uri) extrasMap[k].push(er.uri);
+        }
+      }
+
+      const list: CatchWithExtras[] = (rows || []).map((r: any) => ({
         id: String(r.id),
         image: r.image_uri ?? null,
         imageUrl: r.image_uri ?? null,
@@ -69,6 +88,7 @@ export default function Profile() {
         date: new Date(r.created_at || Date.now()).toISOString(),
         lat: r.lat ?? null,
         lon: r.lon ?? null,
+        extraPhotos: extrasMap[String(r.id)] ?? [],
       }));
       setCatches(list);
     } catch (e) {
@@ -127,7 +147,7 @@ export default function Profile() {
         [patchDesc, patchLength, patchWeight, Number(selectedCatch.id)]
       );
 
-      const updatedItem: CatchItem = {
+      const updatedItem: CatchWithExtras = {
         ...selectedCatch,
         description: patchDesc,
         length: patchLength == null ? "" : String(patchLength),
@@ -143,7 +163,7 @@ export default function Profile() {
     }
   };
 
-  const renderItem = ({ item }: { item: CatchItem }) => (
+  const renderItem = ({ item }: { item: CatchWithExtras }) => (
     <Swipeable
       renderRightActions={() => (
         <View style={styles.deleteAction}>
@@ -213,13 +233,29 @@ export default function Profile() {
              <Text style={{ color: "#94a3b8" }}>No selection</Text>
            ) : (
              <View>
-               <Image
-                 source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
-                 style={{ width: "100%", height: 200, borderRadius: 10, marginTop: 8 }}
-               />
+              <ScrollView
+                horizontal
+                style={styles.profilescroll}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bigimagescroller}
+              >
+                <Image
+                  source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
+                  style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
+                />
+                {(selectedCatch.extraPhotos || []).map((uri, idx) => (
+                  <Image
+                    key={idx}
+                    source={{ uri }}
+                    style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
+                  />
+                ))}
+              </ScrollView>
+
                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
                  {getSpeciesLabel(selectedCatch.species)}
                </Text>
+               
                <Text style={{ color: "#94a3b8", marginTop: 8 }}>
                  {new Date(selectedCatch.date).toLocaleString()}
                </Text>
@@ -341,7 +377,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginLeft: 8,
   },
-  label: { color: "#07134cff", fontSize: 14, fontWeight: "600", marginTop: 12 },
+  label: { color: "#ffffffff", fontSize: 14, fontWeight: "600", marginTop: 12 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   input: {
     backgroundColor: "#1e293b",
@@ -361,4 +397,14 @@ const styles = StyleSheet.create({
   btnCancel: { backgroundColor: "#f59e0b", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnClose: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnText: { color: "#fff", fontWeight: "700" },
+
+  profilescroll : {
+    marginTop: 0,
+  },
+
+  bigimagescroller : {
+    alignItems: "center",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  }
 });

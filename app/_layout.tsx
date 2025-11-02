@@ -40,19 +40,20 @@ export default function RootLayout() {
             tabBarStyle: { backgroundColor: '#071023', borderTopColor: '#0b1220' },
             tabBarActiveTintColor: '#60a5fa',
             tabBarInactiveTintColor: '#94a3b8',
+            tabBarIconStyle: {padding: 0}
           }}
         >
           <Tabs.Screen
             name="index"
-            options={{ title: 'Карта', tabBarIcon: ({ color }) => <FontAwesome name="map" size={20} color={color} /> }}
+            options={{ title: 'Карта', tabBarIcon: ({ color }) => <FontAwesome name="map" size={25} color={color} /> }}
           />
           <Tabs.Screen
             name="add"
-            options={{ title: 'Добавить', tabBarIcon: ({ color }) => <FontAwesome name="plus" size={20} color={color} /> }}
+            options={{ title: 'Добавить', tabBarIcon: ({ color }) => <FontAwesome name="plus" size={25} color={color} /> }}
           />
           <Tabs.Screen
             name="profile"
-            options={{ title: 'Профиль', tabBarIcon: ({ color }) => <FontAwesome name="user" size={20} color={color} /> }}
+            options={{ title: 'Профиль', tabBarIcon: ({ color }) => <FontAwesome name="user" size={25} color={color} /> }}
           />
         </Tabs>
       </SQLiteProvider>
