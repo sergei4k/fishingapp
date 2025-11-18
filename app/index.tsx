@@ -23,7 +23,39 @@ type CatchMarker = {
   created_at: number;
 };
 
+// small helper: sleep
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// robust wrapper that retries on closed-resource / transient DB errors
+async function safeQueryAll(
+  db: SQLiteDatabase | null | undefined,
+  sql: string,
+  params: any[] = [],
+  retries = 3,
+  delayMs = 250
+): Promise<any[]> {
+  if (!db || typeof db.getAllAsync !== "function") return [];
+  let lastErr: any = null;
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await db.getAllAsync(sql, params);
+      return res || [];
+    } catch (e: any) {
+      lastErr = e;
+      const msg = (e && (e.message || String(e))) || "";
+      // retry on closed/resource or prepare/finalize errors
+      if (msg.includes("closed resource") || msg.includes("finalizeAsync") || msg.includes("prepareAsync")) {
+        await sleep(delayMs);
+        continue;
+      }
+      // for other errors, rethrow immediately
+      throw e;
+    }
+  }
+  // exhausted retries — log and return empty
+  console.warn("safeQueryAll: exhausted retries, returning empty. lastErr:", lastErr);
+  return [];
+}
 
 async function getCatchesInBounds(
   db: SQLiteDatabase | null | undefined,
@@ -32,11 +64,8 @@ async function getCatchesInBounds(
   maxLat: number,
   maxLon: number
 ): Promise<CatchMarker[]> {
-  if (!db || typeof db.getAllAsync !== "function") {
-    // DB not ready — return empty list instead of throwing
-    return [];
-  }
-  return db.getAllAsync<CatchMarker>(
+  return safeQueryAll(
+    db,
     `SELECT 
        id,
        lat AS lat,
@@ -46,7 +75,7 @@ async function getCatchesInBounds(
      WHERE lat BETWEEN ? AND ?
        AND lon BETWEEN ? AND ?`,
     [minLat, maxLat, minLon, maxLon]
-  );
+  ) as Promise<CatchMarker[]>;
 }
 
 export default function Map() {
@@ -54,9 +83,33 @@ export default function Map() {
   const db = useSQLiteContext(); // may be undefined until provider mounts
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
-  const didCenterRef = useRef(false); // ensure we only auto-center once
+  const didCenterRef = useRef(false);
   const didFitToDataRef = useRef(false);
+  const dbQueryLockRef = useRef(false);
+  const dbReadyRef = useRef(false);
 
+  // safe default region so code never sees undefined deltas
+  const initialRegion: Region = {
+    latitude: 55.751244, // sensible default (Moscow) — won't force center on open
+    longitude: 37.618423,
+    latitudeDelta: 0.12,
+    longitudeDelta: 0.12,
+  };
+  const [region, setRegion] = useState<Region>(initialRegion);
+
+  // ensure we only run DB queries once provider is ready
+  useEffect(() => {
+    dbReadyRef.current = !!(db && typeof db.getAllAsync === "function");
+  }, [db]);
+
+  // helper to ensure region fields exist (avoid .longitudeDelta of undefined)
+  const normalizeRegion = (r?: Region | null) => ({
+    latitude: r?.latitude ?? initialRegion.latitude,
+    longitude: r?.longitude ?? initialRegion.longitude,
+    latitudeDelta: (r?.latitudeDelta ?? initialRegion.latitudeDelta),
+    longitudeDelta: (r?.longitudeDelta ?? initialRegion.longitudeDelta),
+  });
+  // (duplicate refs removed — single declarations are kept above)
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
   const [selectedCatch, setSelectedCatch] = useState<any>(null);
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -68,14 +121,8 @@ export default function Map() {
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [modalImageUri, setModalImageUri] = useState<string | null>(null);
 
-  // Default region: New York City (used as initialRegion to avoid forcing controlled re-renders)
-  const initialRegion: Region = {
-    latitude: 40.7128,
-    longitude: -74.0060,
-    latitudeDelta: 0.12,
-    longitudeDelta: 0.12,
-  };
-  const [region, setRegion] = useState<Region>(initialRegion);
+  // prevent concurrent DB queries that can finalize the same statement
+  // (dbQueryLockRef is declared once above; do not redeclare here)
 
   // Request location permission and get user location
   useEffect(() => {
@@ -95,7 +142,34 @@ export default function Map() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         setLocationPermission(true);
-        getCurrentLocation();
+
+        // Try to use a quick last-known position as the initial region so the map opens at user's location
+        try {
+          const last = await Location.getLastKnownPositionAsync();
+          if (last && last.coords) {
+            const quickRegion: Region = {
+              latitude: last.coords.latitude,
+              longitude: last.coords.longitude,
+              latitudeDelta: 0.01,
+              longitudeDelta: 0.01,
+            };
+            setUserLocation({ latitude: last.coords.latitude, longitude: last.coords.longitude });
+            setRegion(quickRegion);
+
+            // if the map is already ready, animate to the user location once
+            if (mapReady && !didCenterRef.current) {
+              try { mapRef.current?.animateToRegion?.(quickRegion, 800); } catch (e) {}
+              didCenterRef.current = true;
+            }
+
+            return;
+          }
+        } catch (e) {
+          // ignore last-known failures and fall back to fresh location below
+        }
+
+        // Fall back to fresh location fetch
+        await getCurrentLocation();
       } else {
         Alert.alert(
           "Разрешение на местоположение",
@@ -161,74 +235,102 @@ export default function Map() {
 
   const zoomIn = () => {
     const factor = 0.5; // zoom in by reducing deltas
+    const r = normalizeRegion(region);
     const newRegion: Region = {
-      ...region,
-      latitudeDelta: clamp(region.latitudeDelta * factor, 0.0005, 80),
-      longitudeDelta: clamp(region.longitudeDelta * factor, 0.0005, 80),
+      latitude: r.latitude,
+      longitude: r.longitude,
+      latitudeDelta: clamp(r.latitudeDelta * factor, 0.0005, 80),
+      longitudeDelta: clamp(r.longitudeDelta * factor, 0.0005, 80),
     };
     mapRef.current?.animateToRegion(newRegion, 300);
     setRegion(newRegion);
   };
 
     const refreshMarkers = useCallback(async () => {
-     if (!db) {
-       // don't attempt DB queries if no db
-       setMarkers([]);
-       return;
-     }
+     // don't run until DB provider is initialized and map ready
+     if (!dbReadyRef.current || dbQueryLockRef.current) return;
+     dbQueryLockRef.current = true;
+ 
+    try {
+      // normalize region so latitudeDelta / longitudeDelta always defined
+      const useRegion = normalizeRegion(region);
+      const minLat = useRegion.latitude - useRegion.latitudeDelta / 2;
+      const maxLat = useRegion.latitude + useRegion.latitudeDelta / 2;
+      const minLon = useRegion.longitude - useRegion.longitudeDelta / 2;
+      const maxLon = useRegion.longitude + useRegion.longitudeDelta / 2;
+     let rows: CatchMarker[] = [];
      try {
-       const minLat = region.latitude - region.latitudeDelta / 2;
-       const maxLat = region.latitude + region.latitudeDelta / 2;
-       const minLon = region.longitude - region.longitudeDelta / 2;
-       const maxLon = region.longitude + region.longitudeDelta / 2;
-       const rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
-       // coerce numeric coords
-       const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
-         ...r,
-         lat: Number(r.lat),
-         lon: Number(r.lon),
-       }));
-       if (parsed.length === 0) {
-         // Fallback: fetch recent markers anywhere (bounds may be empty)
-         const allRows = await db.getAllAsync<CatchMarker>(
-           `SELECT 
-             id,
-             lat AS lat,
-             lon AS lon,
-             image_uri, species, description, length_cm, weight_kg, created_at
-           FROM catches
-           WHERE lat IS NOT NULL
-             AND lon IS NOT NULL
-           ORDER BY created_at DESC
-           LIMIT 200`
-         );
-         const allParsed = (allRows || []).map(r => ({ ...r, lat: Number(r.lat), lon: Number(r.lon) }));
-         setMarkers(allParsed);
-         // If nothing in view, auto-center to first marker once
-         if (allParsed.length > 0 && mapRef.current && !didFitToDataRef.current) {
-           const first = allParsed[0];
-           try {
-             mapRef.current.animateToRegion(
-               { latitude: first.lat, longitude: first.lon, latitudeDelta: 0.05, longitudeDelta: 0.05 },
-               800
-             );
-             didFitToDataRef.current = true;
-           } catch {}
-         }
-       } else {
-         setMarkers(parsed);
-       }
-     } catch (err) {
-       console.error("refreshMarkers error:", err);
-       setMarkers([]);
+       rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
+     } catch (innerErr) {
+       console.warn("getCatchesInBounds failed:", innerErr);
+       rows = [];
      }
-   }, [db, region]);
-
-  useEffect(() => { refreshMarkers(); }, [refreshMarkers]);
-
+ 
+      // coerce numeric coords
+      const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
+        ...r,
+        lat: Number(r.lat),
+        lon: Number(r.lon),
+      }));
+      if (parsed.length === 0) {
+        // Fallback: fetch recent markers anywhere (bounds may be empty)
+       let allRows: any[] = [];
+       try {
+         allRows = await safeQueryAll(
+           db,
+           `SELECT 
+              id,
+              lat AS lat,
+              lon AS lon,
+              image_uri, species, description, length_cm, weight_kg, created_at
+            FROM catches
+            WHERE lat IS NOT NULL
+              AND lon IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT 200`,
+           [],
+           4,
+           300
+         );
+       } catch (qErr) {
+         // handle closed resource / finalize errors gracefully
+         console.error("fallback query failed:", qErr);
+         allRows = [];
+       }
+       const allParsed = (allRows || []).map(r => ({ ...r, lat: Number(r.lat), lon: Number(r.lon) }));
+        setMarkers(allParsed);
+        // If nothing in view, auto-center to first marker once
+        if (allParsed.length > 0 && mapRef.current && !didFitToDataRef.current) {
+          const first = allParsed[0];
+          try {
+            mapRef.current.animateToRegion(
+              { latitude: first.lat, longitude: first.lon, latitudeDelta: 0.05, longitudeDelta: 0.05 },
+              800
+            );
+            didFitToDataRef.current = true;
+          } catch {}
+        }
+      } else {
+        setMarkers(parsed);
+      }
+    } catch (err) {
+      console.error("refreshMarkers error:", err);
+      setMarkers([]);
+    }
+    finally {
+     // release lock even on error
+     dbQueryLockRef.current = false;
+   }
+  }, [db, region]);
+ 
+  // call refreshMarkers only when both map and DB are ready
+  useEffect(() => {
+    if (mapReady && dbReadyRef.current) refreshMarkers();
+  }, [mapReady, dbReadyRef.current, refreshMarkers]);
 
   const zoomOut = () => {
     const factor = 2; // zoom out by increasing deltas
+    if (!region) return;
     const newRegion: Region = {
       ...region,
       latitudeDelta: clamp(region.latitudeDelta * factor, 0.0005, 80),
@@ -237,24 +339,48 @@ export default function Map() {
     mapRef.current?.animateToRegion(newRegion, 300);
     setRegion(newRegion);
   };
-
-  return (
-    <View style={{ flex: 1 }}>
-      <ClusteredMapView
-        ref={mapRef}
-        style={{ flex: 1 }}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        initialRegion={initialRegion}
-        showsUserLocation
-        onMapReady={() => { setMapReady(true); refreshMarkers(); }}
-        onRegionChangeComplete={(newRegion) => {
-          setRegion(newRegion);
-        }}
-        // optional cluster styling
-        clusterColor="#0ea5e9"
-        clusterTextColor="#ffffff"
-        radius={50}
-      >
+ 
+   return (
+     <View style={{ flex: 1 }}>
+       <ClusteredMapView
+         ref={mapRef}
+         style={{ flex: 1 }}
+         provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+         initialRegion={region} // always provide a valid region to avoid undefined deltas
+         showsUserLocation
+         onMapReady={() => {
+           setMapReady(true);
+           refreshMarkers();
+           // If we already have the user's location by the time the map is ready,
+           // center the map on it immediately (only once).
+           if (userLocation && !didCenterRef.current) {
+             try {
+               const userRegion: Region = {
+                 latitude: userLocation.latitude,
+                 longitude: userLocation.longitude,
+                 latitudeDelta: 0.01,
+                 longitudeDelta: 0.01,
+               };
+               mapRef.current?.animateToRegion?.(userRegion, 800);
+             } catch (e) {}
+             didCenterRef.current = true;
+           }
+         }}
+         onRegionChangeComplete={(newRegion) => {
+           if (!newRegion) return;
+           // merge to preserve deltas if some platforms provide partial region object
+           setRegion((prev) => ({
+             latitude: newRegion.latitude ?? prev.latitude,
+             longitude: newRegion.longitude ?? prev.longitude,
+             latitudeDelta: newRegion.latitudeDelta ?? prev.latitudeDelta,
+             longitudeDelta: newRegion.longitudeDelta ?? prev.longitudeDelta,
+           }));
+         }}
+         // optional cluster styling
+         clusterColor="#0ea5e9"
+         clusterTextColor="#ffffff"
+         radius={50}
+       >
         {markers.map((m) => (
           <Marker
             key={m.id}

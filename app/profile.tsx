@@ -8,13 +8,14 @@ import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -209,7 +210,9 @@ export default function Profile() {
          keyExtractor={(i) => i.id}
          renderItem={renderItem}
          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-         ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто...</Text>}
+         keyboardDismissMode="on-drag"
+         onScrollBeginDrag={() => Keyboard.dismiss()}
+         ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто</Text>}
          contentContainerStyle={
            catches.length === 0 
              ? { flex: 1, justifyContent: "center" } 
@@ -238,6 +241,8 @@ export default function Profile() {
                 style={styles.profilescroll}
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.bigimagescroller}
+                keyboardDismissMode="on-drag"
+                onScrollBeginDrag={() => Keyboard.dismiss()}
               >
                 <Image
                   source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
@@ -268,6 +273,7 @@ export default function Profile() {
                    onChangeText={setEditDescription}
                    multiline
                    textAlignVertical="top"
+                   returnKeyType="done"
                  />
                ) : (
                  <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
@@ -275,14 +281,18 @@ export default function Profile() {
 
                <Text style={styles.label}>Длина (cm)</Text>
                {editing ? (
-                 <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} keyboardType="numeric" />
+                 <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} 
+                 keyboardType="numeric"
+                 returnKeyType="done" />
                ) : (
                  <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
                )}
 
                <Text style={styles.label}>Вес (kg)</Text>
                {editing ? (
-                 <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} keyboardType="numeric" />
+                 <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} 
+                 keyboardType="numeric"
+                 returnKeyType="done" />
                ) : (
                  <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
                )}
@@ -311,7 +321,8 @@ export default function Profile() {
                      >
                        <Text style={styles.btnText}>Редактировать</Text>
                      </TouchableOpacity>
-                     <TouchableOpacity style={styles.btnClose} onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
+                     <TouchableOpacity style={styles.btnClose} 
+                     onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
                        <Text style={styles.btnText}>Закрыть</Text>
                      </TouchableOpacity>
                    </>
@@ -372,11 +383,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 6,
   },
-  loginButtonText: {
-    color: "#001219",
-    fontWeight: "700",
-    marginLeft: 8,
-  },
+
   label: { color: "#ffffffff", fontSize: 14, fontWeight: "600", marginTop: 12 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   input: {
@@ -394,7 +401,7 @@ const styles = StyleSheet.create({
   },
   btnEdit: { backgroundColor: "#60a5fa", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnSave: { backgroundColor: "#10b981", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnCancel: { backgroundColor: "#f59e0b", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
+  btnCancel: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnClose: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnText: { color: "#fff", fontWeight: "700" },
 

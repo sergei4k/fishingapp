@@ -23,9 +23,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { getSpeciesLabel } from '@/lib/species';
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// **SAFER** Helper function to save a catch to local storage
 async function addCatch(item: {
   id: string;
   image: string | null;
@@ -37,7 +36,6 @@ async function addCatch(item: {
   date: string;
 }): Promise<void> {
   try {
-    const AsyncStorage = (await import("@react-native-async-storage/async-storage")).default;
     const KEY = "local_catches_v1";
     const raw = await AsyncStorage.getItem(KEY);
     let list: any[] = [];
@@ -119,32 +117,84 @@ export default function Add() {
   };
 
  const pickImageAndGetGps = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      quality: 1,
-      selectionLimit: 1,
-      exif: true,
-    });
+   const result = await ImagePicker.launchImageLibraryAsync({
+     mediaTypes: ['images'],
+     // disable built-in crop to avoid Android crop UI that can return transient URIs
+     allowsEditing: false,
+     quality: 1,
+     selectionLimit: 1,
+     exif: true,
+   });
+ 
+   if (result.canceled) return;
+   const asset = result.assets?.[0];
+   if (!asset) return;
+   const uri = asset.uri;
 
-    if (!result.canceled && result.assets?.[0]?.assetId) {
-      const assetInfo = await MediaLibrary.getAssetInfoAsync(result.assets[0].assetId);
-      if (assetInfo.location) {
-        console.log('lat:', assetInfo.location.latitude, 'lng:', assetInfo.location.longitude);
-        setImage(result.assets[0].uri);
-        // store coords so the map can render a marker
-        setImageCoords({ lat: assetInfo.location.latitude, lon: assetInfo.location.longitude });
-      } else {
-        setImage(result.assets[0].uri);
-      }
-    } // ← closes the outer if
- }; // ← closes the function
+   // 1) If assetId available, prefer MediaLibrary info (includes location)
+   if (asset.assetId) {
+     try {
+       // Some versions of expo-media-library accept an `exif` option at runtime
+       // but the TypeScript types don't include it; cast to `any` to avoid errors.
+       const getAssetInfoAsyncAny = (MediaLibrary.getAssetInfoAsync as any);
+       const info = await getAssetInfoAsyncAny(asset.assetId, { exif: true });
+       if (info?.location) {
+         setImage(uri);
+         setImageCoords({ lat: info.location.latitude, lon: info.location.longitude });
+         return;
+       }
+     } catch (e) {
+       console.warn('getAssetInfoAsync failed', e);
+     }
+   }
+
+   // 2) Some pickers return exif directly on the asset (try that)
+   if ((asset as any).exif) {
+     try {
+       const exif = (asset as any).exif;
+       // EXIF GPS fields vary; check common places
+       if (exif && (exif.GPSLatitude || exif.GPSLatitudeRef || exif.gpsLatitude)) {
+         // best-effort parsing — if your picker returns coords in a known shape, extract them here
+         // Fallback: log exif for debugging
+         console.log('asset.exif', exif);
+       }
+     } catch {}
+   }
+
+   // 3) Fallback: save transient/cropped file to MediaLibrary to get an asset id (requires permission)
+   try {
+     const { status } = await MediaLibrary.requestPermissionsAsync();
+     if (status === 'granted') {
+       try {
+         const created = await MediaLibrary.createAssetAsync(uri);
+         // TypeScript types don't include the `exif` option for some SDKs; cast the function to any to allow it.
+         const getAssetInfoAsyncAny = (MediaLibrary.getAssetInfoAsync as any);
+         const info = await getAssetInfoAsyncAny(created.id, { exif: true } as any);
+         setImage(uri);
+         if (info?.location) {
+           setImageCoords({ lat: info.location.latitude, lon: info.location.longitude });
+         }
+         return;
+       } catch (e) {
+         console.warn('createAssetAsync/getAssetInfoAsync failed', e);
+       }
+     }
+   } catch (e) {
+     console.warn('MediaLibrary permission request failed', e);
+   }
+
+   // 4) Final fallback: just use the returned uri (no GPS)
+   setImage(uri);
+ };
 
 const addMultiplePhotos = async () => {
   const res = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
     selectionLimit: 10, // adjust as needed
     quality: 1,
+    // ensure no crop UI appears when selecting multiple images
+    allowsEditing: false,
+    exif: false,
   });
   if (!res.canceled && res.assets?.length) {
     setExtraPhotos(prev => [...prev, ...res.assets.map(a => a.uri)]);
@@ -298,7 +348,7 @@ const addMultiplePhotos = async () => {
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: "#0f172a" }}
-      keyboardVerticalOffset={90}
+      keyboardVerticalOffset={0}
     >
       <SafeAreaView style={{ flex: 1, backgroundColor: "#0f172a" }}>
         <ScrollView
@@ -331,6 +381,7 @@ const addMultiplePhotos = async () => {
             placeholderTextColor="#94a3b8"
             value={description}
             onChangeText={setDescription}
+            returnKeyType='done'
             multiline
             keyboardAppearance="dark"
           />
@@ -339,6 +390,7 @@ const addMultiplePhotos = async () => {
             placeholder="Длина (см)"
             placeholderTextColor="#94a3b8"
             keyboardType="numeric"
+            returnKeyType='done'
             value={length}
             onChangeText={setLength}
             keyboardAppearance="dark"

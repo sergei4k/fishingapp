@@ -1,0 +1,50 @@
+diff --git a/node_modules/@expo/cli/build/src/start/server/metro/TerminalReporter.js b/node_modules/@expo/cli/build/src/start/server/metro/TerminalReporter.js
+index 6186acd..8bca40a 100644
+--- a/node_modules/@expo/cli/build/src/start/server/metro/TerminalReporter.js
++++ b/node_modules/@expo/cli/build/src/start/server/metro/TerminalReporter.js
+@@ -23,9 +23,42 @@ function _chalk() {
+     return data;
+ }
+ function _terminalReporter() {
+-    const data = /*#__PURE__*/ _interopRequireDefault(require("metro/src/lib/TerminalReporter"));
+-    _terminalReporter = function() {
+-        return data;
++    // Safe loader: prefer public API, fall back to internal paths, finally a noop.
++    var _data;
++    try {
++        const metro = require("metro");
++        if (
++          metro &&
++          (metro.TerminalReporter ||
++            (metro.default && metro.default.TerminalReporter) ||
++            metro.default)
++        ) {
++          _data =
++            metro.TerminalReporter ||
++            (metro.default && metro.default.TerminalReporter) ||
++            metro.default;
++        } else {
++          // Try legacy internal path (may be blocked by "exports")
++          _data = require("metro/src/lib/TerminalReporter");
++        }
++      } catch (e1) {
++        try {
++          _data = require("metro/src/lib/TerminalReporter");
++        } catch (e2) {
++          try {
++            _data = require("metro/private/lib/TerminalReporter");
++          } catch (e3) {
++            // Last-resort noop reporter to avoid crashing
++            function NoopTerminalReporter() {}
++            NoopTerminalReporter.prototype.update = function () {};
++            NoopTerminalReporter.prototype.emit = function () {};
++            _data = NoopTerminalReporter;
++          }
++        }
++      }
++    const data = /*#__PURE__*/ _interopRequireDefault(_data);
++    _terminalReporter = function () {
++      return data;
+     };
+     return data;
+ }

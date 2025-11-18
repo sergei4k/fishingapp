@@ -1,0 +1,27 @@
+diff --git a/node_modules/metro-config/src/defaults/index.js b/node_modules/metro-config/src/defaults/index.js
+index 896fa58..7f12f4f 100644
+--- a/node_modules/metro-config/src/defaults/index.js
++++ b/node_modules/metro-config/src/defaults/index.js
+@@ -9,9 +9,19 @@ var _exclusionList = _interopRequireDefault(require("./exclusionList"));
+ var _getMaxWorkers = _interopRequireDefault(require("./getMaxWorkers"));
+ var _metroCache = require("metro-cache");
+ var _metroCore = require("metro-core");
+-var _TerminalReporter = _interopRequireDefault(
+-  require("metro/private/lib/TerminalReporter"),
+-);
++// safe import: try public API then private/internal locations
++var _TerminalReporter = (function () {
++  try {
++    const metro = require('metro');
++    return _interopRequireDefault(metro.TerminalReporter ? metro : metro);
++  } catch (e) {
++    try {
++      return _interopRequireDefault(require('metro/src/lib/TerminalReporter'));
++    } catch (e2) {
++      return _interopRequireDefault(require('metro/private/lib/TerminalReporter'));
++    }
++  }
++})();
+ var os = _interopRequireWildcard(require("os"));
+ var path = _interopRequireWildcard(require("path"));
+ function _getRequireWildcardCache(e) {
