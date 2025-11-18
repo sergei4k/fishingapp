@@ -118,7 +118,7 @@ export default function Add() {
 
  const pickImageAndGetGps = async () => {
    const result = await ImagePicker.launchImageLibraryAsync({
-     mediaTypes: ['images'],
+     mediaTypes: ImagePicker.MediaTypeOptions.Images,
      // disable built-in crop to avoid Android crop UI that can return transient URIs
      allowsEditing: false,
      quality: 1,
@@ -189,7 +189,7 @@ export default function Add() {
 
 const addMultiplePhotos = async () => {
   const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
     selectionLimit: 10, // adjust as needed
     quality: 1,
     // ensure no crop UI appears when selecting multiple images
