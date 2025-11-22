@@ -7,7 +7,7 @@ import * as Location from "expo-location";
 import { useRouter } from "expo-router";
 import { useSQLiteContext, type SQLiteDatabase } from "expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, GestureResponderEvent } from "react-native";
 import ClusteredMapView from "react-native-map-clustering";
 import { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
@@ -31,8 +31,8 @@ async function safeQueryAll(
   db: SQLiteDatabase | null | undefined,
   sql: string,
   params: any[] = [],
-  retries = 3,
-  delayMs = 250
+  retries = 5, // ✅ increase retries
+  delayMs = 400 // ✅ increase delay
 ): Promise<any[]> {
   if (!db || typeof db.getAllAsync !== "function") return [];
   let lastErr: any = null;
@@ -78,6 +78,13 @@ async function getCatchesInBounds(
   ) as Promise<CatchMarker[]>;
 }
 
+const fishSpeciesImages: Record<string, any> = {
+  pike: require("../assets/fishicons/schuka.420x420.png"),
+  perch: require("../assets/fishicons/perch.png"),
+  carp: require("../assets/fishicons/carp.png"),
+  pikeperch: require("../assets/fishicons/pikeperch.png"),
+};
+
 export default function Map() {
   const router = useRouter();
   const db = useSQLiteContext(); // may be undefined until provider mounts
@@ -87,6 +94,7 @@ export default function Map() {
   const didFitToDataRef = useRef(false);
   const dbQueryLockRef = useRef(false);
   const dbReadyRef = useRef(false);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   // safe default region so code never sees undefined deltas
   const initialRegion: Region = {
@@ -115,7 +123,7 @@ export default function Map() {
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationPermission, setLocationPermission] = useState(false);
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['60%', '80%'], []);
+  const snapPoints = useMemo(() => ['80%'], []);
   const [sheetIndex, setSheetIndex] = useState<number>(-1);
   // modal for full-screen image preview
   const [imageModalVisible, setImageModalVisible] = useState(false);
@@ -131,7 +139,7 @@ export default function Map() {
   
   useEffect(() => {
     if (selectedCatch) {
-      bottomSheetRef.current?.snapToIndex(0);
+      bottomSheetRef.current?.snapToIndex(0); // ✅ already set to index 0 (80%)
     } else {
       bottomSheetRef.current?.close();
     }
@@ -246,60 +254,47 @@ export default function Map() {
     setRegion(newRegion);
   };
 
-    const refreshMarkers = useCallback(async () => {
-     // don't run until DB provider is initialized and map ready
-     if (!dbReadyRef.current || dbQueryLockRef.current) return;
-     dbQueryLockRef.current = true;
- 
+  const refreshMarkers = useCallback(async () => {
+    if (!dbReadyRef.current || dbQueryLockRef.current) return;
+    dbQueryLockRef.current = true;
+
     try {
-      // normalize region so latitudeDelta / longitudeDelta always defined
       const useRegion = normalizeRegion(region);
       const minLat = useRegion.latitude - useRegion.latitudeDelta / 2;
       const maxLat = useRegion.latitude + useRegion.latitudeDelta / 2;
       const minLon = useRegion.longitude - useRegion.longitudeDelta / 2;
       const maxLon = useRegion.longitude + useRegion.longitudeDelta / 2;
-     let rows: CatchMarker[] = [];
-     try {
-       rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
-     } catch (innerErr) {
-       console.warn("getCatchesInBounds failed:", innerErr);
-       rows = [];
-     }
- 
-      // coerce numeric coords
+
+      let rows: CatchMarker[] = [];
+      try {
+        rows = await getCatchesInBounds(db, minLat, minLon, maxLat, maxLon);
+      } catch (innerErr) {
+        console.warn("getCatchesInBounds failed:", innerErr);
+        rows = [];
+      }
+
       const parsed = (rows || []).filter(r => r.lat != null && r.lon != null).map(r => ({
         ...r,
         lat: Number(r.lat),
         lon: Number(r.lon),
       }));
+
       if (parsed.length === 0) {
-        // Fallback: fetch recent markers anywhere (bounds may be empty)
-       let allRows: any[] = [];
-       try {
-         allRows = await safeQueryAll(
-           db,
-           `SELECT 
-              id,
-              lat AS lat,
-              lon AS lon,
-              image_uri, species, description, length_cm, weight_kg, created_at
-            FROM catches
-            WHERE lat IS NOT NULL
-              AND lon IS NOT NULL
-            ORDER BY created_at DESC
-            LIMIT 200`,
-           [],
-           4,
-           300
-         );
-       } catch (qErr) {
-         // handle closed resource / finalize errors gracefully
-         console.error("fallback query failed:", qErr);
-         allRows = [];
-       }
-       const allParsed = (allRows || []).map(r => ({ ...r, lat: Number(r.lat), lon: Number(r.lon) }));
+        let allRows: any[] = [];
+        try {
+          allRows = await safeQueryAll(
+            db,
+            `SELECT id, lat AS lat, lon AS lon, image_uri, species, description, length_cm, weight_kg, created_at
+             FROM catches WHERE lat IS NOT NULL AND lon IS NOT NULL ORDER BY created_at DESC LIMIT 200`,
+            [], 6, 500 // ✅ increase retries and delay for initial load
+          );
+        } catch (qErr) {
+          console.error("fallback query failed:", qErr);
+          allRows = [];
+        }
+        const allParsed = (allRows || []).map(r => ({ ...r, lat: Number(r.lat), lon: Number(r.lon) }));
         setMarkers(allParsed);
-        // If nothing in view, auto-center to first marker once
+
         if (allParsed.length > 0 && mapRef.current && !didFitToDataRef.current) {
           const first = allParsed[0];
           try {
@@ -316,17 +311,25 @@ export default function Map() {
     } catch (err) {
       console.error("refreshMarkers error:", err);
       setMarkers([]);
+    } finally {
+      dbQueryLockRef.current = false;
     }
-    finally {
-     // release lock even on error
-     dbQueryLockRef.current = false;
-   }
   }, [db, region]);
- 
-  // call refreshMarkers only when both map and DB are ready
+
+  // ✅ Load markers immediately when DB is ready (no debounce for initial load)
   useEffect(() => {
-    if (mapReady && dbReadyRef.current) refreshMarkers();
-  }, [mapReady, dbReadyRef.current, refreshMarkers]);
+    if (dbReadyRef.current && markers.length === 0) {
+      refreshMarkers();
+    }
+  }, [dbReadyRef.current]);
+
+  // ✅ REMOVE the debounce timer and triggerRefresh - causes crashes
+  // Delete these lines:
+  // const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // const triggerRefresh = useCallback(() => { ... }, [refreshMarkers]);
+
+  // ✅ Remove the empty useEffect that references mapReady
+  // Delete this entire useEffect block
 
   const zoomOut = () => {
     const factor = 2; // zoom out by increasing deltas
@@ -340,19 +343,20 @@ export default function Map() {
     setRegion(newRegion);
   };
  
+  function handleCloseTutorial(_: GestureResponderEvent): void {
+    // Close the tutorial overlay
+    setShowTutorial(false);
+  }
    return (
      <View style={{ flex: 1 }}>
        <ClusteredMapView
          ref={mapRef}
          style={{ flex: 1 }}
          provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-         initialRegion={region} // always provide a valid region to avoid undefined deltas
+         initialRegion={region}
          showsUserLocation
          onMapReady={() => {
            setMapReady(true);
-           refreshMarkers();
-           // If we already have the user's location by the time the map is ready,
-           // center the map on it immediately (only once).
            if (userLocation && !didCenterRef.current) {
              try {
                const userRegion: Region = {
@@ -368,18 +372,47 @@ export default function Map() {
          }}
          onRegionChangeComplete={(newRegion) => {
            if (!newRegion) return;
-           // merge to preserve deltas if some platforms provide partial region object
            setRegion((prev) => ({
              latitude: newRegion.latitude ?? prev.latitude,
              longitude: newRegion.longitude ?? prev.longitude,
              latitudeDelta: newRegion.latitudeDelta ?? prev.latitudeDelta,
              longitudeDelta: newRegion.longitudeDelta ?? prev.longitudeDelta,
            }));
+           // ✅ REMOVE triggerRefresh() call here - causes continuous queries and crashes
          }}
-         // optional cluster styling
+         onClusterPress={(cluster, clusterMarkers) => {
+          if (!clusterMarkers?.length) return;
+
+          const coords = clusterMarkers
+            .map(m => {
+              if (m.coordinate) return m.coordinate;
+              if (m.geometry?.coordinates) {
+                return { latitude: m.geometry.coordinates[1], longitude: m.geometry.coordinates[0] };
+              }
+              if (m.properties && m.properties.point_count === undefined) {
+                return {
+                  latitude: Number(m.properties.latitude ?? m.properties.lat),
+                  longitude: Number(m.properties.longitude ?? m.properties.lon),
+                };
+              }
+              return null;
+            })
+            .filter((c): c is { latitude: number; longitude: number } =>
+              c != null && Number.isFinite(c.latitude) && Number.isFinite(c.longitude)
+            );
+
+          if (!coords.length) return;
+
+          mapRef.current?.fitToCoordinates(coords, {
+            edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+            animated: true,
+          });
+        }}
          clusterColor="#0ea5e9"
          clusterTextColor="#ffffff"
          radius={50}
+         spiralEnabled={false}
+         animationEnabled={true}
        >
         {markers.map((m) => (
           <Marker
@@ -399,8 +432,11 @@ export default function Map() {
             }
           >
             <View style={styles.catchMarker}>
-              {m.image_uri ? (
-                <Image source={{ uri: m.image_uri }} style={styles.catchMarkerImage} />
+              {m.species && fishSpeciesImages[m.species] ? (
+                <Image 
+                  source={fishSpeciesImages[m.species]} 
+                  style={styles.catchMarkerSpeciesImage}
+                />
               ) : (
                 <Text style={styles.catchMarkerText}>🐟</Text>
               )}
@@ -412,7 +448,7 @@ export default function Map() {
       {/* BottomSheet for selected catch */}
       <BottomSheet
         ref={bottomSheetRef}
-        index={-1}
+        index={-1} // ✅ starts closed
         snapPoints={snapPoints}
         enablePanDownToClose
         onChange={(index) => {
@@ -503,6 +539,21 @@ export default function Map() {
           <Text style={styles.zoomTextSmall}>－</Text>
         </TouchableOpacity>
       </View>
+      
+      {showTutorial && (
+        <View style={styles.tutorial}>
+          <TouchableOpacity style={styles.tutorialClose} onPress={handleCloseTutorial}>
+            <Text style={styles.tutorialCloseText}>×</Text>
+          </TouchableOpacity>
+          <Text style={styles.tutorialText}>
+            Rybolov - твой портал в мир рыбалки 🎣🌍
+          </Text>
+          <Text style={styles.tutdesc}>
+            Добавляй свои уловы с помощью фото чтобы они отображались на карте. Нажми на иконку рыбы чтобы увидеть детали улова. {"\n"}Записывай длину, вес, вид рыбы и описание. Удачной рыбалки!
+          </Text>
+        </View>
+      )}
+
     </View>
   );
 }
@@ -514,6 +565,54 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   
+  tutorial: {
+    position: "absolute",
+    top: "30%",
+    left: "50%",
+    transform: [{ translateX: -150 }, { translateY: -150 }],
+    width: 300,
+    height: 450,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#0b1220",
+    borderRadius: 16,
+    opacity: 0.9,
+    borderWidth: 1,
+    borderColor: "#000000ff",
+    padding: 16,
+  },
+  tutorialClose: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tutorialCloseText: {
+    color: "#ffffff",
+    fontSize: 20,
+    lineHeight: 22,
+  },
+  // Added tutorialText style used in the tutorial modal
+  tutorialText: {
+    color: "#ffffff",
+    fontSize: 20,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  // Added tutdesc style to fix missing style reference
+  tutdesc: {
+    color: "#cccccc",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+
   zoomContainerBottom: {
     position: "absolute",
     left: 12,
@@ -579,15 +678,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 0,
     elevation: 5,
+    overflow: "hidden", // ✅ clip image to circle
   },
-  catchMarkerImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    resizeMode: "cover",
+  catchMarkerSpeciesImage: {
+    width: 32,
+    height: 32,
+    resizeMode: "contain",
   },
   catchMarkerText: {
-    fontSize: 20,
+    fontSize: 24,
   },
   catchDetailsOverlay: {
     flex: 1,
@@ -675,7 +774,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 10,
-    shadowColor: "#000",
+        shadowColor: "#000",
 
     elevation: 5,
   },

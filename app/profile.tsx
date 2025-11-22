@@ -124,6 +124,7 @@ export default function Profile() {
             await execSqlAsync("DELETE FROM catches WHERE id = ?;", [Number(id)]);
             await load({ force: true });
             setSelectedCatch(null);
+            
           } catch (e) {
             console.error("delete error:", e);
             Alert.alert("Ошибка", "Не удалось удалить запись.");

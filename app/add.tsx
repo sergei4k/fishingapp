@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from "expo-image-picker";
 import Location from "expo-location";
@@ -22,8 +23,7 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Toast from "react-native-toast-message";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+
 
 async function addCatch(item: {
   id: string;
@@ -86,6 +86,7 @@ export default function Add() {
   const router = useRouter();
 
 
+
   // SQLiteProvider in app/_layout.tsx initializes the DB and creates tables.
   // Here we only use the provided `db` via useSQLiteContext().
   // If db is not available at runtime, inserts will fail (handled below).
@@ -119,11 +120,9 @@ export default function Add() {
  const pickImageAndGetGps = async () => {
    const result = await ImagePicker.launchImageLibraryAsync({
      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-     // disable built-in crop to avoid Android crop UI that can return transient URIs
      allowsEditing: false,
-     quality: 1,
-     selectionLimit: 1,
-     exif: true,
+     quality: 0.8,
+     allowsMultipleSelection: false,
    });
  
    if (result.canceled) return;
@@ -134,8 +133,7 @@ export default function Add() {
    // 1) If assetId available, prefer MediaLibrary info (includes location)
    if (asset.assetId) {
      try {
-       // Some versions of expo-media-library accept an `exif` option at runtime
-       // but the TypeScript types don't include it; cast to `any` to avoid errors.
+      
        const getAssetInfoAsyncAny = (MediaLibrary.getAssetInfoAsync as any);
        const info = await getAssetInfoAsyncAny(asset.assetId, { exif: true });
        if (info?.location) {
@@ -189,7 +187,7 @@ export default function Add() {
 
 const addMultiplePhotos = async () => {
   const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    mediaTypes: ImagePicker.MediaTypeOptions.Images, // use MediaTypeOptions.Images
     selectionLimit: 10, // adjust as needed
     quality: 1,
     // ensure no crop UI appears when selecting multiple images
@@ -321,7 +319,7 @@ const addMultiplePhotos = async () => {
 
       // no fallback to AsyncStorage — purely SQLite-backed now
 
-      Toast.show({ type: "success", text1: "Успешно", text2: "Запись добавлена." });
+      
       router.push("/profile");
 
       setImage(null);
@@ -334,7 +332,7 @@ const addMultiplePhotos = async () => {
 
     } catch (e: any) {
       console.error("handleUpload error", e);
-      Toast.show({ type: "error", text1: "Ошибка", text2: e.message || "Не удалось сохранить" });
+      
     } finally {
 
       setExtraPhotos([]);
@@ -399,6 +397,7 @@ const addMultiplePhotos = async () => {
             style={styles.input}
             placeholder="Вес (кг)"
             placeholderTextColor="#94a3b8"
+            returnKeyType="done"
             keyboardType="numeric"
             value={weight}
             onChangeText={setWeight}

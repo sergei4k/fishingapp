@@ -22,11 +22,12 @@
       "edgeToEdgeEnabled": true,
       "permissions": [
         "ACCESS_FINE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_MEDIA_LOCATION",
+        "READ_MEDIA_IMAGES"
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyBP8zOnStZitS_20fIgOkEZpVz1cS6vwyQ"
+
         }
       },
       "package": "com.anonymous.fishingapp"
@@ -53,6 +54,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b4647e00-4478-4b12-b489-a7a8d98f70f4"
+      }
     }
   }
 }
