@@ -117,13 +117,25 @@ export default function Add() {
     return db.execAsync(finalSql);
   };
 
- const pickImageAndGetGps = async () => {
+ const ensureMediaAccess = async () => {
+  const picker = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!picker.granted) return false;
+  if (Platform.OS === "android") {
+    const media = await MediaLibrary.requestPermissionsAsync();
+    if (!media.granted) return false;
+  }
+  return true;
+};
+
+const pickImageAndGetGps = async () => {
+  if (!(await ensureMediaAccess())) return;
+
    const result = await ImagePicker.launchImageLibraryAsync({
-     mediaTypes: ImagePicker.MediaTypeOptions.Images,
-     allowsEditing: false,
-     quality: 0.8,
-     allowsMultipleSelection: false,
-   });
+    mediaTypes: ['images'],
+    allowsEditing: false,
+    quality: 0.85,
+    exif: true,
+  });
  
    if (result.canceled) return;
    const asset = result.assets?.[0];

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "fishingapp",
+    "name": "Rybolov",
     "slug": "fishingapp",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -60,6 +60,11 @@
       "eas": {
         "projectId": "b4647e00-4478-4b12-b489-a7a8d98f70f4"
       }
+    },
+    "runtimeVersion": "1.0.0",
+    "updates": {
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
     }
   }
 }

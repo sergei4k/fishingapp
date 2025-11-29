@@ -4,10 +4,10 @@ import "react-native-gesture-handler";
 import { getSpeciesLabel } from "@/lib/species";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useSQLiteContext, type SQLiteDatabase } from "expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View, GestureResponderEvent } from "react-native";
+import { Alert, GestureResponderEvent, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import ClusteredMapView from "react-native-map-clustering";
 import { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 
@@ -315,6 +315,12 @@ export default function Map() {
       dbQueryLockRef.current = false;
     }
   }, [db, region]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshMarkers();
+    }, [refreshMarkers])
+  );
 
   // ✅ Load markers immediately when DB is ready (no debounce for initial load)
   useEffect(() => {
@@ -804,3 +810,6 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
   },
 });
+
+// MUST be the last import
+import "expo-router";
