@@ -50,6 +50,7 @@
     "react-hot-toast": "^2.6.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "~2.28.0",
+    "react-native-image-crop-picker": "^0.50.0",
     "react-native-map-clustering": "^4.0.0",
     "react-native-maps": "1.20.1",
     "react-native-reanimated": "~4.1.1",

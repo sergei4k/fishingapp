@@ -1,6 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image as ExpoImage } from 'expo-image';
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useState } from "react";
@@ -19,6 +18,7 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
+import ImagePicker from 'react-native-image-crop-picker';
 import { SafeAreaView } from "react-native-safe-area-context";
 
 async function addCatch(item: {
@@ -95,20 +95,17 @@ export default function Add() {
       return null;
     }
 
-    console.log("=== EXIF DATA START ===");
-    console.log("All EXIF keys:", Object.keys(exif));
+    console.log("=== EXIF DATA ===");
     console.log("Full EXIF:", JSON.stringify(exif, null, 2));
-    console.log("GPSLatitude:", exif.GPSLatitude, "type:", typeof exif.GPSLatitude);
-    console.log("GPSLongitude:", exif.GPSLongitude, "type:", typeof exif.GPSLongitude);
-    console.log("GPSLatitudeRef:", exif.GPSLatitudeRef);
-    console.log("GPSLongitudeRef:", exif.GPSLongitudeRef);
-    console.log("=== EXIF DATA END ===");
 
-    const lat = exif.GPSLatitude;
-    const lon = exif.GPSLongitude;
+    // react-native-image-crop-picker uses these keys
+    const lat = exif.Latitude ?? exif.GPSLatitude ?? exif.latitude;
+    const lon = exif.Longitude ?? exif.GPSLongitude ?? exif.longitude;
+
+    console.log("Latitude:", lat, "type:", typeof lat);
+    console.log("Longitude:", lon, "type:", typeof lon);
 
     if (typeof lat === "number" && typeof lon === "number") {
-      // Validate
       if (lat === 0 && lon === 0) return null;
       if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
@@ -119,42 +116,38 @@ export default function Add() {
   };
 
   const pickImageAndGetGps = async () => {
-    const picker = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!picker.granted) {
-      Alert.alert("Нет доступа", "Разрешите приложению читать фотографии.");
-      return;
-    }
+    try {
+      const result = await ImagePicker.openPicker({
+        mediaType: 'photo',
+        cropping: false,
+        includeExif: true,
+      });
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      exif: true,
-    });
+      console.log("=== PICKED IMAGE ===");
+      console.log("Path:", result.path);
+      console.log("Has exif:", !!result.exif);
+      console.log("Full result:", JSON.stringify(result, null, 2));
 
-    if (result.canceled) return;
-    const asset = result.assets?.[0];
-    if (!asset) return;
+      setImage(result.path);
 
-    console.log("=== PICKED ASSET ===");
-    console.log("URI:", asset.uri);
-    console.log("Asset ID:", asset.assetId);
-    console.log("Has exif property:", !!(asset as any).exif);
+      const coords = parseExifCoords(result.exif);
 
-    setImage(asset.uri);
-
-    const exif = (asset as any).exif;
-    const coords = parseExifCoords(exif);
-
-    if (coords) {
-      setImageCoords(coords);
-      console.log("SUCCESS: GPS coords:", coords);
-    } else {
-      setImageCoords(null);
-      console.log("FAILED: No GPS coords found");
-      Alert.alert(
-        "GPS не найден",
-        "Фото не содержит геоданных. Выберите фото, сделанное камерой с включённой геолокацией."
-      );
+      if (coords) {
+        setImageCoords(coords);
+        console.log("SUCCESS: GPS coords:", coords);
+      } else {
+        setImageCoords(null);
+        console.log("FAILED: No GPS coords found");
+        Alert.alert(
+          "GPS не найден",
+          "Фото не содержит геоданных. Выберите фото, сделанное камерой с включённой геолокацией."
+        );
+      }
+    } catch (error: any) {
+      if (error.code !== 'E_PICKER_CANCELLED') {
+        console.error("Picker error:", error);
+        Alert.alert("Ошибка", "Не удалось выбрать фото.");
+      }
     }
   };
 

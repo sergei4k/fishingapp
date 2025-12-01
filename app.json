@@ -10,7 +10,9 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "We use your location to center the fishing map around you."
+        "NSLocationWhenInUseUsageDescription": "We use your location to center the fishing map around you.",
+        "NSPhotoLibraryUsageDescription": "Allow $(PRODUCT_NAME) to access your photos to extract GPS data.",
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera."
       },
       "bundleIdentifier": "com.anonymous.fishingapp"
     },
@@ -25,12 +27,11 @@
         "ACCESS_COARSE_LOCATION",
         "ACCESS_MEDIA_LOCATION",
         "READ_MEDIA_IMAGES",
-        "READ_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE",
+        "CAMERA"
       ],
       "config": {
-        "googleMaps": {
-
-        }
+        "googleMaps": {}
       },
       "package": "com.anonymous.fishingapp"
     },
@@ -56,16 +57,10 @@
       [
         "expo-media-library",
         {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to read GPS coordinates.",
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos.",
           "savePhotosPermission": "Allow $(PRODUCT_NAME) to save photos.",
           "isAccessMediaLocationEnabled": true,
           "isMicrophonePermissionDeclared": false
-        }
-      ],
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos to extract GPS data."
         }
       ]
     ],
