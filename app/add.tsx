@@ -1,11 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image as ExpoImage } from 'expo-image';
 import * as ImagePicker from "expo-image-picker";
-import Location from "expo-location";
-import * as MediaLibrary from "expo-media-library";
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
-import { geohashForLocation } from "geofire-common";
 import React, { useState } from "react";
 import {
   ActionSheetIOS,
@@ -23,7 +20,6 @@ import {
   View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
 
 async function addCatch(item: {
   id: string;
@@ -59,18 +55,6 @@ async function addCatch(item: {
   }
 }
 
-type NewCatch = {
-  imageUri: string | null;
-  extraUris: string[];
-  description: string;
-  lengthCm: number | null;
-  weightKg: number | null;
-  species: string | null;
-  lat: number | null;
-  lon: number | null;
-};
-
-
 export default function Add() {
   const db = useSQLiteContext();
 
@@ -85,31 +69,19 @@ export default function Add() {
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const router = useRouter();
 
-
-
-  // SQLiteProvider in app/_layout.tsx initializes the DB and creates tables.
-  // Here we only use the provided `db` via useSQLiteContext().
-  // If db is not available at runtime, inserts will fail (handled below).
- 
-  // helper to run exec on provider-backed db, throws if no db available
-  // note: expo-sqlite's execAsync accepts a single SQL string parameter,
-  // so we substitute `?` placeholders with escaped values before calling it.
   const runSql = async (sql: string, params: any[] = []) => {
     if (!db || typeof db.execAsync !== "function") throw new Error("no sqlite db available");
 
-    // If there are no params just run the SQL directly.
     if (!params || params.length === 0) {
       return db.execAsync(sql);
     }
 
-    // Replace each `?` with the next parameter (simple escaping).
     let idx = 0;
     const finalSql = sql.replace(/\?/g, () => {
       const p = params[idx++];
       if (p === null || p === undefined) return "NULL";
       if (typeof p === "number") return String(p);
       if (typeof p === "boolean") return p ? "1" : "0";
-      // Escape single quotes for strings
       const s = String(p).replace(/'/g, "''");
       return `'${s}'`;
     });
@@ -117,100 +89,75 @@ export default function Add() {
     return db.execAsync(finalSql);
   };
 
- const ensureMediaAccess = async () => {
-  const picker = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!picker.granted) return false;
-  if (Platform.OS === "android") {
-    const media = await MediaLibrary.requestPermissionsAsync();
-    if (!media.granted) return false;
-  }
-  return true;
-};
+  const parseExifCoords = (exif: any): { lat: number; lon: number } | null => {
+    if (!exif) {
+      console.log("EXIF: No exif data");
+      return null;
+    }
 
-const pickImageAndGetGps = async () => {
-  if (!(await ensureMediaAccess())) return;
+    console.log("=== EXIF DATA START ===");
+    console.log("All EXIF keys:", Object.keys(exif));
+    console.log("Full EXIF:", JSON.stringify(exif, null, 2));
+    console.log("GPSLatitude:", exif.GPSLatitude, "type:", typeof exif.GPSLatitude);
+    console.log("GPSLongitude:", exif.GPSLongitude, "type:", typeof exif.GPSLongitude);
+    console.log("GPSLatitudeRef:", exif.GPSLatitudeRef);
+    console.log("GPSLongitudeRef:", exif.GPSLongitudeRef);
+    console.log("=== EXIF DATA END ===");
 
-   const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsEditing: false,
-    quality: 0.85,
-    exif: true,
-  });
- 
-   if (result.canceled) return;
-   const asset = result.assets?.[0];
-   if (!asset) return;
-   const uri = asset.uri;
+    const lat = exif.GPSLatitude;
+    const lon = exif.GPSLongitude;
 
-   // 1) If assetId available, prefer MediaLibrary info (includes location)
-   if (asset.assetId) {
-     try {
-      
-       const getAssetInfoAsyncAny = (MediaLibrary.getAssetInfoAsync as any);
-       const info = await getAssetInfoAsyncAny(asset.assetId, { exif: true });
-       if (info?.location) {
-         setImage(uri);
-         setImageCoords({ lat: info.location.latitude, lon: info.location.longitude });
-         return;
-       }
-     } catch (e) {
-       console.warn('getAssetInfoAsync failed', e);
-     }
-   }
+    if (typeof lat === "number" && typeof lon === "number") {
+      // Validate
+      if (lat === 0 && lon === 0) return null;
+      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      return { lat, lon };
+    }
 
-   // 2) Some pickers return exif directly on the asset (try that)
-   if ((asset as any).exif) {
-     try {
-       const exif = (asset as any).exif;
-       // EXIF GPS fields vary; check common places
-       if (exif && (exif.GPSLatitude || exif.GPSLatitudeRef || exif.gpsLatitude)) {
-         // best-effort parsing — if your picker returns coords in a known shape, extract them here
-         // Fallback: log exif for debugging
-         console.log('asset.exif', exif);
-       }
-     } catch {}
-   }
+    return null;
+  };
 
-   // 3) Fallback: save transient/cropped file to MediaLibrary to get an asset id (requires permission)
-   try {
-     const { status } = await MediaLibrary.requestPermissionsAsync();
-     if (status === 'granted') {
-       try {
-         const created = await MediaLibrary.createAssetAsync(uri);
-         // TypeScript types don't include the `exif` option for some SDKs; cast the function to any to allow it.
-         const getAssetInfoAsyncAny = (MediaLibrary.getAssetInfoAsync as any);
-         const info = await getAssetInfoAsyncAny(created.id, { exif: true } as any);
-         setImage(uri);
-         if (info?.location) {
-           setImageCoords({ lat: info.location.latitude, lon: info.location.longitude });
-         }
-         return;
-       } catch (e) {
-         console.warn('createAssetAsync/getAssetInfoAsync failed', e);
-       }
-     }
-   } catch (e) {
-     console.warn('MediaLibrary permission request failed', e);
-   }
+  const pickImageAndGetGps = async () => {
+    const picker = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!picker.granted) {
+      Alert.alert("Нет доступа", "Разрешите приложению читать фотографии.");
+      return;
+    }
 
-   // 4) Final fallback: just use the returned uri (no GPS)
-   setImage(uri);
- };
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: false,
+      exif: true,
+    });
 
-const addMultiplePhotos = async () => {
-  const res = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ImagePicker.MediaTypeOptions.Images, // use MediaTypeOptions.Images
-    selectionLimit: 10, // adjust as needed
-    quality: 1,
-    // ensure no crop UI appears when selecting multiple images
-    allowsEditing: false,
-    exif: false,
-  });
-  if (!res.canceled && res.assets?.length) {
-    setExtraPhotos(prev => [...prev, ...res.assets.map(a => a.uri)]);
-  }
-};
-  
+    if (result.canceled) return;
+    const asset = result.assets?.[0];
+    if (!asset) return;
+
+    console.log("=== PICKED ASSET ===");
+    console.log("URI:", asset.uri);
+    console.log("Asset ID:", asset.assetId);
+    console.log("Has exif property:", !!(asset as any).exif);
+
+    setImage(asset.uri);
+
+    const exif = (asset as any).exif;
+    const coords = parseExifCoords(exif);
+
+    if (coords) {
+      setImageCoords(coords);
+      console.log("SUCCESS: GPS coords:", coords);
+    } else {
+      setImageCoords(null);
+      console.log("FAILED: No GPS coords found");
+      Alert.alert(
+        "GPS не найден",
+        "Фото не содержит геоданных. Выберите фото, сделанное камерой с включённой геолокацией."
+      );
+    }
+  };
+
   const fishSpecies = [
     { id: "pike", label: "Щука", image: require("../assets/fishicons/schuka.420x420.png") },
     { id: "perch", label: "Окунь", image: require("../assets/fishicons/perch.png") },
@@ -253,85 +200,32 @@ const addMultiplePhotos = async () => {
   const handleUpload = async () => {
     setIsUploading(true);
     try {
-      let lat: number | null = null,
-        lon: number | null = null,
-        geohash: string | null = null;
-
-      // prefer coordinates from picked image, fallback to device location
-      if (imageCoords) {
-        lat = imageCoords.lat;
-        lon = imageCoords.lon;
-      } else {
-        try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
-          if (status === "granted") {
-            const pos = await Location.getCurrentPositionAsync({});
-            lat = pos.coords.latitude;
-            lon = pos.coords.longitude;
-          }
-        } catch (e) {
-          console.warn("location request failed", e);
-        }
-      }
-
-      // Require coordinates to ensure markers can render on the map
-      if (lat == null || lon == null) {
-        Alert.alert("Нет координат", "Фото не содержит GPS и местоположение недоступно. Разрешите геолокацию или выберите фото с EXIF.");
-        setIsUploading(false);
-        return;
-      }
-
-      try {
-        geohash = geohashForLocation([lat, lon]);
-      } catch {}
-
-      // insert into sqlite if available
-      if (!db || typeof db.execAsync !== "function") {
-        throw new Error("SQLite database is not available. Cannot save catch.");
-      }
-
-      let insertedId: number | null = null;
-      try {
-        const lengthNum = length ? Number(length) : null;
-        const weightNum = weight ? Number(weight) : null;
-        const createdAt = Date.now();
-
-        const res = await runSql(
-          `INSERT INTO catches (image_uri, description, length_cm, weight_kg, species, lat, lon, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
-          [image ?? null, description || null, lengthNum, weightNum, selectedSpecies ?? null, lat, lon, createdAt]
+      if (!imageCoords || imageCoords.lat == null || imageCoords.lon == null) {
+        Alert.alert(
+          "Нет координат в фото",
+          "Фото не содержит GPS данных. Выберите фото с геолокацией."
         );
-        // execAsync may return an object with insertId or an array — try both
-        {
-          const anyRes = res as any;
-          const maybeInsertId =
-            (anyRes != null && anyRes.insertId != null)
-              ? anyRes.insertId
-              : (Array.isArray(anyRes) && anyRes[0] && anyRes[0].insertId)
-                ? anyRes[0].insertId
-                : undefined;
-          insertedId = typeof maybeInsertId !== "undefined" ? maybeInsertId : null;
-        }
-
-        if (insertedId != null && extraPhotos.length > 0) {
-          for (const uri of extraPhotos) {
-            try {
-              await runSql(`INSERT INTO extra_photos (catch_id, uri) VALUES (?, ?);`, [insertedId, uri]);
-            } catch (e) {
-              console.warn("insert extra photo failed", e);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("sqlite insert failed:", e);
-        Alert.alert("Ошибка", "Не удалось сохранить запись в SQLite.");
         setIsUploading(false);
         return;
       }
 
-      // no fallback to AsyncStorage — purely SQLite-backed now
+      const lat = imageCoords.lat;
+      const lon = imageCoords.lon;
 
-      
+      if (!db || typeof db.execAsync !== "function") {
+        throw new Error("SQLite database is not available.");
+      }
+
+      const lengthNum = length ? Number(length) : null;
+      const weightNum = weight ? Number(weight) : null;
+      const createdAt = Date.now();
+
+      await runSql(
+        `INSERT INTO catches (image_uri, description, length_cm, weight_kg, species, lat, lon, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
+        [image ?? null, description || null, lengthNum, weightNum, selectedSpecies ?? null, lat, lon, createdAt]
+      );
+
       router.push("/profile");
 
       setImage(null);
@@ -344,14 +238,10 @@ const addMultiplePhotos = async () => {
 
     } catch (e: any) {
       console.error("handleUpload error", e);
-      
+      Alert.alert("Ошибка", "Не удалось сохранить улов.");
     } finally {
-
-      setExtraPhotos([]);
-
       setIsUploading(false);
     }
-  
   };
 
   return (
@@ -373,84 +263,83 @@ const addMultiplePhotos = async () => {
               {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
               <Text style={styles.placeholderText}>Добавить фото</Text>}
             </TouchableOpacity>
-          <View style={styles.rightColumn}>
-            <TouchableOpacity onPress={addMultiplePhotos} style={styles.plusButton}><Text style={styles.plusText}>+</Text></TouchableOpacity>
-            <View style={styles.extraThumbs}>
-              {extraPhotos.slice(0, 3).map((uri, i) => (
-                <ExpoImage key={i} source={{ uri }} style={styles.extraThumb} />
-              ))}
-              {extraPhotos.length > 3 && <View style={styles.moreBadge}><Text style={styles.moreBadgeText}>+{extraPhotos.length - 3}</Text></View>}
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.inputs}>
-          <TextInput
-            style={styles.descriptionInput}
-            placeholder="Описание"
-            placeholderTextColor="#94a3b8"
-            value={description}
-            onChangeText={setDescription}
-            returnKeyType='done'
-            multiline
-            keyboardAppearance="dark"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Длина (см)"
-            placeholderTextColor="#94a3b8"
-            keyboardType="numeric"
-            returnKeyType='done'
-            value={length}
-            onChangeText={setLength}
-            keyboardAppearance="dark"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Вес (кг)"
-            placeholderTextColor="#94a3b8"
-            returnKeyType="done"
-            keyboardType="numeric"
-            value={weight}
-            onChangeText={setWeight}
-            keyboardAppearance="dark"
-          />
-        </View>
-
-        <View style={styles.speciesWrapper}>
-          <Text style={styles.speciesTitle}>Вид</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
-            {fishSpecies.map((s) => (
-              <TouchableOpacity key={s.id} style={[styles.speciesItem, selectedSpecies === s.id && styles.speciesItemSelected]} onPress={() => setSelectedSpecies(s.id)}>
-                <Image source={s.image} style={styles.speciesImage} />
-                <Text style={styles.speciesLabel}>{s.label}</Text>
-              </TouchableOpacity>
-            ))}
-            <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>Ещё</Text></TouchableOpacity>
-          </ScrollView>
-          <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `Выбран: ${getSpeciesLabel(selectedSpecies)}` : "Вид не выбран"}</Text>
-        </View>
-
-        <TouchableOpacity style={[styles.uploadBtn, isUploading && { opacity: 0.7 }]} onPress={handleUpload} disabled={isUploading}>
-          <Text style={styles.uploadBtnText}>{isUploading ? "Загрузка..." : "Выложить"}</Text>
-        </TouchableOpacity>
-
-        <Modal visible={moreModalVisible} animationType="slide" transparent={true} onRequestClose={() => setMoreModalVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              <Text style={styles.speciesTitle}>Выберите вид</Text>
-              <ScrollView>
-                {moreSpecies.map((s) => (
-                  <Pressable key={s.id} onPress={() => selectMoreSpecies(s.id)} style={({ pressed }) => [styles.modalItem, pressed && { backgroundColor: "#061420" }]}>
-                    <Text style={styles.modalItemText}>{s.label}</Text>
-                  </Pressable>
+            <View style={styles.rightColumn}>
+              <View style={styles.extraThumbs}>
+                {extraPhotos.slice(0, 3).map((uri, i) => (
+                  <ExpoImage key={i} source={{ uri }} style={styles.extraThumb} />
                 ))}
-              </ScrollView>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setMoreModalVisible(false)}><Text style={styles.moreText}>Отмена</Text></TouchableOpacity>
+                {extraPhotos.length > 3 && <View style={styles.moreBadge}><Text style={styles.moreBadgeText}>+{extraPhotos.length - 3}</Text></View>}
+              </View>
             </View>
           </View>
-        </Modal>
-      </ScrollView>
+
+          <View style={styles.inputs}>
+            <TextInput
+              style={styles.descriptionInput}
+              placeholder="Описание"
+              placeholderTextColor="#94a3b8"
+              value={description}
+              onChangeText={setDescription}
+              returnKeyType='done'
+              multiline
+              keyboardAppearance="dark"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Длина (см)"
+              placeholderTextColor="#94a3b8"
+              keyboardType="numeric"
+              returnKeyType='done'
+              value={length}
+              onChangeText={setLength}
+              keyboardAppearance="dark"
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Вес (кг)"
+              placeholderTextColor="#94a3b8"
+              returnKeyType="done"
+              keyboardType="numeric"
+              value={weight}
+              onChangeText={setWeight}
+              keyboardAppearance="dark"
+            />
+          </View>
+
+          <View style={styles.speciesWrapper}>
+            <Text style={styles.speciesTitle}>Вид</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
+              {fishSpecies.map((s) => (
+                <TouchableOpacity key={s.id} style={[styles.speciesItem, selectedSpecies === s.id && styles.speciesItemSelected]} onPress={() => setSelectedSpecies(s.id)}>
+                  <Image source={s.image} style={styles.speciesImage} />
+                  <Text style={styles.speciesLabel}>{s.label}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>Ещё</Text></TouchableOpacity>
+            </ScrollView>
+            <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `Выбран: ${getSpeciesLabel(selectedSpecies)}` : "Вид не выбран"}</Text>
+          </View>
+
+          <TouchableOpacity style={[styles.uploadBtn, isUploading && { opacity: 0.7 }]} onPress={handleUpload} disabled={isUploading}>
+            <Text style={styles.uploadBtnText}>{isUploading ? "Загрузка..." : "Выложить"}</Text>
+          </TouchableOpacity>
+
+          <Modal visible={moreModalVisible} animationType="slide" transparent={true} onRequestClose={() => setMoreModalVisible(false)}>
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.speciesTitle}>Выберите вид</Text>
+                <ScrollView>
+                  {moreSpecies.map((s) => (
+                    <Pressable key={s.id} onPress={() => selectMoreSpecies(s.id)} style={({ pressed }) => [styles.modalItem, pressed && { backgroundColor: "#061420" }]}>
+                      <Text style={styles.modalItemText}>{s.label}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setMoreModalVisible(false)}><Text style={styles.moreText}>Отмена</Text></TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </ScrollView>
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
@@ -461,12 +350,12 @@ const styles = StyleSheet.create({
   imageRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
   photoBox: { width: 200, height: 160, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
-  photo: { width: 160, height: 160, resizeMode: "cover" },
+  photo: { width: 160, height: 160 },
   rightColumn: { marginLeft: 12, alignItems: "center" },
   plusButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#06202b", alignItems: "center", justifyContent: "center", marginBottom: 8 },
   plusText: { color: "#60a5fa", fontSize: 24, lineHeight: 24 },
   extraThumbs: { flexDirection: "row", alignItems: "center" },
-  extraThumb: { width: 40, height: 40, marginRight: 6, borderRadius: 4, resizeMode: "cover" },
+  extraThumb: { width: 40, height: 40, marginRight: 6, borderRadius: 4 },
   moreBadge: { width: 40, height: 40, borderRadius: 4, backgroundColor: "#072033", alignItems: "center", justifyContent: "center" },
   moreBadgeText: { color: "#60a5fa" },
   inputs: { width: "100%", marginBottom: 12 },

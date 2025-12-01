@@ -4,7 +4,7 @@ import "react-native-gesture-handler";
 import { getSpeciesLabel } from "@/lib/species";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useSQLiteContext, type SQLiteDatabase } from "expo-sqlite";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, GestureResponderEvent, Image, Modal, Platform, Pressable, StyleSheet, Text, TouchableOpacity, View } from "react-native";
@@ -86,6 +86,11 @@ const fishSpeciesImages: Record<string, any> = {
 };
 
 export default function Map() {
+  const { focusLat, focusLon, catchId } = useLocalSearchParams<{
+    focusLat?: string;
+    focusLon?: string;
+    catchId?: string;
+  }>();
   const router = useRouter();
   const db = useSQLiteContext(); // may be undefined until provider mounts
   const mapRef = useRef<any>(null);
@@ -128,6 +133,7 @@ export default function Map() {
   // modal for full-screen image preview
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [modalImageUri, setModalImageUri] = useState<string | null>(null);
+  const [highlightedCatchId, setHighlightedCatchId] = useState<string | null>(null);
 
   // prevent concurrent DB queries that can finalize the same statement
   // (dbQueryLockRef is declared once above; do not redeclare here)
@@ -144,6 +150,27 @@ export default function Map() {
       bottomSheetRef.current?.close();
     }
   }, [selectedCatch]);
+
+  // Focus on passed coordinates when navigating from profile
+  useEffect(() => {
+    if (focusLat && focusLon) {
+      const lat = parseFloat(focusLat);
+      const lon = parseFloat(focusLon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        const newRegion = {
+          latitude: lat,
+          longitude: lon,
+          latitudeDelta: 0.01,
+          longitudeDelta: 0.01,
+        };
+        setRegion(newRegion);
+        mapRef.current?.animateToRegion(newRegion, 500);
+        if (catchId) {
+          setHighlightedCatchId(catchId);
+        }
+      }
+    }
+  }, [focusLat, focusLon, catchId]);
 
   const requestLocationPermission = async () => {
     try {
@@ -417,14 +444,14 @@ export default function Map() {
          clusterColor="#0ea5e9"
          clusterTextColor="#ffffff"
          radius={50}
-         spiralEnabled={false}
+         spiralEnabled={true}
          animationEnabled={true}
        >
         {markers.map((m) => (
           <Marker
             key={m.id}
             coordinate={{ latitude: Number(m.lat), longitude: Number(m.lon) }}
-            tracksViewChanges={false}
+            tracksViewChanges={true}
             onPress={() =>
               setSelectedCatch({
                 id: m.id,

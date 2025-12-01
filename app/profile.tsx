@@ -232,104 +232,132 @@ export default function Profile() {
          handleIndicatorStyle={{ backgroundColor: "#94a3b8" }}
          backgroundStyle={{ backgroundColor: "rgba(2,6,23,0.95)" }}
        >
-         <BottomSheetView style={{ paddingHorizontal: 16, paddingBottom: 24 }}>
+         <BottomSheetView style={styles.bottomSheetContent}>
            {!selectedCatch ? (
              <Text style={{ color: "#94a3b8" }}>No selection</Text>
            ) : (
-             <View>
-              <ScrollView
-                horizontal
-                style={styles.profilescroll}
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.bigimagescroller}
-                keyboardDismissMode="on-drag"
-                onScrollBeginDrag={() => Keyboard.dismiss()}
-              >
-                <Image
-                  source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
-                  style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
-                />
-                {(selectedCatch.extraPhotos || []).map((uri, idx) => (
-                  <Image
-                    key={idx}
-                    source={{ uri }}
-                    style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
-                  />
-                ))}
-              </ScrollView>
+             <>
+               <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                 <ScrollView
+                   horizontal
+                   style={styles.profilescroll}
+                   showsHorizontalScrollIndicator={false}
+                   contentContainerStyle={styles.bigimagescroller}
+                   keyboardDismissMode="on-drag"
+                   onScrollBeginDrag={() => Keyboard.dismiss()}
+                 >
+                   <Image
+                     source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
+                     style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
+                   />
+                   {(selectedCatch.extraPhotos || []).map((uri, idx) => (
+                     <Image
+                       key={idx}
+                       source={{ uri }}
+                       style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
+                     />
+                   ))}
+                 </ScrollView>
 
-               <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
-                 {getSpeciesLabel(selectedCatch.species)}
-               </Text>
-               
-               <Text style={{ color: "#94a3b8", marginTop: 8 }}>
-                 {new Date(selectedCatch.date).toLocaleString()}
-               </Text>
+                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
+                   {getSpeciesLabel(selectedCatch.species)}
+                 </Text>
+                 
+                 <Text style={{ color: "#94a3b8", marginTop: 8 }}>
+                   {new Date(selectedCatch.date).toLocaleString()}
+                 </Text>
 
-               <Text style={styles.label}>Описание</Text>
-               {editing ? (
-                 <TextInput
-                   style={styles.input}
-                   value={editDescription}
-                   onChangeText={setEditDescription}
-                   multiline
-                   textAlignVertical="top"
-                   returnKeyType="done"
-                 />
-               ) : (
-                 <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
-               )}
-
-               <Text style={styles.label}>Длина (cm)</Text>
-               {editing ? (
-                 <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} 
-                 keyboardType="numeric"
-                 returnKeyType="done" />
-               ) : (
-                 <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
-               )}
-
-               <Text style={styles.label}>Вес (kg)</Text>
-               {editing ? (
-                 <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} 
-                 keyboardType="numeric"
-                 returnKeyType="done" />
-               ) : (
-                 <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
-               )}
-
-               <View style={styles.modalActions}>
+                 <Text style={styles.label}>Описание</Text>
                  {editing ? (
-                   <>
-                     <TouchableOpacity style={styles.btnSave} onPress={onSave}>
-                       <Text style={styles.btnText}>Сохранить</Text>
-                     </TouchableOpacity>
-                     <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
-                       <Text style={styles.btnText}>Отмена</Text>
-                     </TouchableOpacity>
-                   </>
+                   <TextInput
+                     style={styles.input}
+                     value={editDescription}
+                     onChangeText={setEditDescription}
+                     multiline
+                     textAlignVertical="top"
+                     returnKeyType="done"
+                   />
                  ) : (
-                   <>
-                     <TouchableOpacity
-                       style={styles.btnEdit}
-                       onPress={() => {
-                         if (!selectedCatch) return;
-                         setEditDescription(selectedCatch.description || "");
-                         setEditLength(selectedCatch.length || "");
-                         setEditWeight(selectedCatch.weight || "");
-                         setEditing(true);
-                       }}
-                     >
-                       <Text style={styles.btnText}>Редактировать</Text>
-                     </TouchableOpacity>
-                     <TouchableOpacity style={styles.btnClose} 
-                     onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
-                       <Text style={styles.btnText}>Закрыть</Text>
-                     </TouchableOpacity>
-                   </>
+                   <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
                  )}
-               </View>
-             </View>
+
+                 <Text style={styles.label}>Длина (cm)</Text>
+                 {editing ? (
+                   <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} 
+                   keyboardType="numeric"
+                   returnKeyType="done" />
+                 ) : (
+                   <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
+                 )}
+
+                 <Text style={styles.label}>Вес (kg)</Text>
+                 {editing ? (
+                   <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} 
+                   keyboardType="numeric"
+                   returnKeyType="done" />
+                 ) : (
+                   <Text style={styles.value}>{selectedCatch.weight || "--"}</Text>
+                 )}
+
+                 <View style={styles.modalActions}>
+                   {editing ? (
+                     <>
+                       <TouchableOpacity style={styles.btnSave} onPress={onSave}>
+                         <Text style={styles.btnText}>Сохранить</Text>
+                       </TouchableOpacity>
+                       <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
+                         <Text style={styles.btnText}>Отмена</Text>
+                       </TouchableOpacity>
+                     </>
+                   ) : (
+                     <>
+                       <TouchableOpacity
+                         style={styles.btnEdit}
+                         onPress={() => {
+                           if (!selectedCatch) return;
+                           setEditDescription(selectedCatch.description || "");
+                           setEditLength(selectedCatch.length || "");
+                           setEditWeight(selectedCatch.weight || "");
+                           setEditing(true);
+                         }}
+                       >
+                         <Text style={styles.btnText}>Редактировать</Text>
+                       </TouchableOpacity>
+                       <TouchableOpacity style={styles.btnClose} 
+                       onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
+                         <Text style={styles.btnText}>Закрыть</Text>
+                       </TouchableOpacity>
+                     </>
+                   )}
+                 </View>
+                 
+                 {/* Spacer for the floating button */}
+                 <View style={{ height: 80 }} />
+               </ScrollView>
+
+               {!editing && selectedCatch && (
+                 <TouchableOpacity
+                   style={styles.btnMap}
+                   onPress={() => {
+                     if (selectedCatch.lat != null && selectedCatch.lon != null) {
+                       bottomSheetRef.current?.close();
+                       router.push({
+                         pathname: "/",
+                         params: {
+                           focusLat: selectedCatch.lat,
+                           focusLon: selectedCatch.lon,
+                           catchId: selectedCatch.id,
+                         },
+                       });
+                     } else {
+                       Alert.alert("Нет координат", "У этого улова нет сохранённых координат.");
+                     }
+                   }}
+                 >
+                   <Text style={styles.btnMapTextLabel}>🗺️ Показать на карте</Text>
+                 </TouchableOpacity>
+               )}
+             </>
            )}
          </BottomSheetView>
        </BottomSheet>
@@ -367,23 +395,6 @@ const styles = StyleSheet.create({
   },
   deleteText: { color: "#fff", fontWeight: "700" },
 
-  loginButton: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    zIndex: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#60a5fa",
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 10,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 6,
-  },
 
   label: { color: "#ffffffff", fontSize: 14, fontWeight: "600", marginTop: 12 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
@@ -405,6 +416,53 @@ const styles = StyleSheet.create({
   btnCancel: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnClose: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
   btnText: { color: "#fff", fontWeight: "700" },
+  btnMap: { 
+    backgroundColor: "#3b82f6", 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    borderRadius: 8, 
+    marginTop: 12, 
+    alignSelf: "center" 
+  },
+  btnMapCircle: {
+ 
+    bottom: 5,
+    left: 16,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "#3b82f6",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+    padding: 25
+  },
+  mapIcon: {
+    fontSize: 24,
+  },
+  btnMapText: {
+
+    bottom: 16,
+    left: 16,
+    backgroundColor: "#3b82f6",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  btnMapTextLabel: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
+  },
 
   profilescroll : {
     marginTop: 0,
@@ -414,5 +472,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 4,
     paddingHorizontal: 8,
-  }
+  },
+
+  bottomSheetContent: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
 });
