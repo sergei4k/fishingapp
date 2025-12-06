@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "fishingapp.app"
-               BlueprintName = "fishingapp"
-               ReferencedContainer = "container:fishingapp.xcodeproj">
+               BuildableName = "Rybolov.app"
+               BlueprintName = "Rybolov"
+               ReferencedContainer = "container:Rybolov.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "fishingappTests.xctest"
-               BlueprintName = "fishingappTests"
-               ReferencedContainer = "container:fishingapp.xcodeproj">
+               BuildableName = "RybolovTests.xctest"
+               BlueprintName = "RybolovTests"
+               ReferencedContainer = "container:Rybolov.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "fishingapp.app"
-            BlueprintName = "fishingapp"
-            ReferencedContainer = "container:fishingapp.xcodeproj">
+            BuildableName = "Rybolov.app"
+            BlueprintName = "Rybolov"
+            ReferencedContainer = "container:Rybolov.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "fishingapp.app"
-            BlueprintName = "fishingapp"
-            ReferencedContainer = "container:fishingapp.xcodeproj">
+            BuildableName = "Rybolov.app"
+            BlueprintName = "Rybolov"
+            ReferencedContainer = "container:Rybolov.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
