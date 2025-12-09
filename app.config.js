@@ -7,15 +7,6 @@ export default {
     icon: "./assets/images/icon.png",
     scheme: "fishingapp",
     userInterfaceStyle: "automatic",
-    ios: {
-      supportsTablet: true,
-      infoPlist: {
-        NSLocationWhenInUseUsageDescription: "We use your location to center the fishing map around you.",
-        NSPhotoLibraryUsageDescription: "Allow $(PRODUCT_NAME) to access your photos to extract GPS data.",
-        NSCameraUsageDescription: "Allow $(PRODUCT_NAME) to access your camera."
-      },
-      bundleIdentifier: "com.anonymous.fishingapp"
-    },
     android: {
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
@@ -37,11 +28,6 @@ export default {
       },
       package: "com.anonymous.fishingapp"
     },
-    web: {
-      bundler: "metro",
-      output: "static",
-      favicon: "./assets/images/favicon.png"
-    },
     plugins: [
       "expo-router",
       [
@@ -59,8 +45,8 @@ export default {
       [
         "expo-media-library",
         {
-          photosPermission: "Allow $(PRODUCT_NAME) to access your photos.",
-          savePhotosPermission: "Allow $(PRODUCT_NAME) to save photos.",
+          photosPermission: "Allow app to access your photos.",
+          savePhotosPermission: "Allow app to save photos.",
           isAccessMediaLocationEnabled: true,
           isMicrophonePermissionDeclared: false
         }

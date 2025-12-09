@@ -1,5 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Image as ExpoImage } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useState } from "react";
@@ -18,7 +20,6 @@ import {
   TouchableOpacity,
   View
 } from "react-native";
-import ImagePicker from 'react-native-image-crop-picker';
 import { SafeAreaView } from "react-native-safe-area-context";
 
 async function addCatch(item: {
@@ -89,65 +90,97 @@ export default function Add() {
     return db.execAsync(finalSql);
   };
 
-  const parseExifCoords = (exif: any): { lat: number; lon: number } | null => {
-    if (!exif) {
-      console.log("EXIF: No exif data");
-      return null;
-    }
-
-    console.log("=== EXIF DATA ===");
-    console.log("Full EXIF:", JSON.stringify(exif, null, 2));
-
-    // react-native-image-crop-picker uses these keys
-    const lat = exif.Latitude ?? exif.GPSLatitude ?? exif.latitude;
-    const lon = exif.Longitude ?? exif.GPSLongitude ?? exif.longitude;
-
-    console.log("Latitude:", lat, "type:", typeof lat);
-    console.log("Longitude:", lon, "type:", typeof lon);
-
-    if (typeof lat === "number" && typeof lon === "number") {
-      if (lat === 0 && lon === 0) return null;
-      if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      return { lat, lon };
-    }
-
-    return null;
-  };
-
   const pickImageAndGetGps = async () => {
     try {
-      const result = await ImagePicker.openPicker({
-        mediaType: 'photo',
-        cropping: false,
-        includeExif: true,
+      // Request permissions
+      const { status: pickerStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (pickerStatus !== 'granted') {
+        Alert.alert("Нет доступа", "Разрешите доступ к фотографиям в настройках.");
+        return;
+      }
+
+      const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
+      if (mediaStatus !== 'granted') {
+        Alert.alert("Нет доступа", "Разрешите доступ к медиатеке для чтения GPS.");
+        return;
+      }
+
+      // Pick image
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.85,
+        exif: true,
       });
 
-      console.log("=== PICKED IMAGE ===");
-      console.log("Path:", result.path);
-      console.log("Has exif:", !!result.exif);
-      console.log("Full result:", JSON.stringify(result, null, 2));
+      if (result.canceled) return;
 
-      setImage(result.path);
+      const asset = result.assets?.[0];
+      if (!asset) return;
 
-      const coords = parseExifCoords(result.exif);
+      console.log("=== EXPO PICKER RESULT ===");
+      console.log("URI:", asset.uri);
+      console.log("Asset ID:", asset.assetId);
+      console.log("EXIF:", JSON.stringify(asset.exif, null, 2));
+
+      setImage(asset.uri);
+
+      let coords: { lat: number; lon: number } | null = null;
+
+      // Try 1: Get from EXIF data returned by picker
+      if (asset.exif) {
+        const exif = asset.exif;
+        
+        if (exif.GPSLatitude != null && exif.GPSLongitude != null) {
+          let lat = parseFloat(String(exif.GPSLatitude));
+          let lon = parseFloat(String(exif.GPSLongitude));
+          
+          if (exif.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
+          if (exif.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
+          
+          if (lat !== 0 || lon !== 0) {
+            if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+              coords = { lat, lon };
+              console.log("SUCCESS from EXIF:", coords);
+            }
+          }
+        }
+      }
+
+      // Try 2: Get from MediaLibrary using assetId (only if we have exact match)
+      if (!coords && asset.assetId) {
+        try {
+          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
+          console.log("MediaLibrary location:", JSON.stringify(info.location));
+
+          if (info.location?.latitude != null && info.location?.longitude != null) {
+            const lat = info.location.latitude;
+            const lon = info.location.longitude;
+
+            if ((lat !== 0 || lon !== 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+              coords = { lat, lon };
+              console.log("SUCCESS from MediaLibrary:", coords);
+            }
+          }
+        } catch (error) {
+          console.error("MediaLibrary error:", error);
+        }
+      }
+
+      // No Try 3 - removed the fallback that was causing wrong coordinates
 
       if (coords) {
         setImageCoords(coords);
-        console.log("SUCCESS: GPS coords:", coords);
       } else {
         setImageCoords(null);
-        console.log("FAILED: No GPS coords found");
         Alert.alert(
           "GPS не найден",
-          "Фото не содержит геоданных. Выберите фото, сделанное камерой с включённой геолокацией."
+          "Фото не содержит геоданных. Убедитесь, что фото было сделано с включённой геолокацией."
         );
       }
     } catch (error: any) {
-      if (error.code !== 'E_PICKER_CANCELLED') {
-        console.error("Picker error:", error);
-        Alert.alert("Ошибка", "Не удалось выбрать фото.");
-      }
+      console.error("Picker error:", error);
+      Alert.alert("Ошибка", "Не удалось выбрать фото.");
     }
   };
 
@@ -266,6 +299,12 @@ export default function Add() {
             </View>
           </View>
 
+          {imageCoords && (
+            <Text style={styles.coordsText}>
+              📍 {imageCoords.lat.toFixed(5)}, {imageCoords.lon.toFixed(5)}
+            </Text>
+          )}
+
           <View style={styles.inputs}>
             <TextInput
               style={styles.descriptionInput}
@@ -345,12 +384,11 @@ const styles = StyleSheet.create({
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160 },
   rightColumn: { marginLeft: 12, alignItems: "center" },
-  plusButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#06202b", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  plusText: { color: "#60a5fa", fontSize: 24, lineHeight: 24 },
   extraThumbs: { flexDirection: "row", alignItems: "center" },
   extraThumb: { width: 40, height: 40, marginRight: 6, borderRadius: 4 },
   moreBadge: { width: 40, height: 40, borderRadius: 4, backgroundColor: "#072033", alignItems: "center", justifyContent: "center" },
   moreBadgeText: { color: "#60a5fa" },
+  coordsText: { color: "#22c55e", fontSize: 12, marginBottom: 12 },
   inputs: { width: "100%", marginBottom: 12 },
   descriptionInput: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
   input: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
