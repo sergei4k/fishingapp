@@ -1,4 +1,5 @@
 import { getSpeciesLabel } from "@/lib/species";
+import { FontAwesome } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
 import { useRouter } from "expo-router";
@@ -204,7 +205,7 @@ export default function Profile() {
 
   return (
     <SafeAreaView style={styles.container}>
-       <Text style={styles.title}>Мои пойманные</Text>
+       <Text style={styles.title}>Мой Улов</Text>
 
        <FlatList
          data={catches}
@@ -213,7 +214,7 @@ export default function Profile() {
          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
          keyboardDismissMode="on-drag"
          onScrollBeginDrag={() => Keyboard.dismiss()}
-         ListEmptyComponent={<Text style={styles.empty}>Тут пока пусто</Text>}
+         ListEmptyComponent={<Text style={styles.empty}>Здесь пусто. Иди на рыбалку!</Text>}
          contentContainerStyle={
            catches.length === 0 
              ? { flex: 1, justifyContent: "center" } 
@@ -259,7 +260,7 @@ export default function Profile() {
                    ))}
                  </ScrollView>
 
-                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700", marginTop: 12 }}>
+                 <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700", marginTop: 12 }}>
                    {getSpeciesLabel(selectedCatch.species)}
                  </Text>
                  
@@ -321,18 +322,15 @@ export default function Profile() {
                            setEditing(true);
                          }}
                        >
-                         <Text style={styles.btnText}>Редактировать</Text>
-                       </TouchableOpacity>
-                       <TouchableOpacity style={styles.btnClose} 
-                       onPress={() => { setSelectedCatch(null); bottomSheetRef.current?.close(); }}>
-                         <Text style={styles.btnText}>Закрыть</Text>
+                         <FontAwesome name="pencil" size={18} color="#fff" style={{ marginRight: 6 }} />
+                        <Text style={styles.btnText}>Редактировать</Text>
                        </TouchableOpacity>
                      </>
                    )}
                  </View>
                  
                  {/* Spacer for the floating button */}
-                 <View style={{ height: 80 }} />
+                 <View style={{ height: 20 }} />
                </ScrollView>
 
                {!editing && selectedCatch && (
@@ -354,7 +352,8 @@ export default function Profile() {
                      }
                    }}
                  >
-                   <Text style={styles.btnMapTextLabel}>🗺️ Показать на карте</Text>
+                  <FontAwesome name="map-marker" size={18} color="#fff" style={{ marginRight: 6 }} />
+                   <Text style={styles.btnMapTextLabel}>Показать на карте</Text>
                  </TouchableOpacity>
                )}
              </>
@@ -396,7 +395,7 @@ const styles = StyleSheet.create({
   deleteText: { color: "#fff", fontWeight: "700" },
 
 
-  label: { color: "#ffffffff", fontSize: 14, fontWeight: "600", marginTop: 12 },
+  label: { color: "#ffffffff", fontSize: 18, fontWeight: "600", marginTop: 12 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   input: {
     backgroundColor: "#1e293b",
@@ -408,21 +407,70 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: "row",
-    justifyContent: "space-around",
-    marginTop: 16,
+    gap: 12,
+    marginTop: 20,
+    marginBottom: 8,
   },
-  btnEdit: { backgroundColor: "#60a5fa", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnSave: { backgroundColor: "#10b981", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnCancel: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnClose: { backgroundColor: "#ef4444", paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  btnText: { color: "#fff", fontWeight: "700" },
+  btnEdit: { 
+    backgroundColor: "#3b82f6", 
+    paddingHorizontal: 20, 
+    paddingVertical: 14, 
+    borderRadius: 12, 
+    flexDirection: "row", 
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnSave: { 
+    backgroundColor: "#3b82f6", 
+    paddingHorizontal: 20, 
+    paddingVertical: 14, 
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnCancel: { 
+    backgroundColor: "#475569", 
+    paddingHorizontal: 20, 
+    paddingVertical: 14, 
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  btnText: { color: "#fff", fontWeight: "700", fontSize: 16 },
   btnMap: { 
     backgroundColor: "#3b82f6", 
-    paddingHorizontal: 16, 
-    paddingVertical: 10, 
-    borderRadius: 8, 
+    paddingHorizontal: 20, 
+    paddingVertical: 14, 
+    borderRadius: 12, 
     marginTop: 12, 
-    alignSelf: "center" 
+    marginBottom: 8,
+    alignSelf: "stretch",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   btnMapCircle: {
  
@@ -442,7 +490,7 @@ const styles = StyleSheet.create({
     padding: 25
   },
   mapIcon: {
-    fontSize: 24,
+    fontSize: 20,
   },
   btnMapText: {
 
@@ -458,10 +506,12 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 5,
   },
+
+
   btnMapTextLabel: {
     color: "#fff",
     fontWeight: "700",
-    fontSize: 14,
+    fontSize: 16,
   },
 
   profilescroll : {

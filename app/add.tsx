@@ -1,24 +1,25 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import ExifParser from 'exif-parser';
+import * as DocumentPicker from 'expo-document-picker';
+import { File } from 'expo-file-system/next';
 import { Image as ExpoImage } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
-import * as MediaLibrary from 'expo-media-library';
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useState } from "react";
 import {
-  ActionSheetIOS,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActionSheetIOS,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -92,82 +93,54 @@ export default function Add() {
 
   const pickImageAndGetGps = async () => {
     try {
-      // Request permissions
-      const { status: pickerStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (pickerStatus !== 'granted') {
-        Alert.alert("Нет доступа", "Разрешите доступ к фотографиям в настройках.");
-        return;
-      }
-
-      const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-      if (mediaStatus !== 'granted') {
-        Alert.alert("Нет доступа", "Разрешите доступ к медиатеке для чтения GPS.");
-        return;
-      }
-
-      // Pick image
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.85,
-        exif: true,
+      // Pick image using DocumentPicker
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        copyToCacheDirectory: true,
       });
 
       if (result.canceled) return;
 
-      const asset = result.assets?.[0];
-      if (!asset) return;
+      const pickedFile = result.assets?.[0];
+      if (!pickedFile) return;
 
-      console.log("=== EXPO PICKER RESULT ===");
-      console.log("URI:", asset.uri);
-      console.log("Asset ID:", asset.assetId);
-      console.log("EXIF:", JSON.stringify(asset.exif, null, 2));
+      setImage(pickedFile.uri);
 
-      setImage(asset.uri);
+      // Read file using new expo-file-system/next API
+      const file = new File(pickedFile.uri);
+      const fileBytes = await file.bytes();
+      
+      // Convert Uint8Array to ArrayBuffer for EXIF parser
+      const arrayBuffer = fileBytes.buffer.slice(
+        fileBytes.byteOffset,
+        fileBytes.byteOffset + fileBytes.byteLength
+      );
+
+      // Parse EXIF
+      const parser = ExifParser.create(arrayBuffer);
+      const exifResult = parser.parse();
+
+      if (__DEV__) {
+        console.log("EXIF result:", exifResult);
+      }
 
       let coords: { lat: number; lon: number } | null = null;
+      const tags = exifResult.tags;
 
-      // Try 1: Get from EXIF data returned by picker
-      if (asset.exif) {
-        const exif = asset.exif;
-        
-        if (exif.GPSLatitude != null && exif.GPSLongitude != null) {
-          let lat = parseFloat(String(exif.GPSLatitude));
-          let lon = parseFloat(String(exif.GPSLongitude));
-          
-          if (exif.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
-          if (exif.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
-          
-          if (lat !== 0 || lon !== 0) {
-            if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
-              coords = { lat, lon };
+      if (tags && tags.GPSLatitude && tags.GPSLongitude) {
+        let lat = tags.GPSLatitude;
+        let lon = tags.GPSLongitude;
+        if (tags.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
+        if (tags.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
+        if (lat !== 0 || lon !== 0) {
+          if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+            coords = { lat, lon };
+            if (__DEV__) {
               console.log("SUCCESS from EXIF:", coords);
             }
           }
         }
       }
-
-      // Try 2: Get from MediaLibrary using assetId (only if we have exact match)
-      if (!coords && asset.assetId) {
-        try {
-          const info = await MediaLibrary.getAssetInfoAsync(asset.assetId);
-          console.log("MediaLibrary location:", JSON.stringify(info.location));
-
-          if (info.location?.latitude != null && info.location?.longitude != null) {
-            const lat = info.location.latitude;
-            const lon = info.location.longitude;
-
-            if ((lat !== 0 || lon !== 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
-              coords = { lat, lon };
-              console.log("SUCCESS from MediaLibrary:", coords);
-            }
-          }
-        } catch (error) {
-          console.error("MediaLibrary error:", error);
-        }
-      }
-
-      // No Try 3 - removed the fallback that was causing wrong coordinates
 
       if (coords) {
         setImageCoords(coords);
@@ -179,8 +152,8 @@ export default function Add() {
         );
       }
     } catch (error: any) {
-      console.error("Picker error:", error);
-      Alert.alert("Ошибка", "Не удалось выбрать фото.");
+      console.error("Picker/EXIF error:", error);
+      Alert.alert("Ошибка", "Не удалось выбрать фото или прочитать EXIF.");
     }
   };
 
@@ -300,7 +273,7 @@ export default function Add() {
           </View>
 
           {imageCoords && (
-            <Text style={styles.coordsText}>
+            <Text style={styles.speciesLabel}>
               📍 {imageCoords.lat.toFixed(5)}, {imageCoords.lon.toFixed(5)}
             </Text>
           )}
@@ -403,7 +376,7 @@ const styles = StyleSheet.create({
   moreText: { color: "#60a5fa", fontWeight: "700" },
   selectedSpeciesText: { color: "#cfe8ff", marginTop: 8, marginLeft: 6 },
   uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  uploadBtnText: { color: "#001219", fontWeight: "700", textAlign: "center" },
+  uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
   modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "80%", padding: 12 },
   modalItem: { paddingVertical: 12, paddingHorizontal: 8, borderBottomColor: "#0b1220", borderBottomWidth: 1 },

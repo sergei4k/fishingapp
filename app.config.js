@@ -3,13 +3,14 @@ export default {
     name: "Rybolov",
     slug: "fishingapp",
     version: "1.0.0",
+    description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
-    icon: "./assets/images/icon.png",
+    icon: "./assets/images/logo.png",
     scheme: "fishingapp",
     userInterfaceStyle: "automatic",
     android: {
       adaptiveIcon: {
-        foregroundImage: "./assets/images/adaptive-icon.png",
+        foregroundImage: "./assets/images/logo.png",
         backgroundColor: "#ffffff"
       },
       edgeToEdgeEnabled: true,
@@ -23,10 +24,15 @@ export default {
       ],
       config: {
         googleMaps: {
-          apiKey: process.env.API_KEY
+          apiKey: process.env.GOOGLE_MAPS_API_KEY
         }
       },
-      package: "com.anonymous.fishingapp"
+      package: "com.rybolov.app",
+      privacy: "https://sergei4k.github.io/fishingapp/"
+    },
+    ios: {
+      
+      bundleIdentifier: "com.rybolov.app"
     },
     plugins: [
       "expo-router",
@@ -39,9 +45,9 @@ export default {
           backgroundColor: "#ffffff"
         }
       ],
-      "expo-maps",
       "expo-web-browser",
       "expo-sqlite",
+      "expo-document-picker",
       [
         "expo-media-library",
         {
@@ -64,7 +70,8 @@ export default {
     runtimeVersion: "1.0.0",
     updates: {
       enabled: true,
-      fallbackToCacheTimeout: 0
+      fallbackToCacheTimeout: 0,
+      url: "https://u.expo.dev/b4647e00-4478-4b12-b489-a7a8d98f70f4"
     }
   }
 };

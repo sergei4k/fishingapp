@@ -37,23 +37,30 @@ export default function RootLayout() {
         <Tabs
           screenOptions={{
             headerShown: false,
-            tabBarStyle: { backgroundColor: '#071023', borderTopColor: '#0b1220' },
+            tabBarShowLabel: false,
+            tabBarStyle: {  
+              backgroundColor: '#071023',
+              borderTopColor: '#0b1220',
+              height: 80,
+              paddingBottom: 10,
+              paddingTop: 10,
+            },
             tabBarActiveTintColor: '#60a5fa',
             tabBarInactiveTintColor: '#94a3b8',
-            tabBarIconStyle: {padding: 0}
+            tabBarIconStyle: { marginTop: 0 }
           }}
         >
           <Tabs.Screen
             name="index"
-            options={{ title: 'Карта', tabBarIcon: ({ color }) => <FontAwesome name="map" size={25} color={color} /> }}
+            options={{ tabBarIcon: ({ color }) => <FontAwesome name="map" size={27} color={color} /> }}
           />
           <Tabs.Screen
             name="add"
-            options={{ title: 'Добавить', tabBarIcon: ({ color }) => <FontAwesome name="plus" size={25} color={color} /> }}
+            options={{  tabBarIcon: ({ color }) => <FontAwesome name="plus" size={27} color={color} padding={0} /> }}
           />
           <Tabs.Screen
             name="profile"
-            options={{ title: 'Профиль', tabBarIcon: ({ color }) => <FontAwesome name="user" size={25} color={color} /> }}
+            options={{ tabBarIcon: ({ color }) => <FontAwesome name="user" size={27} color={color} /> }}
           />
         </Tabs>
       </SQLiteProvider>
