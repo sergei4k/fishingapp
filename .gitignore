@@ -16,6 +16,8 @@ expo-env.d.ts
 *.p8
 *.p12
 *.key
+*.keystore
+!android/app/debug.keystore
 *.mobileprovision
 
 # Metro
@@ -35,5 +37,34 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# Build outputs
+*.apk
+*.aab
+android/app/build/
+android/build/
+ios/build/
+ios/Pods/
+ios/.xcode.env.local
+
+# iOS - CocoaPods and dependencies
+ios/Pods/
+ios/Podfile.lock
+ios/*.xcworkspace
+ios/*.xcuserdata
+ios/DerivedData/
+ios/*.hmap
+ios/*.ipa
+ios/*.xcuserstate
+
+# iOS - Xcode
+ios/**/xcuserdata/
+ios/**/DerivedData/
+ios/**/*.pbxuser
+ios/**/*.mode1v3
+ios/**/*.mode2v3
+ios/**/*.perspectivev3
+ios/**/*.xccheckout
+ios/**/*.moved-aside
 
 app-example
