@@ -1,16 +1,19 @@
 // app/_layout.tsx
+import { LanguageProvider } from '@/lib/language';
 import { FontAwesome } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import { SQLiteProvider } from 'expo-sqlite';
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import '../global.css';
 
 export default function RootLayout() {
   const insets = useSafeAreaInsets();
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <SQLiteProvider
+    <LanguageProvider>
+      <GestureHandlerRootView className="flex-1">
+        <SQLiteProvider
         databaseName="markinfo.db"
         onInit={async (db) => {
           // create tables once
@@ -58,32 +61,33 @@ export default function RootLayout() {
             name="index"
             options={{ 
               title: 'Map',
-              tabBarIcon: ({ color }) => <FontAwesome name="map" size={20} color={color} /> 
+              tabBarIcon: ({ color }) => <FontAwesome name="map" size={25} color={color} /> 
             }}
           />
           <Tabs.Screen
             name="add"
             options={{ 
               title: 'Add',
-              tabBarIcon: ({ color }) => <FontAwesome name="plus" size={20} color={color} /> 
+              tabBarIcon: ({ color }) => <FontAwesome name="plus" size={25} color={color} /> 
             }}
           />
           <Tabs.Screen
             name="profile"
             options={{ 
               title: 'Profile',
-              tabBarIcon: ({ color }) => <FontAwesome name="user" size={20} color={color} /> 
+              tabBarIcon: ({ color }) => <FontAwesome name="user" size={25} color={color} /> 
             }}
           />
           <Tabs.Screen
             name="settings"
             options={{ 
               title: 'Settings',
-              tabBarIcon: ({ color }) => <FontAwesome name="cog" size={20} color={color} /> 
+              tabBarIcon: ({ color }) => <FontAwesome name="cog" size={25} color={color} /> 
             }}
           />
         </Tabs>
       </SQLiteProvider>
     </GestureHandlerRootView>
+    </LanguageProvider>
   );
 }

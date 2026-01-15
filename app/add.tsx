@@ -6,6 +6,8 @@ import { Image as ExpoImage } from 'expo-image';
 import { useRouter } from "expo-router";
 import { useSQLiteContext } from 'expo-sqlite';
 import React, { useState } from "react";
+import { useLanguage } from "@/lib/language";
+import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
 import {
     ActionSheetIOS,
     Alert,
@@ -59,6 +61,7 @@ async function addCatch(item: {
 
 export default function Add() {
   const db = useSQLiteContext();
+  const { language, t } = useLanguage();
 
   const [image, setImage] = useState<string | null>(null);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
@@ -147,37 +150,29 @@ export default function Add() {
       } else {
         setImageCoords(null);
         Alert.alert(
-          "GPS не найден",
-          "Фото не содержит геоданных. Убедитесь, что фото было сделано с включённой геолокацией."
+          t("gpsNotFound"),
+          t("gpsNotFoundMessage")
         );
       }
     } catch (error: any) {
       console.error("Picker/EXIF error:", error);
-      Alert.alert("Ошибка", "Не удалось выбрать фото или прочитать EXIF.");
+      Alert.alert(t("error"), t("photoError"));
     }
   };
 
   const fishSpecies = [
-    { id: "pike", label: "Щука", image: require("../assets/fishicons/schuka.420x420.png") },
-    { id: "perch", label: "Окунь", image: require("../assets/fishicons/perch.png") },
-    { id: "carp", label: "Карп", image: require("../assets/fishicons/carp.png") },
-    { id: "pikeperch", label: "Берш", image: require("../assets/fishicons/pikeperch.png") },
+    { id: "pike", image: require("../assets/fishicons/schuka.420x420.png") },
+    { id: "perch", image: require("../assets/fishicons/perch.png") },
+    { id: "carp", image: require("../assets/fishicons/carp.png") },
+    { id: "pikeperch", image: require("../assets/fishicons/pikeperch.png") },
   ];
 
-  const moreSpecies = [
-    { id: "shchuka", label: "Щука" }, { id: "okun", label: "Окунь" }, { id: "sudak", label: "Судак" },
-    { id: "karp", label: "Карп" }, { id: "leshch", label: "Лещ" }, { id: "nalim", label: "Налим" },
-    { id: "som", label: "Сом" }, { id: "forel", label: "Форель" }, { id: "sig", label: "Сиг" },
-    { id: "kharius", label: "Хариус" }, { id: "gustera", label: "Густера" }, { id: "karas", label: "Карась" },
-    { id: "lin", label: "Линь" }, { id: "golavl", label: "Голавль" }, { id: "yaz", label: "Язь" },
-    { id: "plotva", label: "Плотва" }, { id: "sazan", label: "Сазан" },
-    { id: "rotan", label: "Ротан" },
-    { id: "peskar", label: "Пескарь" }, { id: "ukleya", label: "Уклея" },
-  ];
+  const allSpeciesOptions = getSpeciesOptions(language);
+  const moreSpecies = allSpeciesOptions.filter(s => !fishSpecies.find(f => f.id === s.id));
 
   const openMore = () => {
     if (Platform.OS === "ios") {
-      const options = moreSpecies.map((s) => s.label).concat("Отмена");
+      const options = moreSpecies.map((s) => s.label).concat(t("cancel"));
       ActionSheetIOS.showActionSheetWithOptions({ options, cancelButtonIndex: options.length - 1 }, (buttonIndex) => {
         if (buttonIndex < moreSpecies.length) setSelectedSpecies(moreSpecies[buttonIndex].id);
       });
@@ -191,18 +186,13 @@ export default function Add() {
     setMoreModalVisible(false);
   };
 
-  const getSpeciesLabel = (id: string | null) => {
-    if (!id) return null;
-    return [...fishSpecies, ...moreSpecies].find((s) => s.id === id)?.label || id;
-  };
-
   const handleUpload = async () => {
     setIsUploading(true);
     try {
       if (!imageCoords || imageCoords.lat == null || imageCoords.lon == null) {
         Alert.alert(
-          "Нет координат в фото",
-          "Фото не содержит GPS данных. Выберите фото с геолокацией."
+          t("noCoordinatesInPhoto"),
+          t("noCoordinatesInPhotoMessage")
         );
         setIsUploading(false);
         return;
@@ -237,7 +227,7 @@ export default function Add() {
 
     } catch (e: any) {
       console.error("handleUpload error", e);
-      Alert.alert("Ошибка", "Не удалось сохранить улов.");
+      Alert.alert(t("error"), t("uploadError"));
     } finally {
       setIsUploading(false);
     }
@@ -260,7 +250,7 @@ export default function Add() {
           <View style={styles.imageRow}>
             <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
               {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
-              <Text style={styles.placeholderText}>Добавить фото</Text>}
+              <Text style={styles.placeholderText}>{t("addPhoto")}</Text>}
             </TouchableOpacity>
             <View style={styles.rightColumn}>
               <View style={styles.extraThumbs}>
@@ -281,7 +271,7 @@ export default function Add() {
           <View style={styles.inputs}>
             <TextInput
               style={styles.descriptionInput}
-              placeholder="Описание"
+              placeholder={t("descriptionPlaceholder")}
               placeholderTextColor="#94a3b8"
               value={description}
               onChangeText={setDescription}
@@ -291,7 +281,7 @@ export default function Add() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Длина (см)"
+              placeholder={t("lengthPlaceholder")}
               placeholderTextColor="#94a3b8"
               keyboardType="numeric"
               returnKeyType='done'
@@ -301,7 +291,7 @@ export default function Add() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Вес (кг)"
+              placeholder={t("weightPlaceholder")}
               placeholderTextColor="#94a3b8"
               returnKeyType="done"
               keyboardType="numeric"
@@ -312,27 +302,30 @@ export default function Add() {
           </View>
 
           <View style={styles.speciesWrapper}>
-            <Text style={styles.speciesTitle}>Вид</Text>
+            <Text style={styles.speciesTitle}>{t("species")}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
-              {fishSpecies.map((s) => (
-                <TouchableOpacity key={s.id} style={[styles.speciesItem, selectedSpecies === s.id && styles.speciesItemSelected]} onPress={() => setSelectedSpecies(s.id)}>
-                  <Image source={s.image} style={styles.speciesImage} />
-                  <Text style={styles.speciesLabel}>{s.label}</Text>
-                </TouchableOpacity>
-              ))}
-              <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>Ещё</Text></TouchableOpacity>
+              {fishSpecies.map((s) => {
+                const speciesOption = allSpeciesOptions.find(opt => opt.id === s.id);
+                return (
+                  <TouchableOpacity key={s.id} style={[styles.speciesItem, selectedSpecies === s.id && styles.speciesItemSelected]} onPress={() => setSelectedSpecies(s.id)}>
+                    <Image source={s.image} style={styles.speciesImage} />
+                    <Text style={styles.speciesLabel}>{speciesOption?.label || s.id}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>{t("more")}</Text></TouchableOpacity>
             </ScrollView>
-            <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `Выбран: ${getSpeciesLabel(selectedSpecies)}` : "Вид не выбран"}</Text>
+            <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `${t("selectedSpecies")}: ${getSpeciesLabelTranslated(selectedSpecies, language)}` : t("speciesNotSelected")}</Text>
           </View>
 
           <TouchableOpacity style={[styles.uploadBtn, isUploading && { opacity: 0.7 }]} onPress={handleUpload} disabled={isUploading}>
-            <Text style={styles.uploadBtnText}>{isUploading ? "Загрузка..." : "Выложить"}</Text>
+            <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
           </TouchableOpacity>
 
           <Modal visible={moreModalVisible} animationType="slide" transparent={true} onRequestClose={() => setMoreModalVisible(false)}>
             <View style={styles.modalOverlay}>
               <View style={styles.modalContent}>
-                <Text style={styles.speciesTitle}>Выберите вид</Text>
+                <Text style={styles.speciesTitle}>{t("selectSpecies")}</Text>
                 <ScrollView>
                   {moreSpecies.map((s) => (
                     <Pressable key={s.id} onPress={() => selectMoreSpecies(s.id)} style={({ pressed }) => [styles.modalItem, pressed && { backgroundColor: "#061420" }]}>
@@ -340,7 +333,7 @@ export default function Add() {
                     </Pressable>
                   ))}
                 </ScrollView>
-                <TouchableOpacity style={styles.modalClose} onPress={() => setMoreModalVisible(false)}><Text style={styles.moreText}>Отмена</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.modalClose} onPress={() => setMoreModalVisible(false)}><Text style={styles.moreText}>{t("cancel")}</Text></TouchableOpacity>
               </View>
             </View>
           </Modal>

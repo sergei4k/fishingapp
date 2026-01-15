@@ -1,4 +1,5 @@
 import { getSpeciesLabel } from "@/lib/species";
+import { useLanguage } from "@/lib/language";
 import { FontAwesome } from "@expo/vector-icons";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import { useFocusEffect } from "@react-navigation/native";
@@ -27,6 +28,7 @@ type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 export default function Profile() {
   const router = useRouter();
   const db = useSQLiteContext(); // FIX: use context provider
+  const { language, t } = useLanguage();
   const [catches, setCatches] = useState<CatchWithExtras[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCatch, setSelectedCatch] = useState<CatchWithExtras | null>(null);
@@ -114,10 +116,10 @@ export default function Profile() {
   };
 
   const handleDelete = (id: string) => {
-    Alert.alert("Удалить запись", "Вы уверены, что хотите удалить эту запись?", [
-      { text: "Отмена", style: "cancel" },
+    Alert.alert(t("deleteConfirm"), t("deleteConfirmMessage"), [
+      { text: t("cancel"), style: "cancel" },
       {
-        text: "Удалить",
+        text: t("delete"),
         style: "destructive",
         onPress: async () => {
           try {
@@ -128,7 +130,7 @@ export default function Profile() {
             
           } catch (e) {
             console.error("delete error:", e);
-            Alert.alert("Ошибка", "Не удалось удалить запись.");
+            Alert.alert(t("error"), t("deleteError"));
           }
         },
       },
@@ -162,7 +164,7 @@ export default function Profile() {
       await load({ force: true });
     } catch (e) {
       console.error("Save error:", e);
-      Alert.alert("Ошибка", "Не удалось сохранить изменения");
+      Alert.alert(t("error"), t("saveError"));
     }
   };
 
@@ -171,7 +173,7 @@ export default function Profile() {
       renderRightActions={() => (
         <View style={styles.deleteAction}>
           <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteButton}>
-            <Text style={styles.deleteText}>Удалить</Text>
+            <Text style={styles.deleteText}>{t("delete")}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -190,9 +192,9 @@ export default function Profile() {
           style={styles.thumb}
         />
         <View style={styles.info}>
-          <Text style={styles.species}>{getSpeciesLabel(item.species)}</Text>
+          <Text style={styles.species}>{getSpeciesLabel(item.species, language)}</Text>
           <Text style={styles.desc} numberOfLines={1}>
-            {item.description || "Без описания"}
+            {item.description || t("noDescription")}
           </Text>
           <Text style={styles.meta}>
             {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
@@ -205,7 +207,7 @@ export default function Profile() {
 
   return (
     <SafeAreaView style={styles.container}>
-       <Text style={styles.title}>Мой Улов</Text>
+       <Text style={styles.title}>{t("myCatches")}</Text>
 
        <FlatList
          data={catches}
@@ -214,7 +216,7 @@ export default function Profile() {
          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
          keyboardDismissMode="on-drag"
          onScrollBeginDrag={() => Keyboard.dismiss()}
-         ListEmptyComponent={<Text style={styles.empty}>Здесь пусто. Иди на рыбалку!</Text>}
+         ListEmptyComponent={<Text style={styles.empty}>{t("empty")}</Text>}
          contentContainerStyle={
            catches.length === 0 
              ? { flex: 1, justifyContent: "center" } 
@@ -261,14 +263,14 @@ export default function Profile() {
                  </ScrollView>
 
                  <Text style={{ color: "#fff", fontSize: 22, fontWeight: "700", marginTop: 12 }}>
-                   {getSpeciesLabel(selectedCatch.species)}
+                   {getSpeciesLabel(selectedCatch.species, language)}
                  </Text>
                  
                  <Text style={{ color: "#94a3b8", marginTop: 8 }}>
                    {new Date(selectedCatch.date).toLocaleString()}
                  </Text>
 
-                 <Text style={styles.label}>Описание</Text>
+                 <Text style={styles.label}>{t("description")}</Text>
                  {editing ? (
                    <TextInput
                      style={styles.input}
@@ -279,10 +281,10 @@ export default function Profile() {
                      returnKeyType="done"
                    />
                  ) : (
-                   <Text style={styles.value}>{selectedCatch.description || "Без описания"}</Text>
+                   <Text style={styles.value}>{selectedCatch.description || t("noDescription")}</Text>
                  )}
 
-                 <Text style={styles.label}>Длина (cm)</Text>
+                 <Text style={styles.label}>{t("length")}</Text>
                  {editing ? (
                    <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} 
                    keyboardType="numeric"
@@ -291,7 +293,7 @@ export default function Profile() {
                    <Text style={styles.value}>{selectedCatch.length || "--"}</Text>
                  )}
 
-                 <Text style={styles.label}>Вес (kg)</Text>
+                 <Text style={styles.label}>{t("weight")}</Text>
                  {editing ? (
                    <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} 
                    keyboardType="numeric"
@@ -304,10 +306,10 @@ export default function Profile() {
                    {editing ? (
                      <>
                        <TouchableOpacity style={styles.btnSave} onPress={onSave}>
-                         <Text style={styles.btnText}>Сохранить</Text>
+                         <Text style={styles.btnText}>{t("save")}</Text>
                        </TouchableOpacity>
                        <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
-                         <Text style={styles.btnText}>Отмена</Text>
+                         <Text style={styles.btnText}>{t("cancel")}</Text>
                        </TouchableOpacity>
                      </>
                    ) : (
@@ -323,7 +325,7 @@ export default function Profile() {
                          }}
                        >
                          <FontAwesome name="pencil" size={18} color="#fff" style={{ marginRight: 6 }} />
-                        <Text style={styles.btnText}>Редактировать</Text>
+                        <Text style={styles.btnText}>{t("edit")}</Text>
                        </TouchableOpacity>
                      </>
                    )}
@@ -348,12 +350,12 @@ export default function Profile() {
                          },
                        });
                      } else {
-                       Alert.alert("Нет координат", "У этого улова нет сохранённых координат.");
+                       Alert.alert(t("noCoordinates"), t("noCoordinatesMessage"));
                      }
                    }}
                  >
                   <FontAwesome name="map-marker" size={18} color="#fff" style={{ marginRight: 6 }} />
-                   <Text style={styles.btnMapTextLabel}>Показать на карте</Text>
+                   <Text style={styles.btnMapTextLabel}>{t("showOnMap")}</Text>
                  </TouchableOpacity>
                )}
              </>

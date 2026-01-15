@@ -1,6 +1,9 @@
 module.exports = {
-  presets: ['babel-preset-expo'],
+  presets: [
+    'babel-preset-expo',
+    'nativewind/babel',
+  ],
   plugins: [
-    'react-native-worklets/plugin',  // <- Changed from 'react-native-reanimated/plugin'
+    'react-native-worklets/plugin',
   ],
 }

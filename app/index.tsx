@@ -1,6 +1,7 @@
 // MUST be the first import
 import "react-native-gesture-handler";
 
+import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel } from "@/lib/species";
 import BottomSheet, { BottomSheetView } from "@gorhom/bottom-sheet";
 import * as Location from "expo-location";
@@ -171,7 +172,8 @@ export default function Map() {
     catchId?: string;
   }>();
   const router = useRouter();
-  const db = useSQLiteContext(); // may be undefined until provider mounts
+  const db = useSQLiteContext();
+  const { language, t } = useLanguage(); // may be undefined until provider mounts
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const didCenterRef = useRef(false);
@@ -280,11 +282,11 @@ export default function Map() {
         await getCurrentLocation();
       } else {
         Alert.alert(
-          "Разрешение на местоположение",
-          "Для отображения вашего местоположения на карте необходимо предоставить разрешение",
+          t("locationPermission"),
+          t("locationPermissionMessage"),
           [
-            { text: "Отмена", style: "cancel" },
-            { text: "Настройки", onPress: () => Location.requestForegroundPermissionsAsync() }
+            { text: t("cancel"), style: "cancel" },
+            { text: t("settings"), onPress: () => Location.requestForegroundPermissionsAsync() }
           ]
         );
       }
@@ -557,21 +559,21 @@ export default function Map() {
                 </View>
               )}
               
-              <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species)}</Text>
+              <Text style={styles.catchSpecies}>{getSpeciesLabel(selectedCatch.species, language)}</Text>
               {selectedCatch.description && (
                 <Text style={styles.catchDescription}>{selectedCatch.description}</Text>
               )}
              {(selectedCatch.length || selectedCatch.weight) && (
                <Text style={styles.catchDescription}>
-                 {selectedCatch.length ? `${selectedCatch.length} см` : ""} 
+                 {selectedCatch.length ? `${selectedCatch.length} ${language === "ru" ? "см" : "cm"}` : ""} 
                  {selectedCatch.length && selectedCatch.weight ? " • " : ""}
-                 {selectedCatch.weight ? `${selectedCatch.weight} кг` : ""}
+                 {selectedCatch.weight ? `${selectedCatch.weight} ${language === "ru" ? "кг" : "kg"}` : ""}
                </Text>
              )}
               <Text style={styles.catchDate}>
                 {selectedCatch.createdAt 
-                  ? new Date(selectedCatch.createdAt).toLocaleDateString('en-GB')
-                  : "Недавно"}
+                  ? new Date(selectedCatch.createdAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US")
+                  : t("recently")}
               </Text>
             
 
@@ -621,10 +623,10 @@ export default function Map() {
             <Text style={styles.tutorialCloseText}>×</Text>
           </TouchableOpacity>
           <Text style={styles.tutorialText}>
-            Rybolov - твой портал в мир рыбалки 🎣🌍
+            {t("appTitle")}
           </Text>
           <Text style={styles.tutdesc}>
-            Добавляй свои уловы с помощью фото чтобы они отображались на карте. Нажми на иконку рыбы чтобы увидеть детали улова. {"\n"}Записывай длину, вес, вид рыбы и описание. Удачной рыбалки!
+            {t("appDescription")}
           </Text>
         </View>
       )}
