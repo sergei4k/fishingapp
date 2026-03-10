@@ -1,3 +1,8 @@
+This project is the first free, open source platform for fishermen around the world. The goal is to unite people through the passion of fishing. 
+
+
+
+
 <<<<<<< HEAD
 # Welcome to your Expo app 👋
 
