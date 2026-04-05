@@ -96,6 +96,7 @@ android {
         versionName "1.0.1"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
+        manifestPlaceholders = [GOOGLE_MAPS_API_KEY: findProperty('GOOGLE_MAPS_API_KEY') ?: ""]
     }
     signingConfigs {
         debug {
@@ -106,9 +107,9 @@ android {
         }
         release {
             storeFile file('release.keystore')
-            storePassword 'Monke443'
-            keyAlias 'my-key-alias'
-            keyPassword 'Monke443'
+            storePassword findProperty('RELEASE_STORE_PASSWORD') ?: ''
+            keyAlias findProperty('RELEASE_KEY_ALIAS') ?: 'my-key-alias'
+            keyPassword findProperty('RELEASE_KEY_PASSWORD') ?: ''
         }
     }
     buildTypes {
