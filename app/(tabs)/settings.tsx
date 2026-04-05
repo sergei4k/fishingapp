@@ -1,3 +1,4 @@
+import { useAuth } from "@/lib/auth";
 import { useLanguage, type Language } from "@/lib/language";
 import { FontAwesome } from "@expo/vector-icons";
 import React, { useState } from "react";
@@ -6,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
+  const { signOut, user } = useAuth();
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
 
   const handleLanguageChange = async (newLanguage: Language) => {
@@ -87,6 +89,39 @@ export default function Settings() {
             <View style={styles.settingLeft}>
               <FontAwesome name="file-text" size={20} color="#60a5fa" />
               <Text style={styles.settingText}>{t("privacyPolicy")}</Text>
+            </View>
+            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>{t("account")}</Text>
+          
+          {user?.email && (
+            <View style={styles.settingItem}>
+              <View style={styles.settingLeft}>
+                <FontAwesome name="envelope" size={20} color="#60a5fa" />
+                <Text style={styles.settingText}>{user.email}</Text>
+              </View>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.settingItem}
+            onPress={() => {
+              Alert.alert(t("signOutConfirm"), t("signOutConfirmMessage"), [
+                { text: t("cancel"), style: "cancel" },
+                {
+                  text: t("signOut"),
+                  style: "destructive",
+                  onPress: () => signOut(),
+                },
+              ]);
+            }}
+          >
+            <View style={styles.settingLeft}>
+              <FontAwesome name="sign-out" size={20} color="#ef4444" />
+              <Text style={[styles.settingText, styles.dangerText]}>{t("signOut")}</Text>
             </View>
             <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
           </TouchableOpacity>

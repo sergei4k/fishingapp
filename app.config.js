@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 export default {
   expo: {
     name: "Rybolov",
@@ -35,6 +37,10 @@ export default {
       bundleIdentifier: "com.rybolov.app"
     },
     plugins: [
+      ["@rnmapbox/maps", {
+        "RNMapboxMapsDownloadToken": process.env.MAPBOX_DOWNLOADS_TOKEN,
+        "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": process.env.MAPBOX_DOWNLOADS_TOKEN
+      }],
       "expo-router",
       [
         "expo-splash-screen",
@@ -46,6 +52,7 @@ export default {
         }
       ],
       "expo-web-browser",
+      "expo-secure-store",
       "expo-sqlite",
       "expo-document-picker",
       [

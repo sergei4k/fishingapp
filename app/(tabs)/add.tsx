@@ -161,10 +161,10 @@ export default function Add() {
   };
 
   const fishSpecies = [
-    { id: "pike", image: require("../assets/fishicons/schuka.420x420.png") },
-    { id: "perch", image: require("../assets/fishicons/perch.png") },
-    { id: "carp", image: require("../assets/fishicons/carp.png") },
-    { id: "pikeperch", image: require("../assets/fishicons/pikeperch.png") },
+    { id: "pike", image: require("../../assets/fishicons/schuka.420x420.png") },
+    { id: "perch", image: require("../../assets/fishicons/perch.png") },
+    { id: "carp", image: require("../../assets/fishicons/carp.png") },
+    { id: "pikeperch", image: require("../../assets/fishicons/pikeperch.png") },
   ];
 
   const allSpeciesOptions = getSpeciesOptions(language);

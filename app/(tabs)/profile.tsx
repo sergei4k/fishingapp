@@ -188,7 +188,7 @@ export default function Profile() {
         }}
       >
         <Image
-          source={(item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../assets/placeholder.png")}
+          source={(item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../../assets/placeholder.png")}
           style={styles.thumb}
         />
         <View style={styles.info}>
@@ -250,7 +250,7 @@ export default function Profile() {
                    onScrollBeginDrag={() => Keyboard.dismiss()}
                  >
                    <Image
-                     source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../assets/placeholder.png")}
+                     source={(selectedCatch.image ?? selectedCatch.imageUrl) ? { uri: (selectedCatch.image ?? selectedCatch.imageUrl) } : require("../../assets/placeholder.png")}
                      style={{ width: 320, height: 200, borderRadius: 10, marginRight: 8, marginTop: 8 }}
                    />
                    {(selectedCatch.extraPhotos || []).map((uri, idx) => (
