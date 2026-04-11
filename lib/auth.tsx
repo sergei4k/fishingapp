@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { pb } from './pocketbase';
+import { syncCatchesFromPB } from './sync';
 
 type AuthContextType = {
   user: any;
@@ -11,34 +13,64 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// TODO: Replace with real Supabase auth when ready
-const MOCK_USER = {
-  id: 'dev-user',
-  email: 'dev@rybolov.app',
-  user_metadata: { username: 'fisher', full_name: 'Dev User' },
-};
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<any>({ user: MOCK_USER });
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const syncedUserIdRef = useRef<string | null>(null);
 
-  const signUp = async (_email: string, _password: string, _meta?: { username?: string; name?: string }) => {
-    return { error: null };
+  useEffect(() => {
+    const unsub = pb.authStore.onChange(() => {
+      const record = pb.authStore.record ?? null;
+      setUser(record);
+      setLoading(false);
+
+      // Sync once per user session
+      if (record?.id && record.id !== syncedUserIdRef.current) {
+        syncedUserIdRef.current = record.id;
+        syncCatchesFromPB(record.id).catch((e) =>
+          console.warn('syncCatchesFromPB error:', e)
+        );
+      }
+    }, true);
+
+    return () => unsub();
+  }, []);
+
+  const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
+    try {
+      await pb.collection('users').create({
+        email,
+        password,
+        passwordConfirm: password,
+        name: meta?.name ?? '',
+        username: meta?.username ?? '',
+      });
+      // Auto sign in after register
+      await pb.collection('users').authWithPassword(email, password);
+      return { error: null };
+    } catch (e: any) {
+      return { error: { message: e?.response?.message ?? e?.message ?? 'Registration failed' } };
+    }
   };
 
-  const signIn = async (_email: string, _password: string) => {
-    setSession({ user: MOCK_USER });
-    return { error: null };
+  const signIn = async (email: string, password: string) => {
+    try {
+      await pb.collection('users').authWithPassword(email, password);
+      return { error: null };
+    } catch (e: any) {
+      return { error: { message: e?.response?.message ?? e?.message ?? 'Login failed' } };
+    }
   };
 
   const signOut = async () => {
-    setSession(null);
+    pb.authStore.clear();
   };
 
   return (
     <AuthContext.Provider value={{
-      user: session?.user ?? null,
-      session,
-      loading: false,
+      user,
+      session: user ? { user } : null,
+      loading,
       signUp,
       signIn,
       signOut,

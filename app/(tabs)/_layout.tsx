@@ -1,6 +1,5 @@
 import { FontAwesome } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { SQLiteProvider } from 'expo-sqlite';
 import React from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -9,31 +8,6 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SQLiteProvider
-        databaseName="markinfo.db"
-        onInit={async (db) => {
-          await db.execAsync(`
-            PRAGMA journal_mode = WAL;
-            CREATE TABLE IF NOT EXISTS catches (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              image_uri TEXT,
-              description TEXT,
-              length_cm REAL,
-              weight_kg REAL,
-              species TEXT,
-              lat REAL,
-              lon REAL,
-              created_at INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS extra_photos (
-              id INTEGER PRIMARY KEY AUTOINCREMENT,
-              catch_id INTEGER,
-              uri TEXT,
-              FOREIGN KEY(catch_id) REFERENCES catches(id) ON DELETE CASCADE
-            );
-          `);
-        }}
-      >
         <Tabs
           screenOptions={{
             headerShown: false,
@@ -74,14 +48,20 @@ export default function TabsLayout() {
             }}
           />
           <Tabs.Screen
+            name="social"
+            options={{
+              title: 'Social',
+              tabBarIcon: ({ color }) => <FontAwesome name="users" size={23} color={color} />
+            }}
+          />
+          <Tabs.Screen
             name="settings"
-            options={{ 
+            options={{
               title: 'Settings',
-              tabBarIcon: ({ color }) => <FontAwesome name="cog" size={25} color={color} /> 
+              tabBarIcon: ({ color }) => <FontAwesome name="cog" size={25} color={color} />
             }}
           />
         </Tabs>
-      </SQLiteProvider>
     </GestureHandlerRootView>
   );
 }

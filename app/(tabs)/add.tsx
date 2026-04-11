@@ -1,10 +1,12 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { pb } from "@/lib/pocketbase";
+import { useAuth } from "@/lib/auth";
+import { addCatch } from "@/lib/storage";
 import ExifParser from 'exif-parser';
 import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system/next';
+import { File, Paths } from 'expo-file-system/next';
 import { Image as ExpoImage } from 'expo-image';
+import { FontAwesome } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useSQLiteContext } from 'expo-sqlite';
 import React, { useState } from "react";
 import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
@@ -18,6 +20,7 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TextInput,
     TouchableOpacity,
@@ -25,43 +28,9 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-async function addCatch(item: {
-  id: string;
-  image: string | null;
-  extraPhotos: string[];
-  description: string;
-  length: string;
-  weight: string;
-  species: string | null;
-  date: string;
-}): Promise<void> {
-  try {
-    const KEY = "local_catches_v1";
-    const raw = await AsyncStorage.getItem(KEY);
-    let list: any[] = [];
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) list = parsed;
-      } catch (e) {
-        console.warn("Could not parse local catches, starting fresh.", e);
-        list = [];
-      }
-    }
-    list = list.filter(i => i && typeof i === 'object' && i.id);
-    list = list.filter((i) => i.id !== item.id);
-    list.unshift(item);
-    const MAX_ITEMS = 200;
-    if (list.length > MAX_ITEMS) list = list.slice(0, MAX_ITEMS);
-    await AsyncStorage.setItem(KEY, JSON.stringify(list));
-  } catch (err) {
-    console.error("addCatch error", err);
-  }
-}
-
 export default function Add() {
-  const db = useSQLiteContext();
   const { language, t } = useLanguage();
+  const { user } = useAuth();
 
   const [image, setImage] = useState<string | null>(null);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
@@ -71,28 +40,9 @@ export default function Add() {
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
   const [moreModalVisible, setMoreModalVisible] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isPublic, setIsPublic] = useState(false);
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const router = useRouter();
-
-  const runSql = async (sql: string, params: any[] = []) => {
-    if (!db || typeof db.execAsync !== "function") throw new Error("no sqlite db available");
-
-    if (!params || params.length === 0) {
-      return db.execAsync(sql);
-    }
-
-    let idx = 0;
-    const finalSql = sql.replace(/\?/g, () => {
-      const p = params[idx++];
-      if (p === null || p === undefined) return "NULL";
-      if (typeof p === "number") return String(p);
-      if (typeof p === "boolean") return p ? "1" : "0";
-      const s = String(p).replace(/'/g, "''");
-      return `'${s}'`;
-    });
-
-    return db.execAsync(finalSql);
-  };
 
   const pickImageAndGetGps = async () => {
     try {
@@ -160,6 +110,25 @@ export default function Add() {
     }
   };
 
+  const pickExtraPhoto = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset) return;
+      setExtraPhotos(prev => [...prev, asset.uri]);
+    } catch (e) {
+      console.error('Extra photo error:', e);
+    }
+  };
+
+  const removeExtraPhoto = (index: number) => {
+    setExtraPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
   const fishSpecies = [
     { id: "pike", image: require("../../assets/fishicons/schuka.420x420.png") },
     { id: "perch", image: require("../../assets/fishicons/perch.png") },
@@ -201,19 +170,83 @@ export default function Add() {
       const lat = imageCoords.lat;
       const lon = imageCoords.lon;
 
-      if (!db || typeof db.execAsync !== "function") {
-        throw new Error("SQLite database is not available.");
-      }
-
       const lengthNum = length ? Number(length) : null;
       const weightNum = weight ? Number(weight) : null;
       const createdAt = Date.now();
 
-      await runSql(
-        `INSERT INTO catches (image_uri, description, length_cm, weight_kg, species, lat, lon, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
-        [image ?? null, description || null, lengthNum, weightNum, selectedSpecies ?? null, lat, lon, createdAt]
-      );
+      let pbImageUrl: string | undefined;
+      let pbRecordId: string | undefined;
+
+      // Always upload to PocketBase for backup (public or private)
+      if (user) {
+        try {
+          const formData = new FormData();
+          formData.append('user_id', user.id);
+          formData.append('species', selectedSpecies ?? '');
+          formData.append('lat', String(lat));
+          formData.append('lon', String(lon));
+          formData.append('description', description || '');
+          if (lengthNum != null) formData.append('length_cm', String(lengthNum));
+          if (weightNum != null) formData.append('weight_kg', String(weightNum));
+          formData.append('created_at', String(createdAt));
+          formData.append('is_public', isPublic ? 'true' : 'false');
+
+          if (image) {
+            formData.append('image', {
+              uri: image,
+              name: 'catch.jpg',
+              type: 'image/jpeg',
+            } as any);
+          }
+
+          const record = await pb.collection('catches').create(formData);
+          pbRecordId = record.id;
+
+          if (record.image) {
+            pbImageUrl = pb.files.getURL(record, record.image);
+          }
+        } catch (e) {
+          console.warn('PocketBase sync failed:', e);
+        }
+      }
+
+      // Always copy to permanent local storage so image loads offline
+      let localImageUri = image;
+      if (image) {
+        try {
+          const dest = new File(Paths.document, `catch_${createdAt}.jpg`);
+          new File(image).copy(dest);
+          localImageUri = dest.uri;
+        } catch (e) {
+          console.warn('Failed to copy image to permanent storage:', e);
+        }
+      }
+
+      const persistedExtraPhotos: string[] = [];
+      for (let i = 0; i < extraPhotos.length; i++) {
+        try {
+          const dest = new File(Paths.document, `catch_${createdAt}_extra_${i}.jpg`);
+          new File(extraPhotos[i]).copy(dest);
+          persistedExtraPhotos.push(dest.uri);
+        } catch (e) {
+          persistedExtraPhotos.push(extraPhotos[i]);
+        }
+      }
+
+      await addCatch({
+        id: pbRecordId ?? String(createdAt),
+        image: localImageUri ?? undefined,
+        pbImageUrl: pbImageUrl,
+        extraPhotos: persistedExtraPhotos,
+        description: description || '',
+        length: lengthNum != null ? String(lengthNum) : '',
+        weight: weightNum != null ? String(weightNum) : '',
+        species: selectedSpecies ?? undefined,
+        date: new Date(createdAt).toISOString(),
+        lat,
+        lon,
+        isPublic,
+      });
 
       router.push("/profile");
 
@@ -224,6 +257,7 @@ export default function Add() {
       setWeight("");
       setSelectedSpecies(null);
       setImageCoords(null);
+      setIsPublic(false);
 
     } catch (e: any) {
       console.error("handleUpload error", e);
@@ -253,18 +287,25 @@ export default function Add() {
               <Text style={styles.placeholderText}>{t("addPhoto")}</Text>}
             </TouchableOpacity>
             <View style={styles.rightColumn}>
-              <View style={styles.extraThumbs}>
-                {extraPhotos.slice(0, 3).map((uri, i) => (
-                  <ExpoImage key={i} source={{ uri }} style={styles.extraThumb} />
-                ))}
-                {extraPhotos.length > 3 && <View style={styles.moreBadge}><Text style={styles.moreBadgeText}>+{extraPhotos.length - 3}</Text></View>}
-              </View>
+              {extraPhotos.slice(0, 5).map((uri, i) => (
+                <View key={i} style={styles.extraThumbWrapper}>
+                  <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
+                  <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)}>
+                    <FontAwesome name="times" size={9} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              {extraPhotos.length < 5 && (
+                <TouchableOpacity style={styles.addExtraBtn} onPress={pickExtraPhoto}>
+                  <FontAwesome name="plus" size={16} color="#64748b" />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
           {imageCoords && (
-            <Text style={styles.speciesLabel}>
-              📍 {imageCoords.lat.toFixed(5)}, {imageCoords.lon.toFixed(5)}
+            <Text style={styles.coordsText}>
+              📍 {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
             </Text>
           )}
 
@@ -318,6 +359,19 @@ export default function Add() {
             <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `${t("selectedSpecies")}: ${getSpeciesLabelTranslated(selectedSpecies, language)}` : t("speciesNotSelected")}</Text>
           </View>
 
+          <View style={styles.publicRow}>
+            <View>
+              <Text style={styles.publicLabel}>{t("makePublic")}</Text>
+              <Text style={styles.publicSub}>{t("makePublicSub")}</Text>
+            </View>
+            <Switch
+              value={isPublic}
+              onValueChange={setIsPublic}
+              trackColor={{ false: "#1f2937", true: "#0ea5e9" }}
+              thumbColor="#ffffff"
+            />
+          </View>
+
           <TouchableOpacity style={[styles.uploadBtn, isUploading && { opacity: 0.7 }]} onPress={handleUpload} disabled={isUploading}>
             <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
           </TouchableOpacity>
@@ -349,12 +403,12 @@ const styles = StyleSheet.create({
   photoBox: { width: 200, height: 160, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160 },
-  rightColumn: { marginLeft: 12, alignItems: "center" },
-  extraThumbs: { flexDirection: "row", alignItems: "center" },
-  extraThumb: { width: 40, height: 40, marginRight: 6, borderRadius: 4 },
-  moreBadge: { width: 40, height: 40, borderRadius: 4, backgroundColor: "#072033", alignItems: "center", justifyContent: "center" },
-  moreBadgeText: { color: "#60a5fa" },
-  coordsText: { color: "#22c55e", fontSize: 12, marginBottom: 12 },
+  rightColumn: { marginLeft: 10, flexDirection: "column", gap: 6 },
+  extraThumbWrapper: { position: "relative" },
+  extraThumb: { width: 56, height: 56, borderRadius: 6 },
+  removeThumbBtn: { position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center" },
+  addExtraBtn: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#071023", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#1f2937" },
+  coordsText: { color: "#ffffff", fontSize: 14, marginBottom: 14, padding: 10 },
   inputs: { width: "100%", marginBottom: 12 },
   descriptionInput: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
   input: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
@@ -368,11 +422,14 @@ const styles = StyleSheet.create({
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
   moreText: { color: "#60a5fa", fontWeight: "700" },
   selectedSpeciesText: { color: "#cfe8ff", marginTop: 8, marginLeft: 6 },
+  publicRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#071023", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
+  publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
+  publicSub: { color: "#64748b", fontSize: 12 },
   uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
   modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "80%", padding: 12 },
-  modalItem: { paddingVertical: 12, paddingHorizontal: 8, borderBottomColor: "#0b1220", borderBottomWidth: 1 },
-  modalItemText: { color: "#e6eef8", fontSize: 16 },
+  modalItem: { paddingVertical: 26, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1 },
+  modalItemText: { color: "#e6eef8", fontSize: 17 },
   modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
 });

@@ -68,3 +68,9 @@ ios/**/*.xccheckout
 ios/**/*.moved-aside
 
 app-example
+
+# PocketBase
+pocketbase
+pocketbase.exe
+pb_data/
+pb_migrations/

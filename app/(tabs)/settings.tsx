@@ -1,43 +1,82 @@
 import { useAuth } from "@/lib/auth";
+import { pb } from "@/lib/pocketbase";
 import { useLanguage, type Language } from "@/lib/language";
 import { FontAwesome } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
-import { Alert, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { signOut, user } = useAuth();
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [avatarUri, setAvatarUri] = useState<string | null>(
+    user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` : null
+  );
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const handlePickAvatar = async () => {
+    if (!user) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      setUploadingAvatar(true);
+      const formData = new FormData();
+      formData.append("avatar", {
+        uri: asset.uri,
+        name: "avatar.jpg",
+        type: asset.mimeType || "image/jpeg",
+      } as any);
+      await pb.collection("users").update(user.id, formData);
+      setAvatarUri(asset.uri);
+    } catch (e) {
+      console.warn("Avatar upload error:", e);
+      Alert.alert(t("error"), t("uploadError"));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   const handleLanguageChange = async (newLanguage: Language) => {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
-    Alert.alert(
-      newLanguage === "en" ? "Language Changed" : "Язык изменён",
-      newLanguage === "en" 
-        ? "The app language has been changed to English (US). Please restart the app to see all changes."
-        : "Язык приложения изменён на русский. Перезапустите приложение, чтобы увидеть все изменения."
-    );
+    Alert.alert(t("languageChanged"), t("languageChangedMessage"));
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>{t("settings")}</Text>
-      
+
       <ScrollView style={styles.content}>
+        {user && (
+          <View style={styles.userCard}>
+            <TouchableOpacity onPress={handlePickAvatar} disabled={uploadingAvatar} style={styles.userAvatar}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.userAvatarText}>
+                  {(user.name || user.username || "?").slice(0, 2).toUpperCase()}
+                </Text>
+              )}
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              {user.name ? <Text style={styles.userName}>{user.name}</Text> : null}
+              {user.username ? <Text style={styles.userUsername}>@{user.username}</Text> : null}
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("general")}</Text>
           
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <FontAwesome name="bell" size={20} color="#60a5fa" />
-              <Text style={styles.settingText}>{t("notifications")}</Text>
-            </View>
-            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.settingItem}
             onPress={() => setLanguageModalVisible(true)}
           >
@@ -55,26 +94,6 @@ export default function Settings() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t("data")}</Text>
-          
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <FontAwesome name="download" size={20} color="#60a5fa" />
-              <Text style={styles.settingText}>{t("exportData")}</Text>
-            </View>
-            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.settingItem}>
-            <View style={styles.settingLeft}>
-              <FontAwesome name="trash" size={20} color="#ef4444" />
-              <Text style={[styles.settingText, styles.dangerText]}>{t("clearAllData")}</Text>
-            </View>
-            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("about")}</Text>
           
           <View style={styles.settingItem}>
@@ -82,7 +101,7 @@ export default function Settings() {
               <FontAwesome name="info-circle" size={20} color="#60a5fa" />
               <Text style={styles.settingText}>{t("version")}</Text>
             </View>
-            <Text style={styles.settingValue}>1.0.0</Text>
+            <Text style={styles.settingValue}>1.1.0</Text>
           </View>
 
           <TouchableOpacity style={styles.settingItem}>
@@ -96,7 +115,7 @@ export default function Settings() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("account")}</Text>
-          
+
           {user?.email && (
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
@@ -188,6 +207,46 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  userCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#071023",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    gap: 14,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  userAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#0f3460",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  userAvatarText: {
+    color: "#60a5fa",
+    fontWeight: "700",
+    fontSize: 20,
+  },
+  userName: {
+    color: "#e6eef8",
+    fontSize: 17,
+    fontWeight: "700",
+  },
+  userUsername: {
+    color: "#64748b",
+    fontSize: 14,
+    marginTop: 2,
   },
   section: {
     marginBottom: 32,

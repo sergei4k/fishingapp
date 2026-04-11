@@ -26,7 +26,9 @@ export default function Register() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
@@ -37,6 +39,11 @@ export default function Register() {
 
     if (password.length < 6) {
       Alert.alert(t('error'), t('passwordTooShort'));
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert(t('error'), t('passwordsDoNotMatch'));
       return;
     }
 
@@ -51,7 +58,7 @@ export default function Register() {
       Alert.alert(t('error'), error.message);
     } else {
       Alert.alert(t('registerSuccess'), t('registerSuccessMessage'), [
-        { text: 'OK', onPress: () => router.back() },
+        { text: 'OK', onPress: () => router.replace('/(auth)/login' as any) },
       ]);
     }
   };
@@ -67,7 +74,7 @@ export default function Register() {
           keyboardShouldPersistTaps="handled"
         >
           <View>
-            <Text style={styles.heading}> Welcome </Text>
+            <Text style={styles.heading}>{t('welcome')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -131,6 +138,24 @@ export default function Register() {
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
                 <FontAwesome name={showPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.inputWrapper}>
+              <FontAwesome name="lock" size={18} color="#94a3b8" style={styles.inputIcon} />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                placeholder={t('confirmPasswordPlaceholder')}
+                placeholderTextColor="#4b5563"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+                keyboardAppearance="dark"
+                returnKeyType="done"
+                onSubmitEditing={handleRegister}
+              />
+              <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeButton}>
+                <FontAwesome name={showConfirmPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
               </TouchableOpacity>
             </View>
 
