@@ -1,5 +1,5 @@
 import { useAuth } from '@/lib/auth';
-import { useLanguage } from '@/lib/language';
+import { useLanguage, type Language } from '@/lib/language';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
   const { signIn } = useAuth();
-  const { t } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
   const [email, setEmail] = useState('');
@@ -52,9 +52,23 @@ export default function Login() {
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
-          <View >
-            <Text style={styles.heading}> Welcome </Text>
+          <View style={styles.langRow}>
+            <TouchableOpacity
+              style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
+              onPress={() => setLanguage('ru' as Language)}
+            >
+              <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
+              onPress={() => setLanguage('en' as Language)}
+            >
+              <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
+            </TouchableOpacity>
+          </View>
 
+          <View>
+            <Text style={styles.heading}>{t('welcome')}</Text>
           </View>
 
           <View style={styles.form}>
@@ -237,5 +251,31 @@ const styles = StyleSheet.create({
     color: '#60a5fa',
     fontSize: 14,
     fontWeight: '600',
+  },
+  langRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginBottom: 16,
+  },
+  langBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: '#071023',
+    borderWidth: 1,
+    borderColor: '#1e293b',
+  },
+  langBtnActive: {
+    borderColor: '#60a5fa',
+    backgroundColor: '#0f2236',
+  },
+  langBtnText: {
+    color: '#64748b',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  langBtnTextActive: {
+    color: '#60a5fa',
   },
 });
