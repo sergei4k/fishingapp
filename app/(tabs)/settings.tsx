@@ -44,6 +44,28 @@ export default function Settings() {
     }
   };
 
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      t("deleteAccount"),
+      t("deleteAccountMessage"),
+      [
+        { text: t("cancel"), style: "cancel" },
+        {
+          text: t("deleteAccount"),
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await pb.collection("users").delete(user!.id);
+              await signOut();
+            } catch (e) {
+              Alert.alert(t("error"), t("deleteAccountError"));
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleLanguageChange = async (newLanguage: Language) => {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
@@ -144,6 +166,16 @@ export default function Settings() {
             </View>
             <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
           </TouchableOpacity>
+
+          {user && (
+            <TouchableOpacity style={styles.settingItem} onPress={handleDeleteAccount}>
+              <View style={styles.settingLeft}>
+                <FontAwesome name="trash" size={20} color="#ef4444" />
+                <Text style={[styles.settingText, styles.dangerText]}>{t("deleteAccount")}</Text>
+              </View>
+              <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 

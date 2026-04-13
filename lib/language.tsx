@@ -99,6 +99,10 @@ const translations = {
     languageChanged: "Язык изменён",
     languageChangedMessage: "Язык приложения изменён. Перезапустите приложение, чтобы увидеть все изменения.",
     addComment: "Добавить комментарий...",
+    registeringAgree: "Регистрируясь, вы соглашаетесь с нашей",
+    deleteAccount: "Удалить аккаунт",
+    deleteAccountMessage: "Это действие необратимо. Все ваши данные и уловы будут удалены навсегда.",
+    deleteAccountError: "Не удалось удалить аккаунт. Попробуйте позже.",
   },
   en: {
     settings: "Settings",
@@ -193,6 +197,10 @@ const translations = {
     languageChanged: "Language Changed",
     languageChangedMessage: "The app language has been changed. Please restart the app to see all changes.",
     addComment: "Add a comment...",
+    registeringAgree: "By registering, you agree to our",
+    deleteAccount: "Delete Account",
+    deleteAccountMessage: "This action is irreversible. All your data and catches will be permanently deleted.",
+    deleteAccountError: "Failed to delete account. Please try again later.",
   },
 };
 
