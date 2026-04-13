@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Privacy Policy - Rybolov</title>
+    <title>Политика конфиденциальности — Рыболов / Privacy Policy — Rybolov</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.7;
+            max-width: 860px;
             margin: 0 auto;
             padding: 20px;
             color: #333;
@@ -20,220 +20,241 @@
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
-        h1 {
-            color: #1a1a1a;
-            border-bottom: 3px solid #60a5fa;
-            padding-bottom: 10px;
+        h1 { color: #1a1a1a; border-bottom: 3px solid #60a5fa; padding-bottom: 10px; font-size: 24px; }
+        h2 { color: #2d3748; margin-top: 32px; font-size: 18px; }
+        h3 { color: #4a5568; font-size: 15px; margin-top: 16px; }
+        p, li { margin-bottom: 12px; font-size: 15px; }
+        ul { padding-left: 20px; }
+        .last-updated { color: #666; font-style: italic; margin-bottom: 30px; font-size: 14px; }
+        .contact { background: #f7fafc; padding: 20px; border-left: 4px solid #60a5fa; margin-top: 30px; border-radius: 0 8px 8px 0; }
+        .lang-divider {
+            border: none;
+            border-top: 2px dashed #e2e8f0;
+            margin: 48px 0 40px;
         }
-        h2 {
-            color: #2d3748;
-            margin-top: 30px;
+        .lang-badge {
+            display: inline-block;
+            background: #60a5fa;
+            color: white;
+            font-size: 13px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin-bottom: 20px;
+            letter-spacing: 0.5px;
         }
-        p {
-            margin-bottom: 15px;
-        }
-        ul {
-            margin-bottom: 15px;
-        }
-        .last-updated {
-            color: #666;
-            font-style: italic;
-            margin-bottom: 30px;
-        }
-        .contact {
-            background: #f7fafc;
-            padding: 15px;
-            border-left: 4px solid #60a5fa;
-            margin-top: 30px;
-        }
-        .russian {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #e2e8f0;
-        }
-        .lang-label {
-            font-size: 0.9em;
-            color: #666;
-            font-weight: bold;
-            margin-bottom: 10px;
-        }
+        a { color: #60a5fa; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Privacy Policy for Rybolov / Политика конфиденциальности</h1>
-        <p class="last-updated"><strong>Last updated / Последнее обновление:</strong> December 13, 2024 / 13 декабря 2024</p>
+<div class="container">
 
-        <h2>Introduction / Введение</h2>
+    <!-- ───────────────── RUSSIAN ───────────────── -->
+    <div class="lang-badge">🇷🇺 Русский</div>
+    <h1>Политика конфиденциальности — Рыболов</h1>
+    <p class="last-updated">Последнее обновление: 13 апреля 2026 г.</p>
+
+    <h2>1. Введение</h2>
+    <p>
+        Приложение «Рыболов» («мы», «наш», «нас») уважает вашу конфиденциальность.
+        Настоящая Политика конфиденциальности описывает, какие персональные данные мы собираем,
+        как мы их используем, храним и защищаем при использовании нашего мобильного приложения.
+    </p>
+    <p>Используя приложение, вы соглашаетесь с условиями настоящей Политики.</p>
+
+    <h2>2. Какие данные мы собираем</h2>
+
+    <h3>2.1 Данные учётной записи</h3>
+    <p>При регистрации мы собираем:</p>
+    <ul>
+        <li>Адрес электронной почты</li>
+        <li>Имя пользователя и отображаемое имя</li>
+        <li>Пароль (хранится в хэшированном виде, мы не имеем к нему доступа)</li>
+        <li>Фото профиля (по желанию)</li>
+    </ul>
+
+    <h3>2.2 Данные об уловах</h3>
+    <p>При добавлении улова мы собираем:</p>
+    <ul>
+        <li>GPS-координаты (извлекаются из EXIF-данных фотографии)</li>
+        <li>Фотографии улова</li>
+        <li>Вид рыбы, длина, вес, описание</li>
+        <li>Дату добавления записи</li>
+        <li>Статус публичности (виден другим пользователям или нет)</li>
+    </ul>
+
+    <h3>2.3 Техническая информация</h3>
+    <p>
+        Мы можем автоматически собирать базовую техническую информацию:
+        тип устройства, версию операционной системы и версию приложения — исключительно для диагностики ошибок и улучшения стабильности.
+    </p>
+
+    <h2>3. Как мы используем ваши данные</h2>
+    <ul>
+        <li>Обеспечение работы основных функций приложения: журнал уловов, карта, социальные функции</li>
+        <li>Синхронизация ваших уловов между устройствами при входе в аккаунт</li>
+        <li>Отображение публичных уловов на карте для других пользователей приложения (только если вы включили эту опцию)</li>
+        <li>Улучшение работы приложения и исправление ошибок</li>
+    </ul>
+    <p>Мы не используем ваши данные в маркетинговых целях и не продаём их третьим лицам.</p>
+
+    <h2>4. Хранение и передача данных</h2>
+    <p>
+        Данные хранятся локально на вашем устройстве, а также на защищённом сервере, размещённом в России.
+        Все данные передаются по зашифрованному протоколу HTTPS.
+    </p>
+    <p>
+        <strong>Публичные уловы</strong> (если вы включили эту опцию) видны другим зарегистрированным пользователям приложения на карте.<br>
+        <strong>Приватные уловы</strong> доступны только вам.
+    </p>
+
+    <h2>5. Передача данных третьим лицам</h2>
+    <p>Мы не продаём и не передаём ваши персональные данные третьим лицам. Исключения:</p>
+    <ul>
+        <li>
+            <strong>Mapbox</strong> — используется для отображения карт.
+            При работе с картой ваше местоположение и действия могут обрабатываться Mapbox в соответствии с их
+            <a href="https://www.mapbox.com/legal/privacy" target="_blank">Политикой конфиденциальности</a>.
+        </li>
+        <li>
+            <strong>Expo / EAS (Expo Application Services)</strong> — платформа для сборки приложения и доставки обновлений.
+        </li>
+    </ul>
+
+    <h2>6. Ваши права</h2>
+    <ul>
+        <li>Удалить любой улов в любое время через приложение</li>
+        <li>Изменить статус улова (публичный / приватный) в любое время</li>
+        <li>Запросить удаление аккаунта и всех связанных данных, написав нам на почту</li>
+        <li>Отозвать разрешения на геолокацию и камеру через настройки вашего устройства</li>
+    </ul>
+
+    <h2>7. Конфиденциальность детей</h2>
+    <p>
+        Приложение не предназначено для лиц младше 13 лет.
+        Мы не собираем намеренно данные детей до 13 лет.
+        Если вам стало известно, что ребёнок предоставил нам свои данные, пожалуйста, свяжитесь с нами.
+    </p>
+
+    <h2>8. Изменения политики</h2>
+    <p>
+        Мы можем обновлять настоящую Политику конфиденциальности.
+        При существенных изменениях мы уведомим вас через приложение или по электронной почте.
+        Актуальная версия всегда доступна по ссылке в приложении.
+    </p>
+
+    <div class="contact">
+        <h2>9. Контакты</h2>
         <p>
-            Rybolov ("we", "our", or "us") is committed to protecting your privacy. 
-            This Privacy Policy explains how we collect, use, and protect your information 
-            when you use our mobile application.
+            По вопросам, связанным с конфиденциальностью и персональными данными, обращайтесь:<br>
+            📧 <strong>serg.ivnv05@gmail.com</strong>
         </p>
-        <div class="russian">
-            <p>
-                Rybolov ("мы", "наш", "нас") обязуется защищать вашу конфиденциальность. 
-                Данная Политика конфиденциальности объясняет, как мы собираем, используем 
-                и защищаем вашу информацию при использовании нашего мобильного приложения.
-            </p>
-        </div>
-
-        <h2>Information We Collect / Собираемая информация</h2>
-        
-        <h3>Location Data / Данные о местоположении</h3>
-        <p>
-            We collect GPS coordinates when you add a fishing catch to your log. 
-            This data is used to display your catches on an interactive map. 
-            Location data is stored locally on your device only and is never transmitted 
-            to external servers.
-        </p>
-        <div class="russian">
-            <p>
-                Мы собираем GPS-координаты при добавлении улова в ваш журнал. 
-                Эти данные используются для отображения ваших уловов на интерактивной карте. 
-                Данные о местоположении хранятся только локально на вашем устройстве 
-                и никогда не передаются на внешние серверы.
-            </p>
-        </div>
-
-        <h3>Photos / Фотографии</h3>
-        <p>
-            You may upload photos of your catches. Photos are stored locally on your device 
-            using SQLite database. We do not upload photos to any external servers or cloud services.
-        </p>
-        <div class="russian">
-            <p>
-                Вы можете загружать фотографии ваших уловов. Фотографии хранятся локально 
-                на вашем устройстве с использованием базы данных SQLite. Мы не загружаем 
-                фотографии на внешние серверы или облачные сервисы.
-            </p>
-        </div>
-
-        <h3>Device Information / Информация об устройстве</h3>
-        <p>
-            Basic device information may be collected through standard app analytics 
-            (via Expo framework) to help us improve app performance and fix bugs. 
-            This includes device type, operating system version, and app version.
-        </p>
-        <div class="russian">
-            <p>
-                Базовая информация об устройстве может собираться через стандартную 
-                аналитику приложения (через фреймворк Expo) для улучшения производительности 
-                приложения и исправления ошибок. Это включает тип устройства, версию 
-                операционной системы и версию приложения.
-            </p>
-        </div>
-
-        <h2>How We Use Your Information / Как мы используем вашу информацию</h2>
-        <ul>
-            <li>Display your catches on an interactive map</li>
-            <li>Store your fishing log locally on your device</li>
-            <li>Improve app functionality and user experience</li>
-            <li>Fix bugs and ensure app stability</li>
-        </ul>
-        <div class="russian">
-            <ul>
-                <li>Отображение ваших уловов на интерактивной карте</li>
-                <li>Хранение вашего журнала рыбалки локально на вашем устройстве</li>
-                <li>Улучшение функциональности приложения и пользовательского опыта</li>
-                <li>Исправление ошибок и обеспечение стабильности приложения</li>
-            </ul>
-        </div>
-
-        <h2>Data Storage / Хранение данных</h2>
-        <p>
-            <strong>All data is stored locally on your device.</strong> We use SQLite database 
-            to store your catches, photos, and location data. We do not transmit, upload, 
-            or store your data on external servers or cloud services.
-        </p>
-        <div class="russian">
-            <p>
-                <strong>Все данные хранятся локально на вашем устройстве.</strong> Мы используем 
-                базу данных SQLite для хранения ваших уловов, фотографий и данных о местоположении. 
-                Мы не передаем, не загружаем и не храним ваши данные на внешних серверах 
-                или облачных сервисах.
-            </p>
-        </div>
-
-        <h2>Your Rights / Ваши права</h2>
-        <ul>
-            <li>You can delete any catch entry at any time through the app</li>
-            <li>You can delete the app, which removes all local data</li>
-            <li>You have complete control over all data stored in the app</li>
-            <li>You can revoke location or camera permissions at any time through your device settings</li>
-        </ul>
-        <div class="russian">
-            <ul>
-                <li>Вы можете удалить любую запись об улове в любое время через приложение</li>
-                <li>Вы можете удалить приложение, что удалит все локальные данные</li>
-                <li>Вы имеете полный контроль над всеми данными, хранящимися в приложении</li>
-                <li>Вы можете отозвать разрешения на местоположение или камеру в любое время через настройки устройства</li>
-            </ul>
-        </div>
-
-        <h2>Third-Party Services / Сторонние сервисы</h2>
-        <h3>Google Maps</h3>
-        <p>
-            We use Google Maps API to display maps and provide location services. 
-            Google's privacy policy applies to their services: 
-            <a href="https://policies.google.com/privacy" target="_blank">https://policies.google.com/privacy</a>
-        </p>
-        <p>
-            No other third-party services collect your personal data.
-        </p>
-        <div class="russian">
-            <p>
-                Мы используем API Google Maps для отображения карт и предоставления услуг 
-                определения местоположения. Политика конфиденциальности Google применяется 
-                к их услугам: 
-                <a href="https://policies.google.com/privacy" target="_blank">https://policies.google.com/privacy</a>
-            </p>
-            <p>
-                Никакие другие сторонние сервисы не собирают ваши личные данные.
-            </p>
-        </div>
-
-        <h2>Children's Privacy / Конфиденциальность детей</h2>
-        <p>
-            Our app is not intended for children under 13 years of age. 
-            We do not knowingly collect data from children under 13.
-        </p>
-        <div class="russian">
-            <p>
-                Наше приложение не предназначено для детей младше 13 лет. 
-                Мы не собираем данные от детей младше 13 лет сознательно.
-            </p>
-        </div>
-
-        <h2>Changes to This Policy / Изменения в политике</h2>
-        <p>
-            We may update this Privacy Policy from time to time. We will notify you of any changes 
-            by updating the "Last updated" date at the top of this policy. We encourage you to 
-            review this policy periodically.
-        </p>
-        <div class="russian">
-            <p>
-                Мы можем обновлять данную Политику конфиденциальности время от времени. 
-                Мы уведомим вас о любых изменениях, обновив дату "Последнее обновление" 
-                в верхней части этой политики. Мы рекомендуем вам периодически просматривать 
-                эту политику.
-            </p>
-        </div>
-
-        <div class="contact">
-            <h2>Contact Us / Свяжитесь с нами</h2>
-            <p>
-                If you have any questions about this Privacy Policy or our data practices, 
-                please contact us at: <strong>serg.ivnv05@gmail.com</strong>
-            </p>
-            <div class="russian">
-                <p>
-                    Если у вас есть вопросы о данной Политике конфиденциальности или наших 
-                    практиках работы с данными, пожалуйста, свяжитесь с нами: 
-                    <strong>serg.ivnv05@gmail.com</strong>
-                </p>
-            </div>
-        </div>
     </div>
+
+    <hr class="lang-divider">
+
+    <!-- ───────────────── ENGLISH ───────────────── -->
+    <div class="lang-badge">🇬🇧 English</div>
+    <h1>Privacy Policy — Rybolov</h1>
+    <p class="last-updated">Last updated: April 13, 2026</p>
+
+    <h2>1. Introduction</h2>
+    <p>
+        Rybolov ("we", "our", "us") respects your privacy.
+        This Privacy Policy describes what personal data we collect, how we use, store, and protect it
+        when you use our mobile application.
+    </p>
+    <p>By using the app, you agree to the terms of this Policy.</p>
+
+    <h2>2. Data We Collect</h2>
+
+    <h3>2.1 Account Data</h3>
+    <p>When you register, we collect:</p>
+    <ul>
+        <li>Email address</li>
+        <li>Username and display name</li>
+        <li>Password (stored as a hash — we cannot access it)</li>
+        <li>Profile photo (optional)</li>
+    </ul>
+
+    <h3>2.2 Catch Data</h3>
+    <p>When you add a catch, we collect:</p>
+    <ul>
+        <li>GPS coordinates (extracted from the photo's EXIF data)</li>
+        <li>Catch photos</li>
+        <li>Fish species, length, weight, description</li>
+        <li>Date of the entry</li>
+        <li>Visibility status (public or private)</li>
+    </ul>
+
+    <h3>2.3 Technical Information</h3>
+    <p>
+        We may automatically collect basic technical information such as device type, OS version,
+        and app version — solely for error diagnostics and stability improvements.
+    </p>
+
+    <h2>3. How We Use Your Data</h2>
+    <ul>
+        <li>Providing core app features: catch log, map, social features</li>
+        <li>Syncing your catches across devices when signed in</li>
+        <li>Displaying public catches on the map to other users (only if you enable this)</li>
+        <li>Improving app performance and fixing bugs</li>
+    </ul>
+    <p>We do not use your data for marketing purposes and do not sell it to third parties.</p>
+
+    <h2>4. Data Storage and Transfer</h2>
+    <p>
+        Data is stored locally on your device and on a secure server located in Russia.
+        All data is transmitted over encrypted HTTPS.
+    </p>
+    <p>
+        <strong>Public catches</strong> (if enabled) are visible to other registered users on the map.<br>
+        <strong>Private catches</strong> are visible to you only.
+    </p>
+
+    <h2>5. Third-Party Services</h2>
+    <p>We do not sell or share your personal data with third parties. Exceptions:</p>
+    <ul>
+        <li>
+            <strong>Mapbox</strong> — used for map rendering.
+            Your location and map interactions may be processed by Mapbox per their
+            <a href="https://www.mapbox.com/legal/privacy" target="_blank">Privacy Policy</a>.
+        </li>
+        <li>
+            <strong>Expo / EAS (Expo Application Services)</strong> — used for app builds and update delivery.
+        </li>
+    </ul>
+
+    <h2>6. Your Rights</h2>
+    <ul>
+        <li>Delete any catch at any time within the app</li>
+        <li>Change catch visibility (public / private) at any time</li>
+        <li>Request deletion of your account and all associated data by emailing us</li>
+        <li>Revoke location and camera permissions at any time in your device settings</li>
+    </ul>
+
+    <h2>7. Children's Privacy</h2>
+    <p>
+        The app is not intended for children under 13 years of age.
+        We do not knowingly collect data from children under 13.
+        If you become aware that a child has provided us with personal data, please contact us.
+    </p>
+
+    <h2>8. Changes to This Policy</h2>
+    <p>
+        We may update this Privacy Policy from time to time.
+        For significant changes, we will notify you via the app or by email.
+        The latest version is always available via the link in the app.
+    </p>
+
+    <div class="contact">
+        <h2>9. Contact</h2>
+        <p>
+            For privacy-related questions or data requests:<br>
+            📧 <strong>serg.ivnv05@gmail.com</strong>
+        </p>
+    </div>
+
+</div>
 </body>
 </html>

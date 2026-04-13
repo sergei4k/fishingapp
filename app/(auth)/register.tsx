@@ -2,6 +2,7 @@ import { useAuth } from '@/lib/auth';
 import { useLanguage } from '@/lib/language';
 import { FontAwesome } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -161,6 +162,16 @@ export default function Register() {
 
             <Text style={styles.hint}>{t('passwordHint')}</Text>
 
+            <Text style={styles.privacyText}>
+              {t('registeringAgree')}{' '}
+              <Text
+                style={styles.privacyLink}
+                onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}
+              >
+                {t('privacyPolicy')}
+              </Text>
+            </Text>
+
             <TouchableOpacity
               style={[styles.button, loading && styles.buttonDisabled]}
               onPress={handleRegister}
@@ -308,5 +319,15 @@ const styles = StyleSheet.create({
     color: '#60a5fa',
     fontSize: 14,
     fontWeight: '600',
+  },
+  privacyText: {
+    color: '#64748b',
+    fontSize: 12,
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  privacyLink: {
+    color: '#60a5fa',
+    textDecorationLine: 'underline',
   },
 });

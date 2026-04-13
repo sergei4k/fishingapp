@@ -4,7 +4,7 @@ import { useLanguage, type Language } from "@/lib/language";
 import { FontAwesome } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
-import { Alert, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Settings() {
@@ -104,7 +104,7 @@ export default function Settings() {
             <Text style={styles.settingValue}>1.1.0</Text>
           </View>
 
-          <TouchableOpacity style={styles.settingItem}>
+          <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}>
             <View style={styles.settingLeft}>
               <FontAwesome name="file-text" size={20} color="#60a5fa" />
               <Text style={styles.settingText}>{t("privacyPolicy")}</Text>

@@ -4,7 +4,7 @@ export default {
   expo: {
     name: "Rybolov",
     slug: "fishingapp",
-    version: "1.0.0",
+    version: "1.1.0",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
     icon: "./assets/images/logo.png",
@@ -30,7 +30,7 @@ export default {
         }
       },
       package: "com.rybolov.app",
-      privacy: "https://sergei4k.github.io/fishingapp/"
+      privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {
       
