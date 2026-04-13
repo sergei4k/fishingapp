@@ -103,6 +103,7 @@ const translations = {
     deleteAccount: "Удалить аккаунт",
     deleteAccountMessage: "Это действие необратимо. Все ваши данные и уловы будут удалены навсегда.",
     deleteAccountError: "Не удалось удалить аккаунт. Попробуйте позже.",
+    deleteAccountHint: "Вы можете удалить аккаунт в любое время в Настройках.",
   },
   en: {
     settings: "Settings",
@@ -201,6 +202,7 @@ const translations = {
     deleteAccount: "Delete Account",
     deleteAccountMessage: "This action is irreversible. All your data and catches will be permanently deleted.",
     deleteAccountError: "Failed to delete account. Please try again later.",
+    deleteAccountHint: "You can delete your account at any time in Settings.",
   },
 };
 

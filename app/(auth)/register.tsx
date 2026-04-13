@@ -185,6 +185,7 @@ export default function Register() {
               >
                 {t('privacyPolicy')}
               </Text>
+              {'. '}{t('deleteAccountHint')}
             </Text>
 
             <TouchableOpacity
