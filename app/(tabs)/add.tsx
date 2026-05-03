@@ -1,18 +1,21 @@
 import { pb } from "@/lib/pocketbase";
 import { useAuth } from "@/lib/auth";
+import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
 import ExifParser from 'exif-parser';
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system/next';
 import { Image as ExpoImage } from 'expo-image';
-import { FontAwesome } from "@expo/vector-icons";
+import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
+import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
+import gearPhotos from "@/lib/gearPhotos";
 import {
-    ActionSheetIOS,
     Alert,
+    FlatList,
     Image,
     KeyboardAvoidingView,
     Modal,
@@ -28,6 +31,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import speciesPhotoMap from "@/lib/speciesPhotos";
+
 export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
@@ -39,14 +44,44 @@ export default function Add() {
   const [weight, setWeight] = useState("");
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
   const [moreModalVisible, setMoreModalVisible] = useState(false);
+  const [speciesSearch, setSpeciesSearch] = useState("");
+  const [selectedGear, setSelectedGear] = useState<string | null>(null);
+  const [gearModalVisible, setGearModalVisible] = useState(false);
+  const [gearSearch, setGearSearch] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isPublic, setIsPublic] = useState(false);
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [waterBody, setWaterBody] = useState<string | null>(null);
+  const [detectingWater, setDetectingWater] = useState(false);
   const router = useRouter();
+
+  const detectWaterBody = async (lat: number, lon: number) => {
+    const token = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
+    if (!token) return;
+    setDetectingWater(true);
+    setWaterBody(null);
+    try {
+      const lang = language === "ru" ? "ru" : "en";
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${token}&types=poi,place,locality&language=${lang}&limit=5`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.features?.length) return;
+      const waterRe = /lake|river|sea|ocean|bay|pond|creek|stream|reservoir|gulf|fjord|strait|canal|озеро|река|море|залив|пруд|водохранилище|ручей|канал|бухта/i;
+      const match = data.features.find((f: any) =>
+        waterRe.test(f.text ?? '') || waterRe.test(f.place_name ?? '')
+      );
+      if (match) {
+        setWaterBody(match.text);
+      }
+    } catch (e) {
+      // silent — water body is optional info
+    } finally {
+      setDetectingWater(false);
+    }
+  };
 
   const pickImageAndGetGps = async () => {
     try {
-      // Pick image using DocumentPicker
       const result = await DocumentPicker.getDocumentAsync({
         type: 'image/*',
         copyToCacheDirectory: true,
@@ -59,17 +94,14 @@ export default function Add() {
 
       setImage(pickedFile.uri);
 
-      // Read file using new expo-file-system/next API
       const file = new File(pickedFile.uri);
       const fileBytes = await file.bytes();
-      
-      // Convert Uint8Array to ArrayBuffer for EXIF parser
+
       const arrayBuffer = fileBytes.buffer.slice(
         fileBytes.byteOffset,
         fileBytes.byteOffset + fileBytes.byteLength
       );
 
-      // Parse EXIF
       const parser = ExifParser.create(arrayBuffer);
       const exifResult = parser.parse();
 
@@ -97,6 +129,7 @@ export default function Add() {
 
       if (coords) {
         setImageCoords(coords);
+        detectWaterBody(coords.lat, coords.lon);
       } else {
         setImageCoords(null);
         Alert.alert(
@@ -130,30 +163,45 @@ export default function Add() {
   };
 
   const fishSpecies = [
-    { id: "pike", image: require("../../assets/fishicons/schuka.420x420.png") },
+    { id: "pike", image: require("../../assets/fishicons/pike.png") },
     { id: "perch", image: require("../../assets/fishicons/perch.png") },
     { id: "carp", image: require("../../assets/fishicons/carp.png") },
     { id: "pikeperch", image: require("../../assets/fishicons/pikeperch.png") },
   ];
 
   const allSpeciesOptions = getSpeciesOptions(language);
-  const moreSpecies = allSpeciesOptions.filter(s => !fishSpecies.find(f => f.id === s.id));
+  const moreSpecies = allSpeciesOptions;
+  const filteredMoreSpecies = speciesSearch.trim()
+    ? moreSpecies.filter(s => {
+        const q = speciesSearch.toLowerCase();
+        return s.labelRu.toLowerCase().includes(q) ||
+               s.labelEn.toLowerCase().includes(q) ||
+               s.scientificName.toLowerCase().includes(q);
+      })
+    : moreSpecies;
 
   const openMore = () => {
-    if (Platform.OS === "ios") {
-      const options = moreSpecies.map((s) => s.label).concat(t("cancel"));
-      ActionSheetIOS.showActionSheetWithOptions({ options, cancelButtonIndex: options.length - 1 }, (buttonIndex) => {
-        if (buttonIndex < moreSpecies.length) setSelectedSpecies(moreSpecies[buttonIndex].id);
-      });
-    } else {
-      setMoreModalVisible(true);
-    }
+    setMoreModalVisible(true);
   };
 
   const selectMoreSpecies = (id: string) => {
     setSelectedSpecies(id);
     setMoreModalVisible(false);
+    setSpeciesSearch("");
   };
+
+  const allGearOptions = getGearOptions(language);
+  const filteredGearOptions = gearSearch.trim()
+    ? allGearOptions.filter(g => {
+        const q = gearSearch.toLowerCase();
+        return g.labelRu.toLowerCase().includes(q) ||
+               g.labelEn.toLowerCase().includes(q);
+      })
+    : allGearOptions;
+
+  const featuredGear = ["vobler", "spoon", "vrashchalka", "silikon"].map(id =>
+    allGearOptions.find(g => g.id === id)!
+  ).filter(Boolean);
 
   const handleUpload = async () => {
     setIsUploading(true);
@@ -186,6 +234,7 @@ export default function Add() {
           formData.append('lat', String(lat));
           formData.append('lon', String(lon));
           formData.append('description', description || '');
+          formData.append('gear', selectedGear ?? '');
           if (lengthNum != null) formData.append('length_cm', String(lengthNum));
           if (weightNum != null) formData.append('weight_kg', String(weightNum));
           formData.append('created_at', String(createdAt));
@@ -204,6 +253,20 @@ export default function Add() {
 
           if (record.image) {
             pbImageUrl = pb.files.getURL(record, record.image);
+          }
+
+          // Grant "rybolov" badge on first catch
+          const existingBadges = parseBadges(user.badges);
+          if (!existingBadges.includes("rybolov")) {
+            const catchCount = await pb.collection("catches").getList(1, 1, {
+              filter: `user_id = "${user.id}"`,
+              requestKey: null,
+            });
+            if (catchCount.totalItems === 1) {
+              const newBadges = [...existingBadges, "rybolov"];
+              await pb.collection("users").update(user.id, { badges: newBadges });
+              pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, badges: newBadges });
+            }
           }
         } catch (e) {
           console.warn('PocketBase sync failed:', e);
@@ -242,6 +305,7 @@ export default function Add() {
         length: lengthNum != null ? String(lengthNum) : '',
         weight: weightNum != null ? String(weightNum) : '',
         species: selectedSpecies ?? undefined,
+        gear: selectedGear ?? undefined,
         date: new Date(createdAt).toISOString(),
         lat,
         lon,
@@ -256,7 +320,9 @@ export default function Add() {
       setLength("");
       setWeight("");
       setSelectedSpecies(null);
+      setSelectedGear(null);
       setImageCoords(null);
+      setWaterBody(null);
       setIsPublic(false);
 
     } catch (e: any) {
@@ -291,7 +357,7 @@ export default function Add() {
                 <View key={i} style={styles.extraThumbWrapper}>
                   <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
                   <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)}>
-                    <FontAwesome name="times" size={9} color="#fff" />
+                    <FontAwesome name="xmark" size={9} color="#fff" />
                   </TouchableOpacity>
                 </View>
               ))}
@@ -304,9 +370,20 @@ export default function Add() {
           </View>
 
           {imageCoords && (
-            <Text style={styles.coordsText}>
-              📍 {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
-            </Text>
+            <View style={styles.locationRow}>
+              <FontAwesome name="location-dot" size={13} color="#60a5fa" style={{ marginRight: 6 }} />
+              <Text style={styles.coordsText}>
+                {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
+              </Text>
+              {(detectingWater || waterBody) && (
+                <View style={styles.waterBadge}>
+                  <FontAwesome name="droplet" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
+                  <Text style={styles.waterBadgeText}>
+                    {detectingWater ? t("detectingWater") : waterBody}
+                  </Text>
+                </View>
+              )}
+            </View>
           )}
 
           <View style={styles.inputs}>
@@ -359,6 +436,35 @@ export default function Add() {
             <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `${t("selectedSpecies")}: ${getSpeciesLabelTranslated(selectedSpecies, language)}` : t("speciesNotSelected")}</Text>
           </View>
 
+          {/* Gear selector */}
+          <View style={styles.speciesWrapper}>
+            <Text style={styles.speciesTitle}>{t("gear")}</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
+              {featuredGear.map((g) => (
+                <TouchableOpacity
+                  key={g.id}
+                  style={[styles.speciesItem, selectedGear === g.id && styles.speciesItemSelected]}
+                  onPress={() => setSelectedGear(g.id)}
+                >
+                  {gearPhotos[g.id] ? (
+                    <ExpoImage source={gearPhotos[g.id]} style={styles.speciesImage} contentFit="contain" />
+                  ) : (
+                    <View style={[styles.gearIconBox, { borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
+                      <FontAwesome name={GEAR_CATEGORY_ICON[g.category] as any} size={28} color={GEAR_CATEGORY_COLOR[g.category]} />
+                    </View>
+                  )}
+                  <Text style={styles.speciesLabel}>{g.label}</Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity style={styles.moreButton} onPress={() => setGearModalVisible(true)}>
+                <Text style={styles.moreText}>{t("more")}</Text>
+              </TouchableOpacity>
+            </ScrollView>
+            <Text style={styles.selectedSpeciesText}>
+              {selectedGear ? `${t("selectedGear")}: ${getGearLabel(selectedGear, language)}` : t("gearNotSelected")}
+            </Text>
+          </View>
+
           <View style={styles.publicRow}>
             <View>
               <Text style={styles.publicLabel}>{t("makePublic")}</Text>
@@ -376,20 +482,132 @@ export default function Add() {
             <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
           </TouchableOpacity>
 
-          <Modal visible={moreModalVisible} animationType="slide" transparent={true} onRequestClose={() => setMoreModalVisible(false)}>
-            <View style={styles.modalOverlay}>
+          <Modal
+            visible={moreModalVisible}
+            animationType="slide"
+            transparent={false}
+            statusBarTranslucent
+            onRequestClose={() => { setMoreModalVisible(false); setSpeciesSearch(""); }}
+          >
+            <SafeAreaView style={styles.modalOverlay}>
               <View style={styles.modalContent}>
-                <Text style={styles.speciesTitle}>{t("selectSpecies")}</Text>
-                <ScrollView>
-                  {moreSpecies.map((s) => (
-                    <Pressable key={s.id} onPress={() => selectMoreSpecies(s.id)} style={({ pressed }) => [styles.modalItem, pressed && { backgroundColor: "#061420" }]}>
-                      <Text style={styles.modalItemText}>{s.label}</Text>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.speciesTitle}>{t("selectSpecies")}</Text>
+                  <TouchableOpacity onPress={() => { setMoreModalVisible(false); setSpeciesSearch(""); }} hitSlop={8}>
+                    <FontAwesome name="xmark" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.searchRow}>
+                  <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder={language === "ru" ? "Поиск..." : "Search..."}
+                    placeholderTextColor="#475569"
+                    value={speciesSearch}
+                    onChangeText={setSpeciesSearch}
+                    autoCorrect={false}
+                    keyboardAppearance="dark"
+                    clearButtonMode="while-editing"
+                  />
+                </View>
+                <FlatList
+                  data={filteredMoreSpecies}
+                  keyExtractor={(s) => s.id}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item: s }) => (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => selectMoreSpecies(s.id)}
+                      style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
+                    >
+                      <View style={styles.modalItem}>
+                        {speciesPhotoMap[s.id] ? (
+                          <ExpoImage source={speciesPhotoMap[s.id]} style={styles.modalItemImage} contentFit="contain" />
+                        ) : (
+                          <View style={styles.modalItemImagePlaceholder}>
+                            <FontAwesome name="question" size={20} color="#334155" />
+                          </View>
+                        )}
+                        <View style={styles.modalItemLeft}>
+                          <Text style={styles.modalItemText}>{s.label}</Text>
+                          <Text style={styles.modalItemScientific}>{s.scientificName}</Text>
+                        </View>
+                      </View>
                     </Pressable>
-                  ))}
-                </ScrollView>
-                <TouchableOpacity style={styles.modalClose} onPress={() => setMoreModalVisible(false)}><Text style={styles.moreText}>{t("cancel")}</Text></TouchableOpacity>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={{ color: "#475569", textAlign: "center", paddingVertical: 24 }}>
+                      {language === "ru" ? "Ничего не найдено" : "No results"}
+                    </Text>
+                  }
+                />
               </View>
-            </View>
+            </SafeAreaView>
+          </Modal>
+
+          {/* Gear modal */}
+          <Modal
+            visible={gearModalVisible}
+            animationType="slide"
+            transparent={false}
+            statusBarTranslucent
+            onRequestClose={() => { setGearModalVisible(false); setGearSearch(""); }}
+          >
+            <SafeAreaView style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.speciesTitle}>{t("selectGear")}</Text>
+                  <TouchableOpacity onPress={() => { setGearModalVisible(false); setGearSearch(""); }} hitSlop={8}>
+                    <FontAwesome name="xmark" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.searchRow}>
+                  <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder={language === "ru" ? "Поиск..." : "Search..."}
+                    placeholderTextColor="#475569"
+                    value={gearSearch}
+                    onChangeText={setGearSearch}
+                    autoCorrect={false}
+                    keyboardAppearance="dark"
+                    clearButtonMode="while-editing"
+                  />
+                </View>
+                <FlatList
+                  data={filteredGearOptions}
+                  keyExtractor={(g) => g.id}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item: g }) => (
+                    <Pressable
+                      onPress={() => { setSelectedGear(g.id); setGearModalVisible(false); setGearSearch(""); }}
+                      style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
+                    >
+                      <View style={styles.modalItem}>
+                        {gearPhotos[g.id] ? (
+                          <ExpoImage source={gearPhotos[g.id]} style={styles.modalItemImage} contentFit="contain" />
+                        ) : (
+                          <View style={[styles.modalItemImagePlaceholder, { backgroundColor: "#0f2236", borderWidth: 1.5, borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
+                            <FontAwesome name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
+                          </View>
+                        )}
+                        <View style={styles.modalItemLeft}>
+                          <Text style={styles.modalItemText}>{g.label}</Text>
+                          <Text style={[styles.modalItemScientific, { color: GEAR_CATEGORY_COLOR[g.category] }]}>
+                            {t(g.category === "lure" ? "gearCategoryLure" : g.category === "bait" ? "gearCategoryBait" : "gearCategoryRig")}
+                          </Text>
+                        </View>
+                      </View>
+                    </Pressable>
+                  )}
+                  ListEmptyComponent={
+                    <Text style={{ color: "#475569", textAlign: "center", paddingVertical: 24 }}>
+                      {language === "ru" ? "Ничего не найдено" : "No results"}
+                    </Text>
+                  }
+                />
+              </View>
+            </SafeAreaView>
           </Modal>
         </ScrollView>
       </SafeAreaView>
@@ -408,7 +626,7 @@ const styles = StyleSheet.create({
   extraThumb: { width: 56, height: 56, borderRadius: 6 },
   removeThumbBtn: { position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center" },
   addExtraBtn: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#071023", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#1f2937" },
-  coordsText: { color: "#ffffff", fontSize: 14, marginBottom: 14, padding: 10 },
+  coordsText: { color: "#94a3b8", fontSize: 13 },
   inputs: { width: "100%", marginBottom: 12 },
   descriptionInput: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
   input: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
@@ -418,6 +636,7 @@ const styles = StyleSheet.create({
   speciesItem: { width: 90, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: "#071023" },
   speciesItemSelected: { borderWidth: 2, borderColor: "#60a5fa", backgroundColor: "#092032" },
   speciesImage: { width: 64, height: 64, marginBottom: 6, resizeMode: "contain" },
+  gearIconBox: { width: 64, height: 64, marginBottom: 6, borderRadius: 12, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
   speciesLabel: { color: "#e6eef8", fontSize: 12, textAlign: "center" },
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
   moreText: { color: "#60a5fa", fontWeight: "700" },
@@ -427,9 +646,19 @@ const styles = StyleSheet.create({
   publicSub: { color: "#64748b", fontSize: 12 },
   uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 20 },
-  modalContent: { backgroundColor: "#071023", borderRadius: 12, maxHeight: "80%", padding: 12 },
-  modalItem: { paddingVertical: 26, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1 },
-  modalItemText: { color: "#e6eef8", fontSize: 17 },
+  modalOverlay: { flex: 1, backgroundColor: "#071023" },
+  modalContent: { flex: 1, paddingTop: 8, paddingBottom: 16 },
+  modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },
+  searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  searchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  modalItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },
+  modalItemLeft: { flex: 1 },
+  modalItemText: { color: "#e6eef8", fontSize: 16 },
+  modalItemScientific: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
+  modalItemImage: { width: 52, height: 52, resizeMode: "contain", flexShrink: 0 },
+  modalItemImagePlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
+  locationRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", width: "100%", marginBottom: 14, paddingHorizontal: 4, gap: 8 },
+  waterBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#0c2d48", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
+  waterBadgeText: { color: "#38bdf8", fontSize: 13 },
 });

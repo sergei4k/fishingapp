@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { pb } from './pocketbase';
 import { syncCatchesFromPB } from './sync';
+import { syncPushTokenForUser } from './notifications';
 
 type AuthContextType = {
   user: any;
@@ -17,6 +18,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const syncedUserIdRef = useRef<string | null>(null);
+  const syncedPushTokenUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const unsub = pb.authStore.onChange(() => {
@@ -29,6 +31,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         syncedUserIdRef.current = record.id;
         syncCatchesFromPB(record.id).catch((e) =>
           console.warn('syncCatchesFromPB error:', e)
+        );
+      }
+
+      if (record?.id && record.id !== syncedPushTokenUserIdRef.current) {
+        syncedPushTokenUserIdRef.current = record.id;
+        syncPushTokenForUser(record.id).catch((e) =>
+          console.warn('syncPushTokenForUser error:', e)
         );
       }
     }, true);

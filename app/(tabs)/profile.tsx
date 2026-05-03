@@ -1,34 +1,30 @@
 import { getSpeciesLabel } from "@/lib/species";
+import { getGearLabel } from "@/lib/gear";
+import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
+import BadgeChip from "@/components/BadgeChip";
+import { parseBadges } from "@/lib/badges";
 import { getCatches, deleteCatch, updateCatch, CatchItem } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
-import { FontAwesome } from "@expo/vector-icons";
+import CatchDetailModal, { EditableFields } from "@/components/CatchDetailModal";
+import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
-import { Dimensions } from "react-native";
+import React, { useCallback, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Keyboard,
-  Modal,
-  Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
-  Switch,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const SCREEN_WIDTH = Dimensions.get("window").width;
 
 type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 
@@ -59,24 +55,8 @@ export default function Profile() {
   const [catches, setCatches] = useState<CatchWithExtras[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCatch, setSelectedCatch] = useState<CatchWithExtras | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [editDescription, setEditDescription] = useState("");
-  const [editLength, setEditLength] = useState("");
-  const [editWeight, setEditWeight] = useState("");
-  const [photoIndex, setPhotoIndex] = useState(0);
-  const [fullscreenPhotos, setFullscreenPhotos] = useState<string[]>([]);
-  const [fullscreenIndex, setFullscreenIndex] = useState(0);
-  const fullscreenScrollRef = useRef<ScrollView>(null);
-
-  const [showMenu, setShowMenu] = useState(false);
-
-  const [likeCount, setLikeCount] = useState(0);
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeId, setLikeId] = useState<string | null>(null);
-  const [catchComments, setCatchComments] = useState<any[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [showComments, setShowComments] = useState(false);
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
 
   const load = async (_opts: { force?: boolean } = {}) => {
     try {
@@ -87,93 +67,26 @@ export default function Profile() {
     }
   };
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(useCallback(() => {
+    load();
+    if (user) {
+      Promise.all([
+        pb.collection("follows").getList(1, 1, { filter: `following_id = "${user.id}"`, requestKey: null }),
+        pb.collection("follows").getList(1, 1, { filter: `follower_id = "${user.id}"`, requestKey: null }),
+      ]).then(([followers, following]) => {
+        setFollowerCount(followers.totalItems);
+        setFollowingCount(following.totalItems);
+      }).catch(() => {});
+    }
+  }, [user]));
 
   const onRefresh = async () => {
     setRefreshing(true);
     try { await load({ force: true }); } finally { setRefreshing(false); }
   };
 
-  const fetchLikesAndComments = async (catchId: string) => {
-    try {
-      const [likesResult, commentsResult] = await Promise.all([
-        pb.collection("likes").getFullList({ filter: `catch_id = "${catchId}"`, requestKey: null }),
-        pb.collection("comments").getFullList({ filter: `catch_id = "${catchId}"`, sort: "created", requestKey: null }),
-      ]);
-      setLikeCount(likesResult.length);
-      const myLike = likesResult.find((l: any) => l.user_id === user?.id);
-      setIsLiked(!!myLike);
-      setLikeId(myLike?.id ?? null);
-      setCatchComments(commentsResult);
-    } catch (e) {
-      console.warn("fetchLikesAndComments error:", e);
-    }
-  };
-
-  const toggleLike = async () => {
-    if (!selectedCatch || !user) return;
-    if (isLiked && likeId) {
-      const prevId = likeId;
-      setIsLiked(false);
-      setLikeCount((c) => c - 1);
-      setLikeId(null);
-      try {
-        await pb.collection("likes").delete(prevId);
-      } catch (e) {
-        setIsLiked(true);
-        setLikeCount((c) => c + 1);
-        setLikeId(prevId);
-      }
-    } else {
-      setIsLiked(true);
-      setLikeCount((c) => c + 1);
-      try {
-        const record = await pb.collection("likes").create({ catch_id: selectedCatch.id, user_id: user.id });
-        setLikeId(record.id);
-      } catch (e) {
-        setIsLiked(false);
-        setLikeCount((c) => c - 1);
-      }
-    }
-  };
-
-  const submitComment = async () => {
-    if (!newComment.trim() || !selectedCatch || !user) return;
-    setSubmittingComment(true);
-    try {
-      const record = await pb.collection("comments").create({
-        catch_id: selectedCatch.id,
-        user_id: user.id,
-        username: user.username || user.name || "",
-        text: newComment.trim(),
-      });
-      setCatchComments((prev) => [...prev, record]);
-      setNewComment("");
-    } catch (e) {
-      console.warn("submitComment error:", e);
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
-
-  const openCatch = (item: CatchWithExtras) => {
-    setSelectedCatch(item);
-    setPhotoIndex(0);
-    setEditing(false);
-    setLikeCount(0);
-    setIsLiked(false);
-    setLikeId(null);
-    setCatchComments([]);
-    setNewComment("");
-    setShowComments(false);
-    fetchLikesAndComments(item.id);
-  };
-
-  const closeCatch = () => {
-    setSelectedCatch(null);
-    setEditing(false);
-    setShowMenu(false);
-  };
+  const openCatch = (item: CatchWithExtras) => setSelectedCatch(item);
+  const closeCatch = () => setSelectedCatch(null);
 
   const handleDelete = (id: string) => {
     Alert.alert(t("deleteConfirm"), t("deleteConfirmMessage"), [
@@ -184,6 +97,11 @@ export default function Profile() {
         onPress: async () => {
           try {
             await deleteCatch(id);
+            try {
+              await pb.collection('catches').delete(id);
+            } catch (_) {
+              // not on server or already deleted — ignore
+            }
             await load({ force: true });
             closeCatch();
           } catch (e) {
@@ -194,37 +112,41 @@ export default function Profile() {
     ]);
   };
 
-  const togglePublic = async (value: boolean) => {
+  const handleSave = async (catchId: string, fields: EditableFields) => {
+    if (!selectedCatch) return;
+    const parsedLength = parseFloat(fields.length ?? "");
+    const parsedWeight = parseFloat(fields.weight ?? "");
+    const updatedItem: CatchWithExtras = {
+      ...selectedCatch,
+      description: fields.description ?? "",
+      length: isNaN(parsedLength) ? "" : String(parsedLength),
+      weight: isNaN(parsedWeight) ? "" : String(parsedWeight),
+      species: fields.species ?? undefined,
+      gear: fields.gear ?? undefined,
+    };
+    await updateCatch(catchId, updatedItem);
+    try {
+      await pb.collection('catches').update(catchId, {
+        species: fields.species ?? '',
+        gear: fields.gear ?? '',
+        description: fields.description ?? '',
+        length_cm: isNaN(parsedLength) ? null : parsedLength,
+        weight_kg: isNaN(parsedWeight) ? null : parsedWeight,
+      });
+    } catch (_) {}
+    setSelectedCatch(updatedItem);
+    await load({ force: true });
+  };
+
+  const handleTogglePublic = async (catchId: string, value: boolean) => {
     if (!selectedCatch) return;
     const updated = { ...selectedCatch, isPublic: value };
     setSelectedCatch(updated);
-    await updateCatch(selectedCatch.id, updated);
+    await updateCatch(catchId, updated);
     try {
-      await pb.collection("catches").update(selectedCatch.id, { is_public: value });
-    } catch (e) {
-      console.warn("togglePublic error:", e);
-    }
+      await pb.collection("catches").update(catchId, { is_public: value });
+    } catch (_) {}
     await load();
-  };
-
-  const onSave = async () => {
-    if (!selectedCatch) return;
-    try {
-      const parsedLength = parseFloat(editLength);
-      const parsedWeight = parseFloat(editWeight);
-      const updatedItem: CatchWithExtras = {
-        ...selectedCatch,
-        description: editDescription ?? "",
-        length: isNaN(parsedLength) ? "" : String(parsedLength),
-        weight: isNaN(parsedWeight) ? "" : String(parsedWeight),
-      };
-      await updateCatch(selectedCatch.id, updatedItem);
-      setEditing(false);
-      setSelectedCatch(updatedItem);
-      await load({ force: true });
-    } catch (e) {
-      Alert.alert(t("error"), t("saveError"));
-    }
   };
 
   const renderItem = ({ item }: { item: CatchWithExtras }) => (
@@ -246,6 +168,12 @@ export default function Profile() {
         />
         <View style={styles.info}>
           <Text style={styles.species}>{getSpeciesLabel(item.species, language)}</Text>
+          {item.gear ? (
+            <View style={styles.gearRow}>
+              {gearPhotos[item.gear] && <ExpoImage source={gearPhotos[item.gear]} style={styles.gearThumb} contentFit="contain" />}
+              <Text style={styles.gear}>{getGearLabel(item.gear, language)}</Text>
+            </View>
+          ) : null}
           <Text style={styles.desc} numberOfLines={1}>{item.description || t("noDescription")}</Text>
           <Text style={styles.meta}>
             {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
@@ -261,15 +189,13 @@ export default function Profile() {
     </Swipeable>
   );
 
-  const photos = selectedCatch ? [
-    selectedCatch.image ?? selectedCatch.imageUrl ?? null,
-    ...(selectedCatch.extraPhotos || []),
-  ].filter(Boolean) as string[] : [];
-
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       {user && (
         <View style={styles.profileHeader}>
+          <TouchableOpacity onPress={() => router.push('/(tabs)/settings')} style={styles.settingsBtn}>
+            <FontAwesome name="gear" size={22} color="#94a3b8" />
+          </TouchableOpacity>
           <View style={styles.profileAvatar}>
             {user.avatar ? (
               <ExpoImage
@@ -286,7 +212,21 @@ export default function Profile() {
           <View style={styles.profileInfo}>
             {user.name ? <Text style={styles.profileName}>{user.name}</Text> : null}
             {user.username ? <Text style={styles.profileUsername}>@{user.username}</Text> : null}
-            <Text style={styles.profileCatchCount}>{catchCountLabel(catches.length)}</Text>
+            <BadgeChip badges={parseBadges(user.badges)} language={language} />
+            {user.bio ? <Text style={styles.profileBio}>{user.bio}</Text> : null}
+            <View style={styles.profileStats}>
+              <Text style={styles.profileCatchCount}>{catchCountLabel(catches.length)}</Text>
+              <Text style={styles.profileStatDivider}>·</Text>
+              <Text style={styles.profileStatItem}>
+                <Text style={styles.profileStatNum}>{followerCount}</Text>
+                {" "}{language === "ru" ? "подписчиков" : "followers"}
+              </Text>
+              <Text style={styles.profileStatDivider}>·</Text>
+              <Text style={styles.profileStatItem}>
+                <Text style={styles.profileStatNum}>{followingCount}</Text>
+                {" "}{language === "ru" ? "подписок" : "following"}
+              </Text>
+            </View>
           </View>
         </View>
       )}
@@ -299,288 +239,34 @@ export default function Profile() {
         keyboardDismissMode="on-drag"
         onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={<Text style={styles.empty}>{t("empty")}</Text>}
-        contentContainerStyle={catches.length === 0 ? { flex: 1, justifyContent: "center" } : { paddingBottom: 100 }}
+        contentContainerStyle={catches.length === 0 ? { flex: 1, justifyContent: "center" } : { paddingBottom: 140 }}
       />
 
-      {/* Catch detail modal */}
-      <Modal
-        visible={!!selectedCatch}
-        animationType="slide"
-        onRequestClose={closeCatch}
-      >
-        <SafeAreaView style={styles.detailScreen}>
-          {/* Header */}
-          <View style={styles.detailHeader}>
-            <TouchableOpacity onPress={closeCatch} style={styles.detailBack}>
-              <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
-            </TouchableOpacity>
-            <Text style={styles.detailHeaderTitle} numberOfLines={1}>
-              {getSpeciesLabel(selectedCatch?.species, language)}
-            </Text>
-            <View>
-              <TouchableOpacity onPress={() => setShowMenu((v) => !v)} style={styles.detailBack} hitSlop={8}>
-                <FontAwesome name="ellipsis-v" size={20} color="#e6eef8" />
-              </TouchableOpacity>
-              {showMenu && (
-                <View style={styles.dropdownMenu}>
-                  <TouchableOpacity
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setShowMenu(false);
-                      if (!selectedCatch) return;
-                      setEditDescription(selectedCatch.description || "");
-                      setEditLength(selectedCatch.length || "");
-                      setEditWeight(selectedCatch.weight || "");
-                      setEditing(true);
-                    }}
-                  >
-                    <FontAwesome name="pencil" size={15} color="#cbd5e1" style={{ marginRight: 10 }} />
-                    <Text style={styles.dropdownItemText}>{t("edit")}</Text>
-                  </TouchableOpacity>
-                  <View style={styles.dropdownDivider} />
-                  <TouchableOpacity
-                    style={styles.dropdownItem}
-                    onPress={() => {
-                      setShowMenu(false);
-                      selectedCatch && handleDelete(selectedCatch.id);
-                    }}
-                  >
-                    <FontAwesome name="trash" size={15} color="#f87171" style={{ marginRight: 10 }} />
-                    <Text style={[styles.dropdownItemText, { color: "#f87171" }]}>{t("delete")}</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
-
-          <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-            {user && (
-              <View style={styles.detailUserRow}>
-                <View style={styles.detailAvatar}>
-                  {user.avatar ? (
-                    <ExpoImage
-                      source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` }}
-                      contentFit="cover"
-                      style={styles.detailAvatarImg}
-                    />
-                  ) : (
-                    <Text style={styles.detailAvatarText}>
-                      {(user.name || user.username || "?").slice(0, 2).toUpperCase()}
-                    </Text>
-                  )}
-                </View>
-                <View>
-                  {user.name ? <Text style={styles.detailUserName}>{user.name}</Text> : null}
-                  {user.username ? <Text style={styles.detailUserHandle}>@{user.username}</Text> : null}
-                </View>
-              </View>
-            )}
-
-            {/* Photo carousel */}
-            {photos.length > 0 && (
-              <View style={styles.carouselWrapper}>
-                <ScrollView
-                  horizontal
-                  pagingEnabled
-                  showsHorizontalScrollIndicator={false}
-                  scrollEventThrottle={16}
-                  style={{ width: SCREEN_WIDTH }}
-                  onMomentumScrollEnd={(e) =>
-                    setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-                  }
-                >
-                  {photos.map((uri, i) => (
-                    <TouchableOpacity
-                      key={i}
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        setFullscreenPhotos(photos);
-                        setFullscreenIndex(i);
-                        setTimeout(() => fullscreenScrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: false }), 50);
-                      }}
-                    >
-                      <ExpoImage
-                        source={{ uri }}
-                        placeholder={require("../../assets/placeholder.png")}
-                        contentFit="cover"
-                        style={{ width: SCREEN_WIDTH, height: 280 }}
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-                {photos.length > 1 && (
-                  <View style={styles.dotRow}>
-                    {photos.map((_, i) => (
-                      <View key={i} style={[styles.dot, i === photoIndex && styles.dotActive]} />
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-
-            {/* Like and comment row */}
-            <View style={styles.likeCommentRow}>
-              <TouchableOpacity style={styles.likeBtn} onPress={toggleLike}>
-                <FontAwesome
-                  name={isLiked ? "thumbs-up" : "thumbs-o-up"}
-                  size={22}
-                  color={isLiked ? "#60a5fa" : "#64748b"}
-                />
-                <Text style={[styles.likeCount, isLiked && styles.likeCountActive]}>{likeCount}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.commentBtn} onPress={() => setShowComments((s) => !s)}>
-                <FontAwesome name="comment-o" size={22} color="#64748b" />
-                <Text style={styles.commentCount}>{catchComments.length}</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Comments section */}
-            {showComments && (
-              <View style={styles.commentsSection}>
-                {catchComments.map((c, i) => (
-                  <View key={c.id || i} style={styles.commentItem}>
-                    <Text style={styles.commentUsername}>@{c.username}</Text>
-                    <Text style={styles.commentText}>{c.text}</Text>
-                  </View>
-                ))}
-                <View style={styles.commentInputRow}>
-                  <TextInput
-                    style={styles.commentInput}
-                    value={newComment}
-                    onChangeText={setNewComment}
-                    placeholder={t("addComment")}
-                    placeholderTextColor="#475569"
-                    returnKeyType="send"
-                    onSubmitEditing={submitComment}
-                  />
-                  <TouchableOpacity onPress={submitComment} disabled={submittingComment} style={{ padding: 8 }}>
-                    {submittingComment ? (
-                      <ActivityIndicator size="small" color="#60a5fa" />
-                    ) : (
-                      <FontAwesome name="send" size={18} color="#60a5fa" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.detailBody}>
-              <Text style={styles.detailSpecies}>{getSpeciesLabel(selectedCatch?.species, language)}</Text>
-              <Text style={styles.detailDate}>{formatDate(selectedCatch?.date, true)}</Text>
-
-              <Text style={styles.label}>{t("description")}</Text>
-              {editing ? (
-                <TextInput
-                  style={styles.input}
-                  value={editDescription}
-                  onChangeText={setEditDescription}
-                  multiline
-                  textAlignVertical="top"
-                  returnKeyType="done"
-                />
-              ) : (
-                <Text style={styles.value}>{selectedCatch?.description || t("noDescription")}</Text>
-              )}
-
-              <View style={styles.metricsRow}>
-                <View style={styles.metricItem}>
-                  <Text style={styles.label}>{t("length")}</Text>
-                  {editing ? (
-                    <TextInput style={styles.input} value={editLength} onChangeText={setEditLength} keyboardType="numeric" returnKeyType="done" />
-                  ) : (
-                    <Text style={styles.value}>{selectedCatch?.length ? `${selectedCatch.length} cm` : "--"}</Text>
-                  )}
-                </View>
-                <View style={styles.metricItem}>
-                  <Text style={styles.label}>{t("weight")}</Text>
-                  {editing ? (
-                    <TextInput style={styles.input} value={editWeight} onChangeText={setEditWeight} keyboardType="numeric" returnKeyType="done" />
-                  ) : (
-                    <Text style={styles.value}>{selectedCatch?.weight ? `${selectedCatch.weight} kg` : "--"}</Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={styles.publicRow}>
-                <View>
-                  <Text style={styles.publicLabel}>{t("makePublic")}</Text>
-                  <Text style={styles.publicSub}>{t("makePublicSub")}</Text>
-                </View>
-                <Switch
-                  value={!!selectedCatch?.isPublic}
-                  onValueChange={togglePublic}
-                  trackColor={{ false: "#1e293b", true: "#166534" }}
-                  thumbColor={selectedCatch?.isPublic ? "#22c55e" : "#475569"}
-                />
-              </View>
-
-              <View style={styles.modalActions}>
-                {editing ? (
-                  <>
-                    <TouchableOpacity style={styles.btnSave} onPress={onSave}>
-                      <Text style={styles.btnText}>{t("save")}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.btnCancel} onPress={() => setEditing(false)}>
-                      <Text style={styles.btnText}>{t("cancel")}</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.btnMap}
-                    onPress={() => {
-                      if (selectedCatch?.lat != null && selectedCatch?.lon != null) {
-                        closeCatch();
-                        router.navigate({
-                          pathname: "/(tabs)",
-                          params: { focusLat: selectedCatch.lat, focusLon: selectedCatch.lon, catchId: selectedCatch.id },
-                        });
-                      } else {
-                        Alert.alert(t("noCoordinates"), t("noCoordinatesMessage"));
-                      }
-                    }}
-                  >
-                    <FontAwesome name="map-marker" size={18} color="#fff" style={{ marginRight: 6 }} />
-                    <Text style={styles.btnText}>{t("showOnMap")}</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-
-      {/* Fullscreen photo viewer */}
-      <Modal visible={fullscreenPhotos.length > 0} transparent animationType="fade" onRequestClose={() => setFullscreenPhotos([])}>
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <ScrollView
-            ref={fullscreenScrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            style={{ width: SCREEN_WIDTH, flex: 1 }}
-            onMomentumScrollEnd={(e) =>
-              setFullscreenIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-            }
-          >
-            {fullscreenPhotos.map((uri, i) => (
-              <Pressable key={i} style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: "center" }} onPress={() => setFullscreenPhotos([])}>
-                <ExpoImage source={{ uri }} contentFit="contain" style={{ width: SCREEN_WIDTH, height: "100%" }} />
-              </Pressable>
-            ))}
-          </ScrollView>
-          {fullscreenPhotos.length > 1 && (
-            <View style={{ position: "absolute", bottom: 40, width: "100%", flexDirection: "row", justifyContent: "center", gap: 6 }}>
-              {fullscreenPhotos.map((_, i) => (
-                <View key={i} style={{ width: i === fullscreenIndex ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: i === fullscreenIndex ? "#fff" : "rgba(255,255,255,0.35)" }} />
-              ))}
-            </View>
-          )}
-          <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: 52, right: 20, padding: 8 }}>
-            <FontAwesome name="times" size={22} color="#fff" />
-          </Pressable>
-        </View>
-      </Modal>
+      <CatchDetailModal
+        catch={selectedCatch ? {
+          id: selectedCatch.id,
+          imageUrl: selectedCatch.image ?? selectedCatch.imageUrl ?? null,
+          extraPhotos: selectedCatch.extraPhotos,
+          species: selectedCatch.species,
+          description: selectedCatch.description,
+          length: selectedCatch.length,
+          weight: selectedCatch.weight,
+          date: selectedCatch.date,
+          gear: selectedCatch.gear,
+          username: user?.username,
+          name: user?.name,
+          avatarUrl: user?.avatar
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`
+            : undefined,
+          lat: selectedCatch.lat,
+          lon: selectedCatch.lon,
+          isPublic: selectedCatch.isPublic,
+        } : null}
+        onClose={closeCatch}
+        onSave={handleSave}
+        onDelete={handleDelete}
+        onTogglePublic={handleTogglePublic}
+      />
     </SafeAreaView>
   );
 }
@@ -588,6 +274,13 @@ export default function Profile() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#0f172a", padding: 5 },
   title: { color: "#e6eef8", fontSize: 18, marginBottom: 4 },
+  settingsBtn: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    padding: 4,
+  },
   profileHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -613,7 +306,12 @@ const styles = StyleSheet.create({
   profileInfo: { flex: 1 },
   profileName: { color: "#e6eef8", fontSize: 17, fontWeight: "700" },
   profileUsername: { color: "#64748b", fontSize: 14, marginTop: 2 },
-  profileCatchCount: { color: "#60a5fa", fontSize: 13, marginTop: 4 },
+  profileStats: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 4, marginTop: 4 },
+  profileCatchCount: { color: "#60a5fa", fontSize: 13 },
+  profileStatDivider: { color: "#334155", fontSize: 13 },
+  profileStatItem: { color: "#60a5fa", fontSize: 13 },
+  profileStatNum: { fontWeight: "700" },
+  profileBio: { color: "#94a3b8", fontSize: 13, marginTop: 4, lineHeight: 18 },
   empty: { color: "#94a3b8", textAlign: "center" },
   item: {
     flexDirection: "row",
@@ -626,6 +324,12 @@ const styles = StyleSheet.create({
   thumb: { width: 72, height: 72, borderRadius: 8, marginRight: 12 },
   info: { flex: 1 },
   species: { color: "#cfe8ff", fontWeight: "600" },
+  gearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, alignSelf: "flex-start" },
+  gearThumb: { width: 36, height: 36 },
+  gear: { color: "#60a5fa", fontSize: 14, fontWeight: "600" },
+  detailGearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
+  detailGearThumb: { width: 56, height: 56 },
+  detailGear: { color: "#60a5fa", fontSize: 18, fontWeight: "600" },
   desc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
   meta: { color: "#7ea8c9", fontSize: 12, marginTop: 6 },
   date: { color: "#94a3b8", fontSize: 12, marginLeft: 8 },
@@ -763,7 +467,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 32,
     right: 0,
-    backgroundColor: "#0f2236",
+    backgroundColor: "#071023",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#1e293b",
@@ -804,4 +508,18 @@ const styles = StyleSheet.create({
   },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#64748b", fontSize: 12 },
+  editPickerRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#071023", borderRadius: 10, padding: 12, marginBottom: 10, gap: 12, borderWidth: 1, borderColor: "#1e293b" },
+  editPickerThumb: { width: 44, height: 44 },
+  editPickerLabel: { color: "#64748b", fontSize: 12, marginBottom: 2 },
+  editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  pickerModal: { flex: 1, backgroundColor: "#071023" },
+  pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
+  pickerTitle: { color: "#cfe8ff", fontSize: 16, fontWeight: "700" },
+  pickerSearch: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  pickerSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },
+  pickerItemImg: { width: 52, height: 52, flexShrink: 0 },
+  pickerItemImgPlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  pickerItemText: { color: "#e6eef8", fontSize: 16 },
+  pickerItemSub: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
 });

@@ -1,10 +1,10 @@
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import { useLanguage, type Language } from "@/lib/language";
-import { FontAwesome } from "@expo/vector-icons";
+import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import React, { useState } from "react";
-import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export default function Settings() {
@@ -15,6 +15,8 @@ export default function Settings() {
     user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` : null
   );
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [bio, setBio] = useState<string>(user?.bio ?? "");
+  const [savingBio, setSavingBio] = useState(false);
 
   const handlePickAvatar = async () => {
     if (!user) return;
@@ -66,6 +68,19 @@ export default function Settings() {
     );
   };
 
+  const handleSaveBio = async () => {
+    if (!user) return;
+    setSavingBio(true);
+    try {
+      await pb.collection("users").update(user.id, { bio });
+      pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, bio });
+    } catch (e) {
+      Alert.alert(t("error"), t("uploadError"));
+    } finally {
+      setSavingBio(false);
+    }
+  };
+
   const handleLanguageChange = async (newLanguage: Language) => {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
@@ -95,6 +110,32 @@ export default function Settings() {
           </View>
         )}
 
+        {user && (
+          <View style={styles.bioCard}>
+            <Text style={styles.bioLabel}>{language === "ru" ? "О себе" : "Bio"}</Text>
+            <TextInput
+              style={styles.bioInput}
+              value={bio}
+              onChangeText={setBio}
+              placeholder={language === "ru" ? "Расскажи о себе..." : "Tell others about yourself..."}
+              placeholderTextColor="#475569"
+              multiline
+              maxLength={160}
+              keyboardAppearance="dark"
+            />
+            <View style={styles.bioFooter}>
+              <Text style={styles.bioCount}>{bio.length}/160</Text>
+              <TouchableOpacity
+                style={[styles.bioSaveBtn, savingBio && { opacity: 0.5 }]}
+                onPress={handleSaveBio}
+                disabled={savingBio}
+              >
+                <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Сохранить" : "Save"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("general")}</Text>
           
@@ -120,15 +161,15 @@ export default function Settings() {
           
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
-              <FontAwesome name="info-circle" size={20} color="#60a5fa" />
+              <FontAwesome name="circle-info" size={20} color="#60a5fa" />
               <Text style={styles.settingText}>{t("version")}</Text>
             </View>
-            <Text style={styles.settingValue}>1.1.0</Text>
+            <Text style={styles.settingValue}>1.2.0</Text>
           </View>
 
           <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}>
             <View style={styles.settingLeft}>
-              <FontAwesome name="file-text" size={20} color="#60a5fa" />
+              <FontAwesome name="file-lines" size={20} color="#60a5fa" />
               <Text style={styles.settingText}>{t("privacyPolicy")}</Text>
             </View>
             <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
@@ -161,7 +202,7 @@ export default function Settings() {
             }}
           >
             <View style={styles.settingLeft}>
-              <FontAwesome name="sign-out" size={20} color="#ef4444" />
+              <FontAwesome name="right-from-bracket" size={20} color="#ef4444" />
               <Text style={[styles.settingText, styles.dangerText]}>{t("signOut")}</Text>
             </View>
             <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
@@ -191,7 +232,7 @@ export default function Settings() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{t("language")}</Text>
               <TouchableOpacity onPress={() => setLanguageModalVisible(false)}>
-                <FontAwesome name="times" size={24} color="#94a3b8" />
+                <FontAwesome name="xmark" size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
             
@@ -367,5 +408,48 @@ const styles = StyleSheet.create({
   languageOptionTextActive: {
     color: "#60a5fa",
     fontWeight: "600",
+  },
+  bioCard: {
+    backgroundColor: "#071023",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  bioLabel: {
+    color: "#94a3b8",
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  bioInput: {
+    color: "#e6eef8",
+    fontSize: 15,
+    minHeight: 72,
+    textAlignVertical: "top",
+  },
+  bioFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 10,
+  },
+  bioCount: {
+    color: "#475569",
+    fontSize: 12,
+  },
+  bioSaveBtn: {
+    backgroundColor: "#0284c7",
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  bioSaveBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 13,
   },
 });

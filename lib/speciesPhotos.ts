@@ -1,0 +1,26 @@
+const speciesPhotos: Record<string, any> = {
+  pike:          require("../assets/fishicons/pike.png"),
+  perch:         require("../assets/fishicons/perch.png"),
+  carp:          require("../assets/fishicons/carp.png"),
+  pikeperch:     require("../assets/fishicons/pikeperch.png"),
+  forel:         require("../assets/fishicons/Rainbow_Trout.png"),
+  zhereh:        require("../assets/fishicons/zhereh.png"),
+  bass:          require("../assets/fishicons/Largemouth_Bass.png"),
+  stripedbass:   require("../assets/fishicons/Striped_Bass.png"),
+  nalim:         require("../assets/fishicons/Burbot.png"),
+  losos:         require("../assets/fishicons/salmon.png"),
+  sazan:         require("../assets/fishicons/sazan.png"),
+  som:           require("../assets/fishicons/som.png"),
+  sudak:         require("../assets/fishicons/sudak.png"),
+  karas:         require("../assets/fishicons/Crucian_Carp.png"),
+  kambala:       require("../assets/fishicons/European_Flounder.png"),
+  tarpon:        require("../assets/fishicons/Tarpon.png"),
+  kharius:       require("../assets/fishicons/European_Grayling.png"),
+  sterlyad:      require("../assets/fishicons/Sterlet.png"),
+  brook_trout:   require("../assets/fishicons/Brook_Trout.png"),
+  bull_shark:    require("../assets/fishicons/Bull_Shark.png"),
+  lake_sturgeon: require("../assets/fishicons/Lake_Sturgeon.png"),
+  pagr:          require("../assets/fishicons/porgy.png"),
+};
+
+export default speciesPhotos;

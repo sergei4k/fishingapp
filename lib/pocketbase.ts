@@ -7,4 +7,4 @@ const store = new AsyncAuthStore({
   clear: async () => AsyncStorage.removeItem('@pb_auth'),
 });
 
-export const pb = new PocketBase(process.env.EXPO_PUBLIC_POCKETBASE_URL!, store);
+export const pb = new PocketBase(process.env.EXPO_PUBLIC_POCKETBASE_URL ?? 'https://rybolov.duckdns.org', store);

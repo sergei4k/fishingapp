@@ -1,4 +1,4 @@
-package com.rybolov.app
+package com.strikefeed.myapp
 
 import android.app.Application
 import android.content.res.Configuration

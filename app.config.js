@@ -2,9 +2,9 @@ import "dotenv/config";
 
 export default {
   expo: {
-    name: "Rybolov",
+    name: "StrikeFeed",
     slug: "fishingapp",
-    version: "1.1.0",
+    version: "1.2.2",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
     icon: "./assets/images/logo.png",
@@ -29,14 +29,15 @@ export default {
           apiKey: process.env.GOOGLE_MAPS_API_KEY
         }
       },
-      package: "com.rybolov.app",
+      package: "com.strikefeed.myapp",
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {
       
-      bundleIdentifier: "com.rybolov.app"
+      bundleIdentifier: "com.strikefeed.myapp"
     },
     plugins: [
+      "expo-notifications",
       ["@rnmapbox/maps", {
         "RNMapboxMapsDownloadToken": process.env.MAPBOX_DOWNLOADS_TOKEN,
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": process.env.MAPBOX_DOWNLOADS_TOKEN
@@ -74,7 +75,7 @@ export default {
         projectId: "b4647e00-4478-4b12-b489-a7a8d98f70f4"
       }
     },
-    runtimeVersion: "1.0.0",
+    runtimeVersion: "1.2.1",
     updates: {
       enabled: true,
       fallbackToCacheTimeout: 0,
