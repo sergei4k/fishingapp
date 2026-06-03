@@ -83,6 +83,13 @@ export async function addCatch(item: CatchItem): Promise<void> {
 }
 
 /**
+ * Wipe all local catches (call on sign-out or before syncing a new user)
+ */
+export async function clearCatches(): Promise<void> {
+  await AsyncStorage.removeItem(LOCAL_KEY);
+}
+
+/**
  * Delete catch locally
  */
 export async function deleteCatch(id: string): Promise<void> {

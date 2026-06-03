@@ -1,4 +1,4 @@
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
 import {
@@ -7,12 +7,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLanguage } from "@/lib/language";
 
 type WeatherData = {
+  utc_offset_seconds: number;
   current: {
     temperature_2m: number;
     wind_speed_10m: number;
@@ -28,6 +30,8 @@ type WeatherData = {
     precipitation_probability: number[];
     weather_code: number[];
     pressure_msl: number[];
+    wind_speed_10m: number[];
+    wind_direction_10m: number[];
   };
 };
 
@@ -54,14 +58,14 @@ type MarineData = {
 } | null;
 
 function wmoIcon(code: number): string {
-  if (code === 0) return "sun";
-  if (code <= 3) return "cloud-sun";
-  if (code <= 48) return "smog";
-  if (code <= 67) return "cloud-rain";
-  if (code <= 77) return "snowflake";
-  if (code <= 82) return "cloud-showers-heavy";
-  if (code <= 86) return "snowflake";
-  return "bolt";
+  if (code === 0) return "sunny";
+  if (code <= 3) return "partly-sunny";
+  if (code <= 48) return "cloudy";
+  if (code <= 67) return "rainy";
+  if (code <= 77) return "snow";
+  if (code <= 82) return "thunderstorm";
+  if (code <= 86) return "snow";
+  return "thunderstorm";
 }
 
 function wmoLabel(code: number, t: (k: any) => string): string {
@@ -84,11 +88,11 @@ function windDir(deg: number): string {
 function pressureTrend(hourly: WeatherData["hourly"], t: (k: any) => string): { icon: string; label: string; color: string } {
   const now = new Date();
   const idx = hourly.time.findIndex(t => new Date(t) >= now);
-  if (idx < 3) return { icon: "arrow-right", label: t("pressureSteady"), color: "#94a3b8" };
+  if (idx < 3) return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
   const delta = hourly.pressure_msl[idx] - hourly.pressure_msl[idx - 3];
-  if (delta >= 1.5) return { icon: "arrow-trend-up", label: t("pressureRising"), color: "#22c55e" };
-  if (delta <= -1.5) return { icon: "arrow-trend-down", label: t("pressureFalling"), color: "#ef4444" };
-  return { icon: "arrow-right", label: t("pressureSteady"), color: "#94a3b8" };
+  if (delta >= 1.5) return { icon: "trending-up-outline", label: t("pressureRising"), color: "#22c55e" };
+  if (delta <= -1.5) return { icon: "trending-down-outline", label: t("pressureFalling"), color: "#ef4444" };
+  return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
 }
 
 function pressureFishLabel(hpa: number, t: (k: any) => string): { label: string; color: string } {
@@ -117,19 +121,26 @@ function waveLabel(h: number, t: (k: any) => string): string {
   return t("waveVeryRough");
 }
 
-const COL_W = 52;
-const CHART_H = 160;
-const V_PAD = 22;
+const COL_W = 36;
+const CHART_H = 180;
+const V_PAD = 26;
+const YAXIS_W = 36;
+const TIME_H = 28;
 
-function HourlyChart({ hourly, t }: { hourly: WeatherData["hourly"]; t: (k: any) => string }) {
-  const now = new Date();
+function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; t: (k: any) => string }) {
+  // Compute the current local time AT THE LOCATION using the API-supplied UTC offset.
+  // This is correct regardless of what timezone the device is set to.
+  const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
+
   const data = hourly.time
     .map((time, i) => ({
       time,
       temp: hourly.temperature_2m[i],
       pop: hourly.precipitation_probability[i],
     }))
-    .filter(h => new Date(h.time) >= now)
+    .filter(h => h.time >= nowStr)
     .slice(0, 24);
 
   if (data.length < 2) return null;
@@ -141,115 +152,398 @@ function HourlyChart({ hourly, t }: { hourly: WeatherData["hourly"]; t: (k: any)
   const getY = (temp: number) => V_PAD + (1 - (temp - minT) / range) * (CHART_H - 2 * V_PAD);
   const totalW = data.length * COL_W;
 
+  const gridLevels = [
+    { temp: maxT,               y: getY(maxT) },
+    { temp: (maxT + minT) / 2,  y: getY((maxT + minT) / 2) },
+    { temp: minT,               y: getY(minT) },
+  ];
+
+  const canvasH = CHART_H + TIME_H;
+
   return (
     <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-      <View style={{ backgroundColor: "#071023", borderRadius: 16, borderWidth: 1, borderColor: "#1e293b", paddingTop: 12 }}>
+      <View style={{ backgroundColor: "#071023", borderRadius: 16, borderWidth: 1, borderColor: "#1e293b", paddingTop: 12, overflow: "hidden" }}>
         {/* Legend */}
-        <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 14, marginBottom: 8 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <View style={{ width: 20, height: 2.5, backgroundColor: "#f97316", borderRadius: 2 }} />
+        <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 14, marginBottom: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 22, height: 3, backgroundColor: "#f97316", borderRadius: 2 }} />
             <Text style={{ color: "#94a3b8", fontSize: 11 }}>°C</Text>
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}>
-            <View style={{ width: 12, height: 10, backgroundColor: "rgba(96,165,250,0.3)", borderRadius: 2, borderWidth: 1, borderColor: "rgba(96,165,250,0.5)" }} />
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 14, height: 11, backgroundColor: "rgba(96,165,250,0.28)", borderRadius: 2, borderWidth: 1, borderColor: "rgba(96,165,250,0.55)" }} />
             <Text style={{ color: "#94a3b8", fontSize: 11 }}>%</Text>
           </View>
         </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false}>
-          <View style={{ width: totalW, height: CHART_H + 24, position: "relative" }}>
-            {/* Precipitation bars */}
-            {data.map((h, i) => {
-              if (h.pop === 0) return null;
-              const barH = Math.max(3, (h.pop / 100) * (CHART_H - V_PAD));
-              return (
-                <View
-                  key={`bar-${i}`}
-                  style={{
-                    position: "absolute", bottom: 20,
-                    left: i * COL_W + 8, width: COL_W - 16, height: barH,
-                    backgroundColor: "rgba(96,165,250,0.18)",
-                    borderRadius: 3, borderTopWidth: 1, borderTopColor: "rgba(96,165,250,0.45)",
-                  }}
-                />
-              );
-            })}
+        <View style={{ flexDirection: "row" }}>
+          {/* Fixed Y-axis */}
+          <View style={{ width: YAXIS_W, height: canvasH, position: "relative" }}>
+            {gridLevels.map(({ temp, y }) => (
+              <Text
+                key={`ylabel-${temp}`}
+                style={{
+                  position: "absolute",
+                  top: y - 7,
+                  right: 6,
+                  color: "#4a6080",
+                  fontSize: 10,
+                  fontWeight: "600",
+                  textAlign: "right",
+                }}
+              >
+                {Math.round(temp)}°
+              </Text>
+            ))}
+          </View>
 
-            {/* Temperature line segments */}
-            {data.map((h, i) => {
-              if (i >= data.length - 1) return null;
-              const x1 = i * COL_W + COL_W / 2;
-              const x2 = (i + 1) * COL_W + COL_W / 2;
-              const y1 = getY(h.temp);
-              const y2 = getY(data[i + 1].temp);
-              const dx = x2 - x1, dy = y2 - y1;
-              const len = Math.sqrt(dx * dx + dy * dy);
-              const angle = Math.atan2(dy, dx);
-              return (
+          {/* Scrollable chart area */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false} style={{ flex: 1 }}>
+            <View style={{ width: totalW, height: canvasH, position: "relative" }}>
+
+              {/* Horizontal grid lines */}
+              {gridLevels.map(({ y }) => (
                 <View
-                  key={`seg-${i}`}
+                  key={`grid-${y}`}
                   style={{
                     position: "absolute",
-                    top: (y1 + y2) / 2 - 1,
-                    left: (x1 + x2) / 2 - len / 2,
-                    width: len, height: 2,
-                    backgroundColor: "#f97316", borderRadius: 1,
-                    transform: [{ rotate: `${angle}rad` }],
+                    top: y, left: 0, width: totalW, height: 1,
+                    backgroundColor: "#162035",
                   }}
                 />
-              );
-            })}
+              ))}
 
-            {/* Temperature dots */}
-            {data.map((h, i) => {
-              const cx = i * COL_W + COL_W / 2;
-              const cy = getY(h.temp);
-              return (
-                <View
-                  key={`dot-${i}`}
-                  style={{
-                    position: "absolute", top: cy - 3.5, left: cx - 3.5,
-                    width: 7, height: 7, borderRadius: 4,
-                    backgroundColor: "#f97316", borderWidth: 1.5, borderColor: "#071023",
-                  }}
-                />
-              );
-            })}
+              {/* "Now" column highlight */}
+              <View style={{
+                position: "absolute",
+                top: 0, left: 0, width: COL_W, height: CHART_H,
+                backgroundColor: "rgba(96,165,250,0.04)",
+              }} />
 
-            {/* Temperature labels — every hour */}
-            {data.map((h, i) => {
-              const cx = i * COL_W + COL_W / 2;
-              const cy = getY(h.temp);
-              return (
-                <Text
-                  key={`tlabel-${i}`}
-                  style={{
-                    position: "absolute", top: cy - 18, left: cx - 14, width: 28,
-                    textAlign: "center", color: "#e6eef8", fontSize: 11, fontWeight: "600",
-                  }}
-                >
-                  {Math.round(h.temp)}°
-                </Text>
-              );
-            })}
+              {/* Precipitation bars */}
+              {data.map((h, i) => {
+                if (h.pop === 0) return null;
+                const barH = Math.max(4, (h.pop / 100) * (CHART_H - V_PAD));
+                const barTop = CHART_H - barH;
+                return (
+                  <React.Fragment key={`bar-${i}`}>
+                    <View style={{
+                      position: "absolute",
+                      top: barTop,
+                      left: i * COL_W + 12, width: COL_W - 24, height: barH,
+                      backgroundColor: "rgba(96,165,250,0.45)",
+                      borderRadius: 4,
+                      borderTopWidth: 2, borderTopColor: "rgba(147,197,253,0.95)",
+                    }} />
+                    {h.pop >= 30 && (
+                      <Text style={{
+                        position: "absolute",
+                        top: barTop - 15,
+                        left: i * COL_W, width: COL_W,
+                        textAlign: "center",
+                        color: "#ffffff", fontSize: 10, fontWeight: "700",
+                      }}>
+                        {h.pop}%
+                      </Text>
+                    )}
+                  </React.Fragment>
+                );
+              })}
 
-            {/* X-axis time labels — every hour */}
-            {data.map((h, i) => {
-              const d = new Date(h.time);
-              return (
-                <Text
-                  key={`xlabel-${i}`}
-                  style={{
-                    position: "absolute", bottom: 2, left: i * COL_W, width: COL_W,
-                    textAlign: "center", color: "#475569", fontSize: 10,
-                  }}
-                >
-                  {i === 0 ? t("now") : `${d.getHours()}:00`}
-                </Text>
-              );
-            })}
+              {/* Temperature line segments */}
+              {data.map((h, i) => {
+                if (i >= data.length - 1) return null;
+                const x1 = i * COL_W + COL_W / 2;
+                const x2 = (i + 1) * COL_W + COL_W / 2;
+                const y1 = getY(h.temp);
+                const y2 = getY(data[i + 1].temp);
+                const dx = x2 - x1, dy = y2 - y1;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+                return (
+                  <View
+                    key={`seg-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: (y1 + y2) / 2 - 1.5,
+                      left: (x1 + x2) / 2 - len / 2,
+                      width: len, height: 3,
+                      backgroundColor: "#f97316", borderRadius: 2,
+                      transform: [{ rotate: `${angle}rad` }],
+                    }}
+                  />
+                );
+              })}
+
+              {/* Temperature dots */}
+              {data.map((h, i) => {
+                const cx = i * COL_W + COL_W / 2;
+                const cy = getY(h.temp);
+                return (
+                  <View
+                    key={`dot-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: cy - 4, left: cx - 4,
+                      width: 8, height: 8, borderRadius: 4,
+                      backgroundColor: "#f97316",
+                      borderWidth: 2, borderColor: "#071023",
+                    }}
+                  />
+                );
+              })}
+
+              {/* Temperature labels — every 2 hrs */}
+              {data.map((h, i) => {
+                if (i % 2 !== 0) return null;
+                const cx = i * COL_W + COL_W / 2;
+                const cy = getY(h.temp);
+                return (
+                  <Text
+                    key={`tlabel-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: cy - 22, left: cx - 20, width: 40,
+                      textAlign: "center",
+                      color: "#e6eef8", fontSize: 12, fontWeight: "700",
+                    }}
+                  >
+                    {Math.round(h.temp)}°
+                  </Text>
+                );
+              })}
+
+              {/* X-axis time labels — every 2 hrs */}
+              {data.map((h, i) => {
+                if (i % 2 !== 0) return null;
+                // Slice "HH" directly from the API string to avoid UTC-parsing bugs
+                const hourLabel = h.time.slice(11, 13) + ":00";
+                return (
+                  <Text
+                    key={`xlabel-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: CHART_H + 7,
+                      left: i * COL_W, width: COL_W,
+                      textAlign: "center",
+                      color: i === 0 ? "#ffffff" : "#64748b",
+                      fontSize: 11,
+                      fontWeight: i === 0 ? "700" : "500",
+                    }}
+                  >
+                    {hourLabel}
+                  </Text>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const WIND_COL_W = 36;
+const WIND_CHART_H = 140;
+const WIND_V_PAD = 24;
+const WIND_YAXIS_W = 36;
+const WIND_DIR_H = 34;
+const WIND_TIME_H = 28;
+
+function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number }) {
+  const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
+
+  const data = hourly.time
+    .map((time, i) => ({
+      time,
+      wind: hourly.wind_speed_10m[i],
+      dir: hourly.wind_direction_10m[i],
+    }))
+    .filter(h => h.time >= nowStr)
+    .slice(0, 24);
+
+  if (data.length < 2) return null;
+
+  const speeds = data.map(h => h.wind);
+  const minW = Math.min(...speeds);
+  const maxW = Math.max(...speeds);
+  const range = maxW - minW || 1;
+  const getY = (wind: number) => WIND_V_PAD + (1 - (wind - minW) / range) * (WIND_CHART_H - 2 * WIND_V_PAD);
+  const totalW = data.length * WIND_COL_W;
+
+  const gridLevels = [
+    { wind: maxW, y: getY(maxW) },
+    { wind: (maxW + minW) / 2, y: getY((maxW + minW) / 2) },
+    { wind: minW, y: getY(minW) },
+  ];
+
+  const canvasH = WIND_CHART_H + WIND_DIR_H + WIND_TIME_H;
+
+  return (
+    <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
+      <View style={{ backgroundColor: "#071023", borderRadius: 16, borderWidth: 1, borderColor: "#1e293b", paddingTop: 12, overflow: "hidden" }}>
+        <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 14, marginBottom: 10 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 22, height: 3, backgroundColor: "#22d3ee", borderRadius: 2 }} />
+            <Text style={{ color: "#94a3b8", fontSize: 11 }}>km/h</Text>
           </View>
-        </ScrollView>
+        </View>
+
+        <View style={{ flexDirection: "row" }}>
+          <View style={{ width: WIND_YAXIS_W, height: canvasH, position: "relative" }}>
+            {gridLevels.map(({ wind, y }) => (
+              <Text
+                key={`wy-${wind}`}
+                style={{
+                  position: "absolute",
+                  top: y - 7,
+                  right: 6,
+                  color: "#4a6080",
+                  fontSize: 10,
+                  fontWeight: "600",
+                  textAlign: "right",
+                }}
+              >
+                {Math.round(wind)}
+              </Text>
+            ))}
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} bounces={false} style={{ flex: 1 }}>
+            <View style={{ width: totalW, height: canvasH, position: "relative" }}>
+              {gridLevels.map(({ y }) => (
+                <View
+                  key={`wgrid-${y}`}
+                  style={{
+                    position: "absolute",
+                    top: y, left: 0, width: totalW, height: 1,
+                    backgroundColor: "#162035",
+                  }}
+                />
+              ))}
+
+              <View style={{
+                position: "absolute",
+                top: 0, left: 0, width: WIND_COL_W, height: WIND_CHART_H,
+                backgroundColor: "rgba(96,165,250,0.04)",
+              }} />
+
+              {data.map((h, i) => {
+                if (i >= data.length - 1) return null;
+                const x1 = i * WIND_COL_W + WIND_COL_W / 2;
+                const x2 = (i + 1) * WIND_COL_W + WIND_COL_W / 2;
+                const y1 = getY(h.wind);
+                const y2 = getY(data[i + 1].wind);
+                const dx = x2 - x1, dy = y2 - y1;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                const angle = Math.atan2(dy, dx);
+                return (
+                  <View
+                    key={`wseg-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: (y1 + y2) / 2 - 1.5,
+                      left: (x1 + x2) / 2 - len / 2,
+                      width: len, height: 3,
+                      backgroundColor: "#22d3ee", borderRadius: 2,
+                      transform: [{ rotate: `${angle}rad` }],
+                    }}
+                  />
+                );
+              })}
+
+              {data.map((h, i) => {
+                const cx = i * WIND_COL_W + WIND_COL_W / 2;
+                const cy = getY(h.wind);
+                return (
+                  <View
+                    key={`wdot-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: cy - 4, left: cx - 4,
+                      width: 8, height: 8, borderRadius: 4,
+                      backgroundColor: "#22d3ee",
+                      borderWidth: 2, borderColor: "#071023",
+                    }}
+                  />
+                );
+              })}
+
+              {data.map((h, i) => {
+                if (i % 2 !== 0) return null;
+                const cx = i * WIND_COL_W + WIND_COL_W / 2;
+                const cy = getY(h.wind);
+                return (
+                  <Text
+                    key={`wlabel-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: cy - 22, left: cx - 20, width: 40,
+                      textAlign: "center",
+                      color: "#e6eef8", fontSize: 12, fontWeight: "700",
+                    }}
+                  >
+                    {Math.round(h.wind)}
+                  </Text>
+                );
+              })}
+
+              {/* Wind direction arrows + text */}
+              {data.map((h, i) => {
+                if (i % 2 !== 0) return null;
+                const cx = i * WIND_COL_W + WIND_COL_W / 2;
+                return (
+                  <React.Fragment key={`wdir-${i}`}>
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: WIND_CHART_H + 3,
+                        left: cx - 6,
+                        transform: [{ rotate: `${h.dir}deg` }],
+                      }}
+                    >
+                      <Ionicons name="arrow-up-outline" size={12} color="#22d3ee" />
+                    </View>
+                    <Text
+                      style={{
+                        position: "absolute",
+                        top: WIND_CHART_H + 18,
+                        left: i * WIND_COL_W, width: WIND_COL_W,
+                        textAlign: "center",
+                        color: "#22d3ee", fontSize: 10, fontWeight: "600",
+                      }}
+                    >
+                      {windDir(h.dir)}
+                    </Text>
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Time labels */}
+              {data.map((h, i) => {
+                if (i % 2 !== 0) return null;
+                const hourLabel = h.time.slice(11, 13) + ":00";
+                return (
+                  <Text
+                    key={`wxlabel-${i}`}
+                    style={{
+                      position: "absolute",
+                      top: WIND_CHART_H + WIND_DIR_H + 7,
+                      left: i * WIND_COL_W, width: WIND_COL_W,
+                      textAlign: "center",
+                      color: i === 0 ? "#ffffff" : "#64748b",
+                      fontSize: 11,
+                      fontWeight: i === 0 ? "700" : "500",
+                    }}
+                  >
+                    {hourLabel}
+                  </Text>
+                );
+              })}
+            </View>
+          </ScrollView>
+        </View>
       </View>
     </View>
   );
@@ -271,7 +565,16 @@ export default function Weather() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") { setError(t("locationPermission")); return; }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // Use last known position if fresh enough (avoids hanging on GPS cold-start)
+      let loc = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 });
+      if (!loc) {
+        loc = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(t("locationPermission"))), 15000)
+          ),
+        ]) as Location.LocationObject;
+      }
       const { latitude, longitude } = loc.coords;
 
       const tidesToken = process.env.EXPO_PUBLIC_WORLDTIDES_TOKEN;
@@ -279,7 +582,7 @@ export default function Weather() {
         fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
           `&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,precipitation,relative_humidity_2m,pressure_msl` +
-          `&hourly=temperature_2m,precipitation_probability,weather_code,pressure_msl` +
+          `&hourly=temperature_2m,precipitation_probability,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m` +
           `&timezone=auto&forecast_days=2`
         ),
         fetch(
@@ -297,7 +600,9 @@ export default function Weather() {
           : Promise.resolve(null),
       ]);
 
+      if (!weatherRes.ok) throw new Error(`${weatherRes.status}`);
       const data = await weatherRes.json();
+      if (!data?.current) throw new Error(t("error"));
       setWeather(data);
 
       if (marineRes?.ok) {
@@ -316,8 +621,8 @@ export default function Weather() {
         const td = await tidesRes.json();
         if (td?.extremes?.length) setTides(td);
       }
-    } catch (e) {
-      setError(t("error"));
+    } catch (e: any) {
+      setError(e?.message ?? t("error"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -330,7 +635,7 @@ export default function Weather() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#60a5fa" size="large" style={{ marginTop: 60 }} />
+        <ActivityIndicator color="#ffffff" size="large" style={{ marginTop: 60 }} />
       </SafeAreaView>
     );
   }
@@ -339,6 +644,9 @@ export default function Weather() {
     return (
       <SafeAreaView style={styles.container}>
         <Text style={styles.errorText}>{error ?? t("error")}</Text>
+        <TouchableOpacity onPress={() => { setLoading(true); fetchWeather(); }} style={{ marginTop: 16, alignSelf: "center" }}>
+          <Text style={{ color: "#ffffff", fontSize: 15 }}>Retry</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -346,7 +654,6 @@ export default function Weather() {
   const c = weather.current;
   const trend = pressureTrend(weather.hourly, t);
   const pressurefish = pressureFishLabel(c.pressure_msl, t);
-  const fishing = fishingScore(c.wind_speed_10m, c.precipitation, c.weather_code, c.pressure_msl, t);
 
   const marineHourly = marine?.hourly
     ? marine.hourly.time
@@ -360,11 +667,12 @@ export default function Weather() {
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#60a5fa" />}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />}
       >
         {/* Header */}
         <View style={styles.header}>
-          <FontAwesome name="location-dot" size={14} color="#94a3b8" />
+          <Ionicons name="location-sharp" size={14} color="#94a3b8" />
           <Text style={styles.locationText}>{locationName ?? t("currentLocation")}</Text>
         </View>
 
@@ -375,19 +683,19 @@ export default function Weather() {
               <Text style={styles.currentTemp}>{Math.round(c.temperature_2m)}°</Text>
               <Text style={styles.currentDesc}>{wmoLabel(c.weather_code, t)}</Text>
             </View>
-            <FontAwesome name={wmoIcon(c.weather_code) as any} size={64} color="#60a5fa" />
+            <Ionicons name={wmoIcon(c.weather_code) as any} size={64} color="#ffffff" />
           </View>
           <View style={styles.currentStats}>
             <View style={styles.statItem}>
-              <FontAwesome name="wind" size={14} color="#94a3b8" />
+              <Ionicons name="navigate-outline" size={14} color="#94a3b8" />
               <Text style={styles.statText}>{Math.round(c.wind_speed_10m)} km/h {windDir(c.wind_direction_10m)}</Text>
             </View>
             <View style={styles.statItem}>
-              <FontAwesome name="droplet" size={14} color="#94a3b8" />
+              <Ionicons name="water-outline" size={14} color="#94a3b8" />
               <Text style={styles.statText}>{c.relative_humidity_2m}%</Text>
             </View>
             <View style={styles.statItem}>
-              <FontAwesome name="cloud-rain" size={14} color="#94a3b8" />
+              <Ionicons name="rainy-outline" size={14} color="#94a3b8" />
               <Text style={styles.statText}>{c.precipitation} mm</Text>
             </View>
           </View>
@@ -397,35 +705,19 @@ export default function Weather() {
         <View style={styles.infoRow}>
           <View style={[styles.infoCard, { flex: 1 }]}>
             <View style={styles.infoCardHeader}>
-              <FontAwesome name="gauge-high" size={14} color="#94a3b8" />
+              <Ionicons name="speedometer-outline" size={14} color="#94a3b8" />
               <Text style={styles.infoCardTitle}>{t("pressure")}</Text>
             </View>
             <View style={styles.pressureRow}>
               <Text style={styles.pressureValue}>{Math.round(c.pressure_msl)}</Text>
               <Text style={styles.pressureUnit}>hPa</Text>
-              <FontAwesome name={trend.icon as any} size={16} color={trend.color} style={{ marginLeft: 6 }} />
+              <Ionicons name={trend.icon as any} size={16} color={trend.color} style={{ marginLeft: 6 }} />
             </View>
             <Text style={styles.pressureTrendLabel} numberOfLines={1}>
               <Text style={{ color: trend.color }}>{trend.label}</Text>
               {"  ·  "}
               <Text style={{ color: pressurefish.color }}>{pressurefish.label}</Text>
             </Text>
-          </View>
-
-          {/* Fishing conditions */}
-          <View style={[styles.infoCard, { flex: 1 }]}>
-            <View style={styles.infoCardHeader}>
-              <FontAwesome name="fish" size={14} color={fishing.color} />
-              <Text style={styles.infoCardTitle}>{t("fishingConditions")}</Text>
-            </View>
-            <View style={[styles.fishingBadge, { backgroundColor: fishing.color + "22", borderColor: fishing.color, alignSelf: "flex-start", marginTop: 4 }]}>
-              <Text style={[styles.fishingBadgeText, { color: fishing.color }]}>{fishing.label}</Text>
-            </View>
-            <View style={styles.scoreBar}>
-              {Array.from({ length: 10 }).map((_, i) => (
-                <View key={i} style={[styles.scoreSegment, { backgroundColor: i < fishing.score ? fishing.color : "#1e293b" }]} />
-              ))}
-            </View>
           </View>
         </View>
 
@@ -436,7 +728,7 @@ export default function Weather() {
             <View style={styles.marineCard}>
               <View style={styles.marineRow}>
                 <View style={styles.marineStat}>
-                  <FontAwesome name="water" size={18} color="#60a5fa" />
+                  <Ionicons name="water" size={18} color="#ffffff" />
                   <Text style={styles.marineValue}>
                     {marine.current.wave_height != null ? marine.current.wave_height.toFixed(1) : "--"} m
                   </Text>
@@ -447,7 +739,7 @@ export default function Weather() {
                 </View>
                 <View style={styles.marineDivider} />
                 <View style={styles.marineStat}>
-                  <FontAwesome name="clock" size={18} color="#60a5fa" />
+                  <Ionicons name="time-outline" size={18} color="#ffffff" />
                   <Text style={styles.marineValue}>
                     {marine.current.wave_period != null ? Math.round(marine.current.wave_period) : "--"} s
                   </Text>
@@ -455,7 +747,7 @@ export default function Weather() {
                 </View>
                 <View style={styles.marineDivider} />
                 <View style={styles.marineStat}>
-                  <FontAwesome name="compass" size={18} color="#60a5fa" />
+                  <Ionicons name="compass-outline" size={18} color="#ffffff" />
                   <Text style={styles.marineValue}>
                     {marine.current.wave_direction != null ? windDir(marine.current.wave_direction) : "--"}
                   </Text>
@@ -470,7 +762,7 @@ export default function Weather() {
                     return (
                       <View key={h.time} style={styles.marineHourlyItem}>
                         <Text style={styles.hourlyTime}>{d.getHours()}:00</Text>
-                        <FontAwesome name="water" size={14} color="#60a5fa" />
+                        <Ionicons name="water" size={14} color="#ffffff" />
                         <Text style={styles.hourlyTemp}>{h.wh!.toFixed(1)}m</Text>
                         <Text style={styles.marineSubLabel}>{h.wp != null ? `${Math.round(h.wp)}s` : ""}</Text>
                       </View>
@@ -493,11 +785,11 @@ export default function Weather() {
                 .map((e) => {
                   const d = new Date(e.date);
                   const isHigh = e.type === "High";
-                  const color = isHigh ? "#60a5fa" : "#94a3b8";
+                  const color = isHigh ? "#ffffff" : "#94a3b8";
                   return (
                     <View key={e.dt} style={styles.tideItem}>
                       <Text style={styles.hourlyTime}>{d.getHours().toString().padStart(2, "0")}:{d.getMinutes().toString().padStart(2, "0")}</Text>
-                      <FontAwesome name={isHigh ? "arrow-trend-up" : "arrow-trend-down"} size={20} color={color} />
+                      <Ionicons name={isHigh ? "trending-up" : "trending-down"} size={20} color={color} />
                       <Text style={[styles.tideHeight, { color }]}>{e.height.toFixed(1)}m</Text>
                       <Text style={[styles.tideType, { color }]}>{isHigh ? t("highTide") : t("lowTide")}</Text>
                     </View>
@@ -509,7 +801,12 @@ export default function Weather() {
 
         {/* Hourly chart: temperature + precipitation */}
         <Text style={styles.sectionTitle}>{t("hourlyForecast")}</Text>
-        <HourlyChart hourly={weather.hourly} t={t} />
+        <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} t={t} />
+
+        {/* Hourly wind chart */}
+        <Text style={styles.sectionTitle}>{t("windForecast")}</Text>
+        <WindChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} />
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -540,7 +837,7 @@ const styles = StyleSheet.create({
   infoCardTitle: { color: "#94a3b8", fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 },
   pressureRow: { flexDirection: "row", alignItems: "baseline", gap: 2, marginBottom: 6 },
   pressureValue: { color: "#e6eef8", fontSize: 28, fontWeight: "300" },
-  pressureUnit: { color: "#64748b", fontSize: 13 },
+  pressureUnit: { color: "#94a3b8", fontSize: 13 },
   pressureTrendLabel: { color: "#94a3b8", fontSize: 12 },
 
   fishingBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
@@ -560,7 +857,7 @@ const styles = StyleSheet.create({
   marineStat: { alignItems: "center", gap: 4, flex: 1 },
   marineValue: { color: "#e6eef8", fontSize: 20, fontWeight: "300", marginTop: 4 },
   marineLabel: { color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
-  marineSubLabel: { color: "#60a5fa", fontSize: 11 },
+  marineSubLabel: { color: "#ffffff", fontSize: 11 },
   marineDivider: { width: 1, backgroundColor: "#1e293b" },
   marineHourlyItem: { alignItems: "center", gap: 4, marginRight: 18, minWidth: 44 },
 

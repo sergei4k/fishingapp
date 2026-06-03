@@ -55,6 +55,7 @@ const translations = {
     noCoordinatesInPhoto: "Нет координат в фото",
     noCoordinatesInPhotoMessage: "Фото не содержит GPS данных. Выберите фото с геолокацией.",
     uploadError: "Не удалось сохранить улов.",
+    catchSaved: "Улов сохранён!",
     recently: "Недавно",
     unknown: "Неизвестно",
     login: "Вход",
@@ -72,6 +73,8 @@ const translations = {
     registerLink: "Зарегистрироваться",
     loginLink: "Войти",
     fillAllFields: "Заполните все поля",
+    usernameTaken: "Это имя пользователя уже занято",
+    emailTaken: "Этот email уже используется",
     passwordTooShort: "Пароль должен содержать не менее 6 символов",
     confirmPasswordPlaceholder: "Подтвердите пароль",
     passwordsDoNotMatch: "Пароли не совпадают",
@@ -84,6 +87,12 @@ const translations = {
     account: "Аккаунт",
     makePublic: "Сделать публичным",
     makePublicSub: "Другие пользователи увидят улов на карте",
+    noCoordsLabel: "Нет координат GPS",
+    noCoordsPrivateNote: "Без координат улов можно сохранить только как приватный",
+    addLocationManually: "Указать на карте",
+    changeLocation: "Изменить место",
+    locationPickerTitle: "Укажите место улова",
+    locationPickerConfirm: "Подтвердить",
     discover: "Лента",
     findAnglers: "Найти рыбаков",
     following: "Подписки",
@@ -120,6 +129,13 @@ const translations = {
     resetPasswordSentMessage: "Проверьте почту и перейдите по ссылке для сброса пароля.",
     resetPasswordError: "Не удалось отправить письмо. Проверьте email и попробуйте снова.",
     resetEmailPlaceholder: "Введите ваш email",
+    wrongPassword: "Неверный email или пароль.",
+    offlineError: "Нет подключения к интернету. Проверьте соединение и попробуйте снова.",
+    catchSavedOffline: "Улов сохранён локально — синхронизируется при подключении",
+    noCatchesYet: "Нет уловов",
+    noCatchesMapSub: "Добавь первый улов, чтобы он появился на карте",
+    addFirstCatch: "Добавить улов",
+    profileEmptyBadge: "Добавь первый улов и получи значок «Рыбак»!",
     detectingWater: "Определение водоёма...",
     waterBody: "Водоём",
     pressureSteady: "Стабильное",
@@ -155,6 +171,7 @@ const translations = {
     weatherStorm: "Гроза",
     fishingConditions: "Клев",
     hourlyForecast: "Почасовой прогноз",
+    windForecast: "Ветер по часам",
     weekForecast: "Прогноз на неделю",
     currentLocation: "Текущее местоположение",
     today: "Сегодня",
@@ -216,6 +233,7 @@ const translations = {
     noCoordinatesInPhoto: "No Coordinates in Photo",
     noCoordinatesInPhotoMessage: "Photo does not contain GPS data. Select a photo with geolocation.",
     uploadError: "Failed to save catch.",
+    catchSaved: "Catch saved!",
     recently: "Recently",
     unknown: "Unknown",
     login: "Sign In",
@@ -233,6 +251,8 @@ const translations = {
     registerLink: "Sign Up",
     loginLink: "Sign In",
     fillAllFields: "Please fill in all fields",
+    usernameTaken: "This username is already taken",
+    emailTaken: "This email is already in use",
     passwordTooShort: "Password must be at least 6 characters",
     confirmPasswordPlaceholder: "Confirm Password",
     passwordsDoNotMatch: "Passwords do not match",
@@ -245,6 +265,12 @@ const translations = {
     account: "Account",
     makePublic: "Make public",
     makePublicSub: "Visible to other users on the map",
+    noCoordsLabel: "No GPS coordinates",
+    noCoordsPrivateNote: "Without coordinates the catch can only be saved as private",
+    addLocationManually: "Set on map",
+    changeLocation: "Change location",
+    locationPickerTitle: "Tap to set catch location",
+    locationPickerConfirm: "Confirm",
     discover: "Discover",
     findAnglers: "Find Anglers",
     following: "Following",
@@ -281,6 +307,13 @@ const translations = {
     resetPasswordSentMessage: "Check your inbox and follow the link to reset your password.",
     resetPasswordError: "Could not send email. Check the address and try again.",
     resetEmailPlaceholder: "Enter your email",
+    wrongPassword: "Incorrect email or password.",
+    offlineError: "No internet connection. Check your connection and try again.",
+    catchSavedOffline: "Catch saved locally — will sync when back online",
+    noCatchesYet: "No catches yet",
+    noCatchesMapSub: "Add your first catch to see it on the map",
+    addFirstCatch: "Add a catch",
+    profileEmptyBadge: "Add your first catch to earn the Fisherman badge!",
     detectingWater: "Detecting water body...",
     waterBody: "Water body",
     pressureSteady: "Steady",
@@ -316,6 +349,7 @@ const translations = {
     weatherStorm: "Thunderstorm",
     fishingConditions: "Fishing Conditions",
     hourlyForecast: "Hourly Forecast",
+    windForecast: "Hourly Wind",
     weekForecast: "7-Day Forecast",
     currentLocation: "Current Location",
     today: "Today",
@@ -355,7 +389,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const remote = pb.authStore.record?.language;
       if (remote === language) return;
 
-      pb.collection("users").update(userId, { language }).catch((error) => {
+      pb.collection("users").update(userId, { language }, { requestKey: null }).catch((error) => {
         console.error("Failed to sync language on auth change:", error);
       });
     }, true);
@@ -379,7 +413,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const userId = pb.authStore.record?.id;
       if (userId && remote !== chosen) {
         try {
-          await pb.collection("users").update(userId, { language: chosen });
+          await pb.collection("users").update(userId, { language: chosen }, { requestKey: null });
         } catch (error) {
           console.error("Failed to sync remote language:", error);
         }
@@ -398,7 +432,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const userId = pb.authStore.record?.id;
       if (userId) {
         try {
-          await pb.collection("users").update(userId, { language: lang });
+          await pb.collection("users").update(userId, { language: lang }, { requestKey: null });
         } catch (error) {
           console.error("Failed to save remote language:", error);
         }

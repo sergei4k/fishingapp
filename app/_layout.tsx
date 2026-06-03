@@ -1,11 +1,25 @@
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { LanguageProvider } from '@/lib/language';
 import { pb } from '@/lib/pocketbase';
+import Toast, { BaseToastProps } from 'react-native-toast-message';
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter, useSegments, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import '../global.css';
+
+const toastConfig = {
+  success: ({ text1 }: BaseToastProps) => (
+    <View style={toastStyles.container}>
+      <View style={toastStyles.accent} />
+      <View style={toastStyles.iconBox}>
+        <Ionicons name="checkmark" size={16} color="#4ade80" />
+      </View>
+      <Text style={toastStyles.text}>{text1}</Text>
+    </View>
+  ),
+};
 
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -21,13 +35,16 @@ function UpdateRequired() {
   return (
     <View style={styles.updateScreen}>
       <Text style={styles.updateEmoji}>🎣</Text>
-      <Text style={styles.updateTitle}>Требуется обновление</Text>
-      <Text style={styles.updateSub}>Доступна новая версия StrikeFeed. Обновите приложение, чтобы продолжить.</Text>
+      <Text style={styles.updateTitle}>Update required{'\n'}Требуется обновление</Text>
+      <Text style={styles.updateSub}>
+        A new version of StrikeFeed is available. Please update to continue.{'\n\n'}
+        Доступна новая версия StrikeFeed. Обновите приложение, чтобы продолжить.
+      </Text>
       <TouchableOpacity
         style={styles.updateBtn}
-        onPress={() => Linking.openURL('https://www.rustore.ru/catalog/app/com.rybolov.app')}
+        onPress={() => Linking.openURL('https://play.google.com/store/apps/details?id=com.strikefeed.myapp')}
       >
-        <Text style={styles.updateBtnText}>Обновить в RuStore</Text>
+        <Text style={styles.updateBtnText}>Update on Google Play</Text>
       </TouchableOpacity>
     </View>
   );
@@ -77,7 +94,7 @@ function RootNavigator() {
   if (loading || !versionChecked) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#60a5fa" />
+        <ActivityIndicator size="large" color="#ffffff" />
       </View>
     );
   }
@@ -93,7 +110,8 @@ export default function RootLayout() {
   return (
     <AuthProvider>
       <LanguageProvider>
-        <RootNavigator />
+          <RootNavigator />
+          <Toast config={toastConfig} />
       </LanguageProvider>
     </AuthProvider>
   );
@@ -117,4 +135,49 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
   },
   updateBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+});
+
+const toastStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#071828',
+    borderRadius: 14,
+    marginHorizontal: 16,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#1a3a52',
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
+    gap: 12,
+    overflow: 'hidden',
+  },
+  accent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 3,
+    backgroundColor: '#4ade80',
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+  },
+  iconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#052e16',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  text: {
+    color: '#e2e8f0',
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+  },
 });

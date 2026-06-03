@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { pb } from "@/lib/pocketbase";
 
 export type Spot = {
@@ -99,7 +99,7 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-            <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
+            <Ionicons name="arrow-back" size={20} color="#e6eef8" />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {editing ? (ru ? "Редактировать" : "Edit spot") : spot.name}
@@ -107,10 +107,10 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
           {isOwner && !editing && (
             <View style={styles.headerActions}>
               <TouchableOpacity onPress={startEdit} style={styles.headerBtn}>
-                <FontAwesome name="pen" size={15} color="#60a5fa" />
+                <Ionicons name="pencil-outline" size={15} color="#ffffff" />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
-                <FontAwesome name="trash" size={15} color="#ef4444" />
+                <Ionicons name="trash-outline" size={15} color="#ef4444" />
               </TouchableOpacity>
             </View>
           )}
@@ -129,16 +129,16 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
         <ScrollView contentContainerStyle={styles.body}>
           <View style={styles.iconRow}>
             <View style={styles.spotIcon}>
-              <FontAwesome name="location-dot" size={28} color="#f59e0b" />
+              <Ionicons name="location-sharp" size={28} color="#f59e0b" />
             </View>
             {!spot.is_public && !editing ? (
               <View style={styles.privateBadge}>
-                <FontAwesome name="lock" size={11} color="#94a3b8" style={{ marginRight: 4 }} />
+                <Ionicons name="lock-closed-outline" size={11} color="#94a3b8" style={{ marginRight: 4 }} />
                 <Text style={styles.privateBadgeText}>{ru ? "Приватное" : "Private"}</Text>
               </View>
             ) : !editing ? (
               <View style={styles.publicBadge}>
-                <FontAwesome name="earth-europe" size={11} color="#34d399" style={{ marginRight: 4 }} />
+                <Ionicons name="globe-outline" size={11} color="#34d399" style={{ marginRight: 4 }} />
                 <Text style={styles.publicBadgeText}>{ru ? "Публичное" : "Public"}</Text>
               </View>
             ) : null}
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
   publicBadgeText: { color: "#34d399", fontSize: 12, fontWeight: "600" },
   spotName: { color: "#e6eef8", fontSize: 22, fontWeight: "700", marginBottom: 8 },
   spotDesc: { color: "#94a3b8", fontSize: 15, lineHeight: 22, marginBottom: 12 },
-  coordText: { color: "#475569", fontSize: 13, marginTop: 8 },
+  coordText: { color: "#94a3b8", fontSize: 13, marginTop: 8 },
   label: { color: "#94a3b8", fontSize: 13, fontWeight: "600", marginBottom: 6, marginTop: 16 },
   input: {
     backgroundColor: "#1e293b", color: "#e6eef8", fontSize: 15,
@@ -244,5 +244,5 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   toggleLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
-  toggleSub: { color: "#64748b", fontSize: 12 },
+  toggleSub: { color: "#94a3b8", fontSize: 12 },
 });

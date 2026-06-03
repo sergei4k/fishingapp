@@ -33,6 +33,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
+    justifyContent: "center",
     gap: 6,
     marginTop: 6,
   },

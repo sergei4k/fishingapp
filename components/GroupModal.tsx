@@ -13,14 +13,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { pb } from "@/lib/pocketbase";
+import { parseBadges } from "@/lib/badges";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 
 type Member = {
   id: string;
   user_id: string;
   username: string;
   avatarUrl: string | null;
+  verified: boolean;
 };
 
 type Props = {
@@ -71,9 +74,10 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
               avatarUrl: u.avatar
                 ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}`
                 : null,
+              verified: parseBadges(u.badges).includes("verified"),
             } as Member;
           } catch {
-            return { id: m.id, user_id: m.user_id, username: m.user_id, avatarUrl: null } as Member;
+            return { id: m.id, user_id: m.user_id, username: m.user_id, avatarUrl: null, verified: false } as Member;
           }
         })
       );
@@ -186,7 +190,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         {/* Header bar */}
         <View style={styles.header}>
           <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-            <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
+            <Ionicons name="arrow-back" size={20} color="#e6eef8" />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {editing ? (ru ? "Редактировать" : "Edit group") : liveGroup.name}
@@ -194,10 +198,10 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
           {isCreator && !editing && (
             <View style={styles.headerActions}>
               <TouchableOpacity onPress={() => setEditing(true)} style={styles.headerBtn}>
-                <FontAwesome name="pen" size={15} color="#60a5fa" />
+                <Ionicons name="pencil-outline" size={15} color="#ffffff" />
               </TouchableOpacity>
               <TouchableOpacity onPress={handleDelete} style={styles.headerBtn}>
-                <FontAwesome name="trash" size={15} color="#ef4444" />
+                <Ionicons name="trash-outline" size={15} color="#ef4444" />
               </TouchableOpacity>
             </View>
           )}
@@ -223,7 +227,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
             )}
             {editing && (
               <View style={styles.avatarEditBadge}>
-                <FontAwesome name="camera" size={11} color="#fff" />
+                <Ionicons name="camera-outline" size={11} color="#fff" />
               </View>
             )}
           </TouchableOpacity>
@@ -276,7 +280,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
 
         {/* Members */}
         {loading ? (
-          <ActivityIndicator color="#60a5fa" style={{ marginTop: 32 }} />
+          <ActivityIndicator color="#ffffff" style={{ marginTop: 32 }} />
         ) : (
           <FlatList
             data={members}
@@ -296,7 +300,10 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
                     </Text>
                   )}
                 </View>
-                <Text style={styles.memberUsername}>@{item.username}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={styles.memberUsername}>{item.username}</Text>
+                  {item.verified ? <VerifiedBadge size={13} /> : null}
+                </View>
                 {item.user_id === liveGroup.creator_id && (
                   <View style={styles.creatorBadge}>
                     <Text style={styles.creatorBadgeText}>{ru ? "Создатель" : "Creator"}</Text>
@@ -340,7 +347,7 @@ const styles = StyleSheet.create({
     overflow: "visible",
   },
   avatar: { width: 64, height: 64, borderRadius: 32 },
-  avatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 22 },
+  avatarText: { color: "#ffffff", fontWeight: "700", fontSize: 22 },
   avatarEditBadge: {
     position: "absolute", bottom: 0, right: 0,
     width: 22, height: 22, borderRadius: 11,
@@ -350,7 +357,7 @@ const styles = StyleSheet.create({
 
   groupMeta: { flex: 1 },
   groupDesc: { color: "#94a3b8", fontSize: 14, lineHeight: 20, marginBottom: 6 },
-  memberCountText: { color: "#475569", fontSize: 13 },
+  memberCountText: { color: "#94a3b8", fontSize: 13 },
 
   editNameInput: {
     color: "#e6eef8", fontSize: 16, fontWeight: "700",
@@ -370,7 +377,7 @@ const styles = StyleSheet.create({
   },
   leaveBtn: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#334155" },
   joinBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
-  leaveBtnText: { color: "#64748b" },
+  leaveBtnText: { color: "#94a3b8" },
 
   membersList: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
   membersTitle: { color: "#94a3b8", fontSize: 12, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
@@ -384,12 +391,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden",
   },
   memberAvatarImg: { width: 36, height: 36, borderRadius: 18 },
-  memberAvatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 13 },
+  memberAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 13 },
   memberUsername: { flex: 1, color: "#e6eef8", fontSize: 15, fontWeight: "600" },
   creatorBadge: {
     backgroundColor: "#1e293b", borderRadius: 6,
     paddingHorizontal: 8, paddingVertical: 3,
   },
-  creatorBadgeText: { color: "#60a5fa", fontSize: 11, fontWeight: "700" },
-  emptyText: { color: "#475569", textAlign: "center", marginTop: 16 },
+  creatorBadgeText: { color: "#ffffff", fontSize: 11, fontWeight: "700" },
+  emptyText: { color: "#94a3b8", textAlign: "center", marginTop: 16 },
 });

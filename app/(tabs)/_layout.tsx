@@ -1,4 +1,4 @@
-import { FontAwesome6 as FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
 import React from 'react';
@@ -21,7 +21,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         if (options.tabBarButton?.({} as any) === null) return null;
 
         const isFocused = state.index === index;
-        const color = isFocused ? '#60a5fa' : '#94a3b8';
+        const color = isFocused ? '#ffffff' : '#94a3b8';
         const icon = options.tabBarIcon?.({ focused: isFocused, color, size: 24 });
 
         const onPress = () => {
@@ -57,14 +57,14 @@ export default function TabsLayout() {
           name="index"
           options={{
             title: 'Map',
-            tabBarIcon: ({ color }) => <FontAwesome name="location-dot" size={24} color={color} />,
+            tabBarIcon: ({ color }) => <Ionicons name="location-sharp" size={24} color={color} />,
           }}
         />
         <Tabs.Screen
           name="social"
           options={{
             title: 'Social',
-            tabBarIcon: ({ color }) => <FontAwesome name="users" size={24} color={color} />,
+            tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={24} color={color} />,
           }}
         />
         <Tabs.Screen
@@ -72,8 +72,8 @@ export default function TabsLayout() {
           options={{
             title: 'Add',
             tabBarIcon: () => (
-              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#60a5fa', alignItems: 'center', justifyContent: 'center' }}>
-                <FontAwesome name="plus" size={22} color="#fff" />
+              <View style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: '#ffffff', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="add" size={28} color="#071023" />
               </View>
             ),
           }}
@@ -82,14 +82,14 @@ export default function TabsLayout() {
           name="weather"
           options={{
             title: 'Weather',
-            tabBarIcon: ({ color }) => <FontAwesome name="cloud-sun" size={24} color={color} />,
+            tabBarIcon: ({ color }) => <Ionicons name="partly-sunny-outline" size={24} color={color} />,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
-            tabBarIcon: ({ color }) => <FontAwesome name="user" size={24} color={color} />,
+            tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
           }}
         />
         <Tabs.Screen

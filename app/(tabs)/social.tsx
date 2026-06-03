@@ -1,21 +1,27 @@
 import { useAuth } from "@/lib/auth";
+import { sendPushNotification } from "@/lib/notifications";
 import { pb } from "@/lib/pocketbase";
 import { getGearLabel } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
+import speciesPhotos from "@/lib/speciesPhotos";
 import { getSpeciesLabel } from "@/lib/species";
 import { useLanguage } from "@/lib/language";
 import CatchDetailModal, { type CatchDetail } from "@/components/CatchDetailModal";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges, BadgeId } from "@/lib/badges";
 import GroupModal from "@/components/GroupModal";
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import { useFocusEffect } from "@react-navigation/native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Animated,
   ActivityIndicator,
+  DeviceEventEmitter,
   FlatList,
   Modal,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -25,6 +31,26 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 const PAGE_SIZE = 15;
+
+function LikeButton({ isLiked, count, onPress, size = 20, style }: {
+  isLiked: boolean; count: number; onPress: () => void; size?: number; style?: any;
+}) {
+  const scale = React.useRef(new Animated.Value(1)).current;
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 1.4, useNativeDriver: true, speed: 40, bounciness: 12 }),
+      Animated.spring(scale, { toValue: 1,   useNativeDriver: true, speed: 20, bounciness: 6 }),
+    ]).start();
+    onPress();
+  };
+  return (
+    <TouchableOpacity style={style} onPress={handlePress}>
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name={isLiked ? "thumbs-up" : "thumbs-up-outline"} size={size} color={isLiked ? "#ffffff" : "#64748b"} />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
 
 type CatchItem = Record<string, any> & {
   _username: string;
@@ -42,26 +68,41 @@ type CatchItem = Record<string, any> & {
 async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]> {
   if (items.length === 0) return [];
 
-
-
-  const uniqueUserIds = [...new Set(items.map((c) => c.user_id))] as string[];
   const userMap: Record<string, { username: string; avatarUrl: string | null; badges: BadgeId[] }> = {};
-  await Promise.all(
-    uniqueUserIds.map(async (uid) => {
-      try {
-        const u = await pb.collection("users").getOne(uid, { requestKey: null });
-        userMap[uid] = {
+
+  // Seed current user's data from local auth store — no API call needed
+  const me = pb.authStore.record;
+  if (me?.id) {
+    userMap[me.id] = {
+      username: me.username || me.name || "",
+      avatarUrl: me.avatar
+        ? `${pb.baseURL}/api/files/_pb_users_auth_/${me.id}/${me.avatar}`
+        : null,
+      badges: parseBadges(me.badges),
+    };
+  }
+
+  const uniqueUserIds = [...new Set(items.map((c) => c.user_id).filter((id) => id && !userMap[id]))] as string[];
+  if (uniqueUserIds.length > 0) {
+    try {
+      const filter = uniqueUserIds.map((id) => `id = "${id}"`).join(" || ");
+      const users = await pb.collection("users").getList(1, uniqueUserIds.length + 5, {
+        filter,
+        requestKey: null,
+      });
+      for (const u of users.items) {
+        userMap[u.id] = {
           username: u.username || u.name || "",
           avatarUrl: u.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${uid}/${u.avatar}`
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}`
             : null,
           badges: parseBadges(u.badges),
         };
-      } catch {
-        userMap[uid] = { username: "", avatarUrl: null, badges: [] };
       }
-    })
-  );
+    } catch (e) {
+      console.warn("enrichCatches: user fetch failed", e);
+    }
+  }
 
   const ids = items.map((c) => c.id);
   const idFilter = ids.map((id) => `catch_id = "${id}"`).join(" || ");
@@ -95,7 +136,7 @@ export default function Social() {
   const { user } = useAuth();
   const { language, t } = useLanguage();
 
-  const [activeTab, setActiveTab] = useState<"discover" | "feed">("discover");
+  const [activeTab, setActiveTab] = useState<"discover" | "feed" | "records">("discover");
 
   // Discover feed (fullscreen pager)
   const [discoverItems, setDiscoverItems] = useState<CatchItem[]>([]);
@@ -105,6 +146,7 @@ export default function Social() {
   const [loadingMoreDiscover, setLoadingMoreDiscover] = useState(false);
   const likeInFlight = useRef<Set<string>>(new Set());
   const pendingOps = useRef<Map<string, number>>(new Map()); // "catchId:action" → timestamp
+  const pendingCommentOps = useRef<Map<string, number>>(new Map()); // catchId → timestamp of optimistic increment
 
   // Following feed (list)
   const [myFollows, setMyFollows] = useState<any[]>([]);
@@ -115,6 +157,7 @@ export default function Social() {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [userCatches, setUserCatches] = useState<CatchItem[]>([]);
   const [userFollowerCount, setUserFollowerCount] = useState(0);
+  const [userFollowingCount, setUserFollowingCount] = useState(0);
   const [loadingUserCatches, setLoadingUserCatches] = useState(false);
 
   // Angler search modal
@@ -137,6 +180,90 @@ export default function Social() {
 
   // Catch detail modal
   const [detailCatch, setDetailCatch] = useState<CatchDetail | null>(null);
+
+  // Records / leaderboard
+  type LeaderboardEntry = {
+    catchId: string; species: string; weight: number;
+    username: string; name: string; avatarUrl: string | null;
+    badges: BadgeId[]; imageUri: string | null; rank: number;
+  };
+  type LeaderboardGroup = { species: string; entries: LeaderboardEntry[] };
+  const [leaderboard, setLeaderboard] = useState<LeaderboardGroup[]>([]);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+  const leaderboardLoaded = useRef(false);
+
+  const loadLeaderboard = async () => {
+    setLoadingLeaderboard(true);
+    try {
+      const records = await pb.collection("catches").getFullList({
+        filter: "is_public = true && weight_kg > 0",
+        sort: "-weight_kg",
+        requestKey: null,
+      });
+      const uniqueIds = [...new Set(records.map((r: any) => r.user_id).filter(Boolean))] as string[];
+      const userMap: Record<string, { username: string; name: string; avatarUrl: string | null; badges: BadgeId[] }> = {};
+      if (uniqueIds.length > 0) {
+        try {
+          const filter = uniqueIds.map((id) => `id = "${id}"`).join(" || ");
+          const users = await pb.collection("users").getFullList({ filter, requestKey: null });
+          for (const u of users) {
+            userMap[u.id] = {
+              username: u.username || u.name || "",
+              name: u.name || "",
+              avatarUrl: u.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}` : null,
+              badges: parseBadges(u.badges),
+            };
+          }
+        } catch (e) { console.warn("loadLeaderboard: user fetch failed", e); }
+      }
+      const speciesMap = new Map<string, LeaderboardEntry[]>();
+      for (const r of records as any[]) {
+        const sp = r.species || "";
+        if (!sp) continue;
+        const u = userMap[r.user_id] ?? { username: "", name: "", avatarUrl: null, badges: [] };
+        const entries = speciesMap.get(sp) ?? [];
+        const weight = parseFloat(r.weight_kg);
+        if (!weight || weight <= 0) continue;
+        entries.push({
+          catchId: r.id, species: sp, weight,
+          username: u.username, name: u.name, avatarUrl: u.avatarUrl,
+          badges: u.badges,
+          imageUri: r.image ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}` : null,
+          rank: entries.length + 1,
+        });
+        speciesMap.set(sp, entries);
+      }
+      const groups: LeaderboardGroup[] = [];
+      for (const [sp, entries] of speciesMap) {
+        groups.push({ species: sp, entries });
+      }
+      groups.sort((a, b) => b.entries[0].weight - a.entries[0].weight);
+      setLeaderboard(groups);
+    } catch (e) { console.warn("leaderboard error:", e); }
+    finally { setLoadingLeaderboard(false); }
+  };
+
+  useEffect(() => {
+    if (activeTab === "records" && !leaderboardLoaded.current) {
+      leaderboardLoaded.current = true;
+      loadLeaderboard();
+    }
+  }, [activeTab]);
+
+  const syncCommentCountInLists = useCallback((catchId: string, count: number) => {
+    const patch = (items: CatchItem[]) => {
+      let changed = false;
+      const next = items.map((c) => {
+        if (c.id !== catchId || c._commentCount === count) return c;
+        changed = true;
+        return { ...c, _commentCount: count };
+      });
+      return changed ? next : items;
+    };
+    setDiscoverItems(patch);
+    setFeedItems(patch);
+    setUserCatches(patch);
+  }, []);
 
   // ── Discover ──────────────────────────────────────────────────────────────
 
@@ -164,7 +291,6 @@ export default function Social() {
   // ── PocketBase realtime like sync ────────────────────────────────────────
 
   useEffect(() => {
-    let unsub: (() => void) | null = null;
     pb.collection("likes").subscribe("*", (e) => {
       const catchId = e.record?.catch_id;
       if (!catchId) return;
@@ -201,16 +327,61 @@ export default function Social() {
       setDiscoverItems(applyUpdate);
       setFeedItems(applyUpdate);
       setUserCatches(applyUpdate);
-    }, { requestKey: null } as any)
-      .then((fn) => { unsub = fn; })
-      .catch(() => {});
-    return () => { unsub?.(); };
+    }, { requestKey: null } as any).catch(() => {});
+    return () => { pb.collection("likes").unsubscribe("*"); };
   }, [user?.id]);
+
+  // ── PocketBase realtime comment sync ────────────────────────────────────
+
+  useEffect(() => {
+    pb.collection("comments").subscribe("*", (e) => {
+      const catchId = e.record?.catch_id;
+      if (!catchId) return;
+      if (e.action === "create") {
+        const ts = pendingCommentOps.current.get(catchId);
+        if (ts && Date.now() - ts < 5000) {
+          pendingCommentOps.current.delete(catchId);
+          return;
+        }
+        const patch = (items: CatchItem[]) =>
+          items.map((c) => c.id === catchId ? { ...c, _commentCount: c._commentCount + 1 } : c);
+        setDiscoverItems(patch);
+        setFeedItems(patch);
+        setUserCatches(patch);
+      } else if (e.action === "delete") {
+        const patch = (items: CatchItem[]) =>
+          items.map((c) => c.id === catchId ? { ...c, _commentCount: Math.max(0, c._commentCount - 1) } : c);
+        setDiscoverItems(patch);
+        setFeedItems(patch);
+        setUserCatches(patch);
+      }
+    }, { requestKey: null } as any).catch(() => {});
+    return () => { pb.collection("comments").unsubscribe("*"); };
+  }, []);
+
+  // ── Cross-tab comment sync (map → social) ───────────────────────────────
+
+  useEffect(() => {
+    const subCount = DeviceEventEmitter.addListener("commentCountSynced", ({ catchId, count }: { catchId: string; count: number }) => {
+      syncCommentCountInLists(catchId, count);
+    });
+    return () => { subCount.remove(); };
+  }, [syncCommentCountInLists]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("catchWithWeightAdded", () => {
+      leaderboardLoaded.current = false;
+      if (activeTab === "records") {
+        leaderboardLoaded.current = true;
+        loadLeaderboard();
+      }
+    });
+    return () => { sub.remove(); };
+  }, [activeTab]);
 
   // ── PocketBase realtime user sync ────────────────────────────────────────
 
   useEffect(() => {
-    let unsub: (() => void) | null = null;
     pb.collection("users").subscribe("*", (e) => {
       const updatedUserId = e.record?.id;
       if (!updatedUserId) return;
@@ -243,16 +414,13 @@ export default function Social() {
           ? { ...curr, username: username || curr.username, avatarUrl }
           : curr
       );
-    }, { requestKey: null } as any)
-      .then((fn) => { unsub = fn; })
-      .catch(() => {});
-    return () => { unsub?.(); };
+    }, { requestKey: null } as any).catch(() => {});
+    return () => { pb.collection("users").unsubscribe("*"); };
   }, []);
 
   // ── PocketBase realtime catch sync ───────────────────────────────────────
 
   useEffect(() => {
-    let unsub: (() => void) | null = null;
     pb.collection("catches").subscribe("*", (e) => {
       const catchId = e.record?.id;
       if (!catchId) return;
@@ -277,10 +445,8 @@ export default function Social() {
           ? { ...curr, ...updated, gear: updated.gear ?? updated.gear_id ?? updated.gearId ?? curr.gear }
           : curr);
       }
-    }, { requestKey: null } as any)
-      .then((fn) => { unsub = fn; })
-      .catch(() => {});
-    return () => { unsub?.(); };
+    }, { requestKey: null } as any).catch(() => {});
+    return () => { pb.collection("catches").unsubscribe("*"); };
   }, []);
 
   // ── Like (direct from card) ───────────────────────────────────────────────
@@ -316,6 +482,16 @@ export default function Social() {
           items.map((c) => (c.id === item.id ? { ...c, _likeId: record.id } : c));
         setDiscoverItems(setId);
         setFeedItems(setId);
+        if (item.user_id && item.user_id !== user.id) {
+          pb.collection("users").getOne(item.user_id, { fields: "pushToken", requestKey: null })
+            .then((owner) => {
+              if (owner.pushToken) {
+                const senderName = user.username || user.name || "Someone";
+                sendPushNotification(owner.pushToken, "New like", `${senderName} liked your catch`);
+              }
+            })
+            .catch(() => {});
+        }
       }
     } catch {
       setDiscoverItems((prev) => prev.map((c) => (c.id === item.id ? item : c)));
@@ -339,9 +515,8 @@ export default function Social() {
     date: item.created_at ?? item.date,
     gear: item.gear ?? item.gear_id ?? item.gearId ?? null,
     username: item._username,
-    avatarUrl: user?.avatar
-                ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`
-                : undefined,
+    verified: item._badges.includes("verified"),
+    avatarUrl: item._avatarUrl ?? undefined,
     lat: item.lat,
     lon: item.lon,
     isPublic: item.is_public ?? item.isPublic,
@@ -360,6 +535,7 @@ export default function Social() {
   };
 
   const applyCommentToLists = (catchId: string) => {
+    pendingCommentOps.current.set(catchId, Date.now());
     const patch = (items: CatchItem[]) =>
       items.map((c) => c.id === catchId ? { ...c, _commentCount: c._commentCount + 1 } : c);
     setDiscoverItems(patch);
@@ -411,7 +587,8 @@ export default function Social() {
   const doSearch = useCallback(async (q: string) => {
     setSearching(true);
     try {
-      const filter = q.trim() ? `(username ~ "${q}" || name ~ "${q}")` : undefined;
+      const safe = q.trim().replace(/"/g, '\\"');
+      const filter = safe ? `(username ~ "${safe}" || name ~ "${safe}")` : undefined;
       const result = await pb.collection("users").getList(1, 50, {
         filter,
         sort: "username",
@@ -429,7 +606,8 @@ export default function Social() {
     setSearchingGroups(true);
     try {
       const opts: Record<string, any> = { sort: "-created", requestKey: null };
-      if (q.trim()) opts.filter = `name ~ "${q}"`;
+      if (q.trim()) opts.filter = `name ~ "${q.trim().replace(/"/g, '\\"')}"`;
+
       const result = await pb.collection("groups").getList(1, 50, opts);
       setGroupResults(result.items);
     } catch (e) {
@@ -495,7 +673,7 @@ export default function Social() {
       try {
         await pb.collection("follows").delete(existing.id);
         setMyFollows((prev) => prev.filter((f) => f.id !== existing.id));
-      } catch (e) { console.warn("unfollow error:", e); }
+      } catch { console.warn("unfollow error"); }
     } else {
       try {
         const record = await pb.collection("follows").create({
@@ -503,6 +681,14 @@ export default function Social() {
           following_id: targetUser.id,
         });
         setMyFollows((prev) => [...prev, record]);
+        pb.collection("users").getOne(targetUser.id, { fields: "pushToken", requestKey: null })
+          .then((target) => {
+            if (target.pushToken) {
+              const senderName = user.username || user.name || "Someone";
+              sendPushNotification(target.pushToken, "New follower", `${senderName} started following you`);
+            }
+          })
+          .catch(() => {});
       } catch (e) { console.warn("follow error:", e); }
     }
   };
@@ -518,27 +704,41 @@ export default function Social() {
     });
     setUserCatches([]);
     setUserFollowerCount(0);
+    setUserFollowingCount(0);
     setLoadingUserCatches(true);
     try {
-      const [fullUser, records, followersResult] = await Promise.all([
-        pb.collection("users").getOne(targetUser.id, { requestKey: null }),
+      const [userResult, records, followersResult, followingResult] = await Promise.all([
+        pb.collection("users").getList(1, 1, {
+          filter: `id = "${targetUser.id}"`,
+          requestKey: null,
+        }).catch(() => ({ items: [] as any[] })),
         pb.collection("catches").getFullList({
-          filter: `user_id = "${targetUser.id}"`,
+          filter: `user_id = "${targetUser.id}" && is_public = true`,
           sort: "-created_at",
           requestKey: null,
-        }),
+        }).catch(() => [] as any[]),
         pb.collection("follows").getList(1, 1, {
           filter: `following_id = "${targetUser.id}"`,
           requestKey: null,
-        }),
+        }).catch(() => ({ totalItems: 0 })),
+        pb.collection("follows").getList(1, 1, {
+          filter: `follower_id = "${targetUser.id}"`,
+          requestKey: null,
+        }).catch(() => ({ totalItems: 0 })),
       ]);
-      setSelectedUser((prev: any) => ({
-        ...prev,
-        badges: fullUser.badges,
-        bio: fullUser.bio ?? "",
-      }));
-      setUserCatches(await enrichCatches(records, user?.id));
-      setUserFollowerCount(followersResult.totalItems);
+      const fullUser = (userResult as any).items?.[0];
+      if (fullUser) {
+        setSelectedUser((prev: any) => ({
+          ...prev,
+          name: fullUser.name ?? prev.name ?? "",
+          username: fullUser.username ?? prev.username ?? "",
+          badges: fullUser.badges,
+          bio: fullUser.bio ?? "",
+        }));
+      }
+      setUserCatches(await enrichCatches(records as any[], user?.id));
+      setUserFollowerCount((followersResult as any).totalItems ?? 0);
+      setUserFollowingCount((followingResult as any).totalItems ?? 0);
     } catch (e) { console.warn("openUser error:", e); }
     finally { setLoadingUserCatches(false); }
   };
@@ -549,7 +749,8 @@ export default function Social() {
 
   const formatDate = (val: any) => {
     if (!val) return "";
-    const d = new Date(val);
+    const num = Number(val);
+    const d = !isNaN(num) && num > 0 ? new Date(num) : new Date(val);
     if (isNaN(d.getTime())) return "";
     return d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
   };
@@ -582,7 +783,10 @@ export default function Social() {
             )}
           </View>
           <View>
-            <Text style={styles.feedUsername}>{item._username}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              <Text style={styles.feedUsername}>{item._username}</Text>
+              {item._badges.includes("verified") ? <VerifiedBadge size={13} /> : null}
+            </View>
             <Text style={styles.feedDate}>{formatDate(item.created_at)}</Text>
           </View>
         </TouchableOpacity>
@@ -607,7 +811,7 @@ export default function Social() {
         />
       ) : (
         <View style={styles.feedPhotoEmpty}>
-          <FontAwesome name="camera" size={40} color="#1e3a5f" />
+          <Ionicons name="camera-outline" size={40} color="#1e3a5f" />
         </View>
       )}
 
@@ -635,19 +839,12 @@ export default function Social() {
 
         {/* Like / comment row */}
         <View style={styles.feedActions}>
-          <TouchableOpacity style={styles.feedActionBtn} onPress={() => toggleLike(item)}>
-            <FontAwesome
-              name="thumbs-up"
-              iconStyle={item._isLiked ? "solid" : "regular"}
-              size={20}
-              color={item._isLiked ? "#60a5fa" : "#64748b"}
-            />
-            <Text style={[styles.feedActionText, item._isLiked && { color: "#60a5fa" }]}>
-              {item._likeCount}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.feedActionBtn}>
+            <LikeButton isLiked={item._isLiked} count={item._likeCount} onPress={() => toggleLike(item)} size={20} />
+            <Text style={[styles.feedActionText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
+          </View>
           <TouchableOpacity style={styles.feedActionBtn} onPress={() => openDetail(item)}>
-            <FontAwesome name="comment" iconStyle="regular" size={20} color="#64748b" />
+            <Ionicons name="chatbubble-outline" size={20} color="#64748b" />
             <Text style={styles.feedActionText}>{item._commentCount}</Text>
           </TouchableOpacity>
         </View>
@@ -663,7 +860,7 @@ export default function Social() {
         <ExpoImage source={{ uri: item.image_uri }} style={styles.catchThumb} contentFit="cover" />
       ) : (
         <View style={[styles.catchThumb, styles.catchThumbEmpty]}>
-          <FontAwesome name="camera" size={20} color="#334155" />
+          <Ionicons name="camera-outline" size={20} color="#334155" />
         </View>
       )}
       <View style={styles.catchInfo}>
@@ -677,7 +874,12 @@ export default function Social() {
               </Text>
             )}
           </View>
-          {item._username ? <Text style={styles.catchUser}>@{item._username}</Text> : null}
+          {item._username ? (
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+                <Text style={styles.catchUser}>{item._username}</Text>
+                {item._badges.includes("verified") ? <VerifiedBadge size={12} /> : null}
+              </View>
+            ) : null}
         </View>
         <Text style={styles.catchSpecies}>{getSpeciesLabel(item.species, language)}</Text>
         {item.gear ? (
@@ -691,12 +893,12 @@ export default function Social() {
         {item.description ? <Text style={styles.catchDesc} numberOfLines={1}>{item.description}</Text> : null}
         <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
         <View style={styles.catchCounts}>
-          <TouchableOpacity onPress={() => toggleLike(item)} style={styles.catchCountBtn}>
-            <FontAwesome name="thumbs-up" iconStyle={item._isLiked ? "solid" : "regular"} size={13} color={item._isLiked ? "#60a5fa" : "#64748b"} />
-            <Text style={[styles.catchCountText, item._isLiked && { color: "#60a5fa" }]}>{item._likeCount}</Text>
-          </TouchableOpacity>
+          <View style={styles.catchCountBtn}>
+            <LikeButton isLiked={item._isLiked} count={item._likeCount} onPress={() => toggleLike(item)} size={13} />
+            <Text style={[styles.catchCountText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
+          </View>
           <TouchableOpacity onPress={() => openDetail(item)} style={styles.catchCountBtn}>
-            <FontAwesome name="comment" iconStyle="regular" size={13} color="#64748b" />
+            <Ionicons name="chatbubble-outline" size={13} color="#64748b" />
             <Text style={styles.catchCountText}>{item._commentCount}</Text>
           </TouchableOpacity>
         </View>
@@ -726,22 +928,25 @@ export default function Social() {
             <Text style={[styles.tabText, activeTab === "feed" && styles.tabTextActive]}>
               {t("following")}
             </Text>
-            {myFollows.length > 0 && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{myFollows.length}</Text>
-              </View>
-            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === "records" && styles.tabActive]}
+            onPress={() => setActiveTab("records")}
+          >
+            <Text style={[styles.tabText, activeTab === "records" && styles.tabTextActive]}>
+              {language === "ru" ? "Рекорды" : "Records"}
+            </Text>
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={styles.searchIconBtn} onPress={openSearch}>
-          <FontAwesome name="magnifying-glass" size={18} color="#94a3b8" />
+          <Ionicons name="search-outline" size={18} color="#94a3b8" />
         </TouchableOpacity>
       </View>
 
       {/* Discover fullscreen pager */}
       {activeTab === "discover" && (
         loadingDiscover ? (
-          <ActivityIndicator color="#60a5fa" style={{ marginTop: 48 }} />
+          <ActivityIndicator color="#ffffff" style={{ marginTop: 48 }} />
         ) : (
           <FlatList
             data={discoverItems}
@@ -755,7 +960,7 @@ export default function Social() {
             onEndReachedThreshold={0.4}
             ListFooterComponent={
               loadingMoreDiscover
-                ? <ActivityIndicator color="#60a5fa" style={{ marginVertical: 16 }} />
+                ? <ActivityIndicator color="#ffffff" style={{ marginVertical: 16 }} />
                 : null
             }
             ListEmptyComponent={
@@ -771,14 +976,14 @@ export default function Social() {
       {activeTab === "feed" && (
         !user ? (
           <View style={styles.centerMsg}>
-            <FontAwesome name="users" size={44} color="#1e3a5f" />
+            <Ionicons name="people-outline" size={44} color="#1e3a5f" />
             <Text style={styles.centerText}>{t("signInToFollow")}</Text>
           </View>
         ) : loadingFeed ? (
-          <ActivityIndicator color="#60a5fa" style={{ marginTop: 48 }} />
+          <ActivityIndicator color="#ffffff" style={{ marginTop: 48 }} />
         ) : feedItems.length === 0 ? (
           <View style={styles.centerMsg}>
-            <FontAwesome name="anchor" size={44} color="#1e3a5f" />
+            <Ionicons name="boat-outline" size={44} color="#1e3a5f" />
             <Text style={styles.centerText}>
               {myFollows.length === 0 ? t("followToSeeCatches") : t("noFollowingCatches")}
             </Text>
@@ -793,63 +998,197 @@ export default function Social() {
         )
       )}
 
+      {/* Records / Leaderboard */}
+      {activeTab === "records" && (
+        loadingLeaderboard ? (
+          <ActivityIndicator color="#ffffff" style={{ marginTop: 48 }} />
+        ) : leaderboard.length === 0 ? (
+          <View style={styles.centerMsg}>
+            <Ionicons name="trophy-outline" size={44} color="#1e3a5f" />
+            <Text style={styles.centerText}>
+              {language === "ru" ? "Пока нет рекордов с весом" : "No weighted catches yet"}
+            </Text>
+          </View>
+        ) : (
+          <ScrollView contentContainerStyle={styles.lbScroll} showsVerticalScrollIndicator={false}>
+            {leaderboard.map((group) => (
+              <View key={group.species} style={styles.lbGroup}>
+                <View style={styles.lbGroupHeader}>
+                  {speciesPhotos[group.species] ? (
+                    <ExpoImage source={speciesPhotos[group.species]} style={styles.lbSpeciesPhoto} contentFit="contain" />
+                  ) : (
+                    <Ionicons name="fish-outline" size={18} color="#ffffff" />
+                  )}
+                  <Text style={styles.lbGroupTitle}>{getSpeciesLabel(group.species, language)}</Text>
+                  <Text style={styles.lbGroupCount}>
+                    {group.entries.length} {language === "ru" ? "уловов" : "catches"}
+                  </Text>
+                </View>
+                {group.entries.map((entry) => {
+                  const rankColor = entry.rank === 1 ? "#f59e0b" : entry.rank === 2 ? "#94a3b8" : entry.rank === 3 ? "#b87333" : "#334155";
+                  const rankBg   = entry.rank === 1 ? "#f59e0b22" : entry.rank === 2 ? "#94a3b822" : entry.rank === 3 ? "#b8733322" : "transparent";
+                  return (
+                    <TouchableOpacity
+                      key={entry.catchId}
+                      style={styles.lbRow}
+                      activeOpacity={0.75}
+                      onPress={() => setDetailCatch({
+                        id: entry.catchId,
+                        imageUrl: entry.imageUri,
+                        species: entry.species,
+                        weight: String(entry.weight),
+                        username: entry.username,
+                        name: entry.name,
+                        verified: entry.badges.includes("verified"),
+                        avatarUrl: entry.avatarUrl ?? undefined,
+                      })}
+                    >
+                      {/* Rank badge */}
+                      <View style={[styles.lbRank, { backgroundColor: rankBg }]}>
+                        <Text style={[styles.lbRankText, { color: rankColor }]}>
+                          {entry.rank <= 3 ? ["🥇","🥈","🥉"][entry.rank - 1] : `#${entry.rank}`}
+                        </Text>
+                      </View>
+
+                      {/* Catch thumbnail */}
+                      {entry.imageUri ? (
+                        <ExpoImage source={{ uri: entry.imageUri }} style={styles.lbThumb} contentFit="cover" />
+                      ) : (
+                        <View style={[styles.lbThumb, styles.lbThumbEmpty]}>
+                          <Ionicons name="camera-outline" size={16} color="#334155" />
+                        </View>
+                      )}
+
+                      {/* User info */}
+                      <View style={styles.lbInfo}>
+                        <View style={styles.lbUserRow}>
+                          {entry.avatarUrl ? (
+                            <ExpoImage source={{ uri: entry.avatarUrl }} style={styles.lbAvatar} contentFit="cover" />
+                          ) : (
+                            <View style={[styles.lbAvatar, styles.lbAvatarEmpty]}>
+                              <Text style={styles.lbAvatarText}>
+                                {(entry.name || entry.username || "?").slice(0, 2).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                            <Text style={styles.lbUsername}>{entry.username}</Text>
+                            {entry.badges.includes("verified") ? <VerifiedBadge size={12} /> : null}
+                          </View>
+                        </View>
+                      </View>
+
+                      {/* Weight */}
+                      <Text style={[styles.lbWeight, { color: rankColor }]}>
+                        {Number.isFinite(entry.weight) ? (entry.weight % 1 === 0 ? entry.weight : entry.weight.toFixed(2)) : "?"} kg
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </ScrollView>
+        )
+      )}
+
       {/* User profile modal */}
       <Modal visible={!!selectedUser} animationType="slide" onRequestClose={() => setSelectedUser(null)}>
         <SafeAreaView style={styles.container}>
-          <View style={styles.modalHeader}>
-            <TouchableOpacity onPress={() => setSelectedUser(null)} style={styles.backBtn}>
-              <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
-            </TouchableOpacity>
-            <View style={styles.avatarLg}>
-              {selectedUser?.avatarUrl ? (
-                <ExpoImage source={{ uri: selectedUser.avatarUrl }} contentFit="cover" style={styles.avatarLgImage} />
-              ) : (
-                <Text style={styles.avatarLgText}>{initials(selectedUser)}</Text>
-              )}
-            </View>
-            <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={styles.modalUsername}>@{selectedUser?.username || selectedUser?.name}</Text>
-              {selectedUser?.name && selectedUser?.username ? (
-                <Text style={styles.modalFullName}>{selectedUser.name}</Text>
-              ) : null}
-              <BadgeChip badges={parseBadges(selectedUser?.badges)} language={language} />
-            </View>
-            {selectedUser && (
-              <TouchableOpacity
-                style={[styles.followBtn, isFollowing(selectedUser.id) && styles.followingBtn]}
-                onPress={() => toggleFollow(selectedUser)}
-              >
-                <Text style={[styles.followBtnText, isFollowing(selectedUser.id) && styles.followingBtnText]}>
-                  {isFollowing(selectedUser.id) ? t("followingBtn") : t("follow")}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{userCatches.length}</Text>
-              <Text style={styles.statLabel}>{t("publicCatchesTitle")}</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{userFollowerCount}</Text>
-              <Text style={styles.statLabel}>{language === "ru" ? "Подписчики" : "Followers"}</Text>
-            </View>
-          </View>
-          {selectedUser?.bio ? (
-            <Text style={styles.modalBioBlock}>{selectedUser.bio}</Text>
-          ) : null}
-          {loadingUserCatches ? (
-            <ActivityIndicator color="#60a5fa" style={{ marginTop: 48 }} />
-          ) : (
-            <FlatList
-              data={userCatches}
-              keyExtractor={(i) => i.id}
-              renderItem={renderListCard}
-              contentContainerStyle={styles.listContent}
-              ListEmptyComponent={<Text style={styles.emptyText}>{t("noPublicCatches")}</Text>}
-            />
-          )}
+          <FlatList
+            data={loadingUserCatches ? [] : userCatches}
+            keyExtractor={(i) => i.id}
+            renderItem={renderListCard}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}
+            ListEmptyComponent={
+              !loadingUserCatches ? (
+                <Text style={styles.emptyText}>{t("noPublicCatches")}</Text>
+              ) : null
+            }
+            ListHeaderComponent={
+              <View>
+                {/* Banner */}
+                <View style={styles.upBanner}>
+                  {userCatches[0]?.image_uri ? (
+                    <ExpoImage source={{ uri: userCatches[0].image_uri }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                  ) : (
+                    <View style={{ flex: 1, backgroundColor: "#0a1929" }} />
+                  )}
+                  <TouchableOpacity onPress={() => setSelectedUser(null)} style={styles.upBackBtn}>
+                    <Ionicons name="arrow-back" size={20} color="#e6eef8" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Avatar overlapping banner */}
+                <View style={styles.upAvatarWrapper}>
+                  <View style={styles.upAvatar}>
+                    {selectedUser?.avatarUrl ? (
+                      <ExpoImage source={{ uri: selectedUser.avatarUrl }} contentFit="cover" style={styles.upAvatarImage} />
+                    ) : (
+                      <Text style={styles.upAvatarText}>{initials(selectedUser)}</Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Name + username */}
+                {selectedUser?.name ? (
+                  <Text style={styles.upName}>{selectedUser.name}</Text>
+                ) : null}
+                {selectedUser?.username ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 }}>
+                    <Text style={styles.upUsername}>@{selectedUser.username}</Text>
+                    {parseBadges(selectedUser?.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
+                  </View>
+                ) : null}
+
+                <BadgeChip badges={parseBadges(selectedUser?.badges)} language={language} />
+
+                {selectedUser?.bio ? (
+                  <Text style={styles.upBio}>{selectedUser.bio}</Text>
+                ) : null}
+
+                {/* Stats row */}
+                <View style={styles.upStatsRow}>
+                  <View style={styles.upStatItem}>
+                    <Text style={styles.upStatNum}>{userCatches.length}</Text>
+                    <Text style={styles.upStatLabel}>{language === "ru" ? "Уловов" : "Catches"}</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.upStatItem}>
+                    <Text style={styles.upStatNum}>{userFollowerCount}</Text>
+                    <Text style={styles.upStatLabel}>{language === "ru" ? "Подписчики" : "Followers"}</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.upStatItem}>
+                    <Text style={styles.upStatNum}>{userFollowingCount}</Text>
+                    <Text style={styles.upStatLabel}>{language === "ru" ? "Подписки" : "Following"}</Text>
+                  </View>
+                </View>
+
+                {/* Follow action */}
+                <View style={styles.upActionRow}>
+                  {selectedUser && (
+                    <TouchableOpacity
+                      style={[styles.upActionBtn, isFollowing(selectedUser.id) && styles.upActionBtnFollowing]}
+                      onPress={() => toggleFollow(selectedUser)}
+                    >
+                      <Text style={[styles.upActionBtnText, isFollowing(selectedUser.id) && styles.upActionBtnFollowingText]}>
+                        {isFollowing(selectedUser.id) ? t("followingBtn") : t("follow")}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* Catches section header */}
+                {loadingUserCatches ? (
+                  <ActivityIndicator color="#ffffff" style={{ marginTop: 32, marginBottom: 16 }} />
+                ) : (
+                  <View style={styles.upCatchesHeader}>
+                    <Text style={styles.upCatchesTitle}>{language === "ru" ? "Уловы" : "Catches"}</Text>
+                  </View>
+                )}
+              </View>
+            }
+          />
         </SafeAreaView>
       </Modal>
 
@@ -858,7 +1197,7 @@ export default function Social() {
         <SafeAreaView style={styles.container}>
           <View style={styles.searchModalHeader}>
             <View style={styles.searchBarWrap}>
-              <FontAwesome name="magnifying-glass" size={15} color="#64748b" style={{ marginRight: 8 }} />
+              <Ionicons name="search-outline" size={15} color="#64748b" style={{ marginRight: 8 }} />
               <TextInput
                 ref={searchInput}
                 style={styles.searchBarInput}
@@ -871,7 +1210,7 @@ export default function Social() {
                 keyboardAppearance="dark"
                 returnKeyType="search"
               />
-              {(searching || searchingGroups) && <ActivityIndicator size="small" color="#60a5fa" style={{ marginLeft: 6 }} />}
+              {(searching || searchingGroups) && <ActivityIndicator size="small" color="#ffffff" style={{ marginLeft: 6 }} />}
             </View>
             <TouchableOpacity onPress={closeSearch} style={styles.searchCancelBtn}>
               <Text style={styles.searchCancelText}>{t("cancel")}</Text>
@@ -925,8 +1264,10 @@ export default function Social() {
                     )}
                   </View>
                   <View style={styles.anglerInfo}>
-                    <Text style={styles.anglerUsername}>@{item.username || item.name}</Text>
-                    {item.name && item.username ? <Text style={styles.anglerFullName}>{item.name}</Text> : null}
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                      <Text style={styles.anglerUsername}>{item.username}</Text>
+                      {parseBadges(item.badges).includes("verified") ? <VerifiedBadge size={13} /> : null}
+                    </View>
                   </View>
                   {user && item.id !== user.id && (
                     <TouchableOpacity
@@ -955,7 +1296,7 @@ export default function Social() {
               ListHeaderComponent={
                 user ? (
                   <TouchableOpacity style={styles.createGroupBtn} onPress={() => setCreateGroupVisible(true)}>
-                    <FontAwesome name="plus" size={14} color="#0284c7" />
+                    <Ionicons name="add" size={14} color="#0284c7" />
                     <Text style={styles.createGroupBtnText}>
                       {language === "ru" ? "Создать группу" : "Create group"}
                     </Text>
@@ -983,7 +1324,7 @@ export default function Social() {
                     <Text style={styles.anglerUsername}>{item.name}</Text>
                     {item.description ? <Text style={styles.anglerFullName} numberOfLines={1}>{item.description}</Text> : null}
                   </View>
-                  <FontAwesome name="chevron-right" size={14} color="#334155" />
+                  <Ionicons name="chevron-forward" size={14} color="#334155" />
                 </TouchableOpacity>
               )}
               ListEmptyComponent={!searchingGroups ? (
@@ -1053,6 +1394,7 @@ export default function Social() {
         onClose={closeDetail}
         onLikeChange={applyLikeToLists}
         onCommentAdded={applyCommentToLists}
+        onCommentCountSynced={syncCommentCountInLists}
       />
     </SafeAreaView>
   );
@@ -1079,16 +1421,16 @@ const styles = StyleSheet.create({
     padding: 10,
     marginRight: 4,
   },
-  tabActive: { borderBottomWidth: 2, borderBottomColor: "#60a5fa" },
-  tabText: { color: "#64748b", fontSize: 15, fontWeight: "600" },
-  tabTextActive: { color: "#60a5fa" },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: "#ffffff" },
+  tabText: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
+  tabTextActive: { color: "#ffffff" },
   badge: {
     backgroundColor: "#0284c7", borderRadius: 10,
     paddingHorizontal: 6, paddingVertical: 1, minWidth: 20, alignItems: "center",
   },
   badgeText: { color: "#fff", fontSize: 11, fontWeight: "700" },
 
-  // Fishbrain-style feed card
+  
   feedList: { paddingTop: 8, paddingBottom: 100 },
   feedCard: {
     backgroundColor: "#071023",
@@ -1112,19 +1454,19 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center",
   },
   feedAvatarImage: { width: 38, height: 38, borderRadius: 19 },
-  feedAvatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 14 },
-  feedUsername: { color: "#e6eef8", fontWeight: "600", fontSize: 14 },
-  feedDate: { color: "#475569", fontSize: 12, marginTop: 1 },
+  feedAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 14 },
+  feedUsername: { color: "#ffffff", fontWeight: "600", fontSize: 14 },
+  feedDate: { color: "#94a3b8", fontSize: 12, marginTop: 1 },
   feedPhoto: { width: "100%", height: 280 },
   feedPhotoEmpty: {
     width: "100%", height: 200,
     backgroundColor: "#0b1a2e", alignItems: "center", justifyContent: "center",
   },
   feedCardBody: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
-  feedSpecies: { color: "#cfe8ff", fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  feedSpecies: { color: "#ffffff", fontSize: 18, fontWeight: "700", marginBottom: 4 },
   feedGearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6, alignSelf: "flex-start" },
   feedGearThumb: { width: 28, height: 28 },
-  feedGearText: { color: "#60a5fa", fontSize: 14, fontWeight: "600" },
+  feedGearText: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   feedMeta: { color: "#7ea8c9", fontSize: 13, marginBottom: 6 },
   feedDesc: { color: "#94a3b8", fontSize: 14, lineHeight: 20, marginBottom: 8 },
   feedActions: {
@@ -1134,8 +1476,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   feedActionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
-  feedActionText: { color: "#64748b", fontSize: 14, fontWeight: "600" },
+  feedActionText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
 
+
+
+
+  
   // List card (following feed)
   listContent: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
   catchRow: {
@@ -1151,17 +1497,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center",
   },
   catchAuthorAvatarImg: { width: 22, height: 22, borderRadius: 11 },
-  catchAuthorAvatarText: { color: "#60a5fa", fontSize: 9, fontWeight: "700" },
-  catchSpecies: { color: "#cfe8ff", fontWeight: "600", fontSize: 15 },
+  catchAuthorAvatarText: { color: "#ffffff", fontSize: 9, fontWeight: "700" },
+  catchSpecies: { color: "#ffffff", fontWeight: "600", fontSize: 15 },
   catchGearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, marginBottom: 2, alignSelf: "flex-start" },
   catchGearThumb: { width: 22, height: 22 },
-  catchGearText: { color: "#60a5fa", fontSize: 13, fontWeight: "600" },
-  catchUser: { color: "#0284c7", fontSize: 12, marginTop: 1 },
+  catchGearText: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
+  catchUser: { color: "#ffffff", fontSize: 12, marginTop: 1 },
   catchDesc: { color: "#94a3b8", fontSize: 13, marginTop: 3 },
-  catchDate: { color: "#475569", fontSize: 12, marginTop: 4 },
+  catchDate: { color: "#94a3b8", fontSize: 12, marginTop: 4 },
   catchCounts: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 12 },
   catchCountBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
-  catchCountText: { color: "#64748b", fontSize: 12 },
+  catchCountText: { color: "#94a3b8", fontSize: 12 },
 
   // Comments sheet
   sheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
@@ -1176,7 +1522,7 @@ const styles = StyleSheet.create({
   sheetTitle: { color: "#e6eef8", fontSize: 17, fontWeight: "700", marginBottom: 16 },
   commentsList: { maxHeight: 280 },
   commentItem: { marginBottom: 14 },
-  commentUsername: { color: "#60a5fa", fontSize: 13, fontWeight: "600" },
+  commentUsername: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
   commentText: { color: "#cbd5e1", fontSize: 14, marginTop: 2 },
   commentInputRow: {
     flexDirection: "row", alignItems: "center",
@@ -1187,12 +1533,12 @@ const styles = StyleSheet.create({
 
   // Misc
   centerMsg: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40, gap: 16 },
-  centerText: { color: "#475569", fontSize: 15, textAlign: "center", lineHeight: 22 },
-  emptyText: { color: "#475569", textAlign: "center", marginTop: 16, fontSize: 14 },
-  followBtn: { backgroundColor: "#0284c7", paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
+  centerText: { color: "#94a3b8", fontSize: 15, textAlign: "center", lineHeight: 22 },
+  emptyText: { color: "#94a3b8", textAlign: "center", marginTop: 16, fontSize: 14 },
+  followBtn: { backgroundColor: "#0c4a6e", paddingHorizontal: 16, paddingVertical: 7, borderRadius: 8 },
   followingBtn: { backgroundColor: "transparent", borderWidth: 1, borderColor: "#334155" },
   followBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  followingBtnText: { color: "#64748b" },
+  followingBtnText: { color: "#94a3b8" },
   modalHeader: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 16, paddingVertical: 14,
@@ -1204,9 +1550,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center",
   },
   avatarLgImage: { width: 52, height: 52, borderRadius: 26 },
-  avatarLgText: { color: "#60a5fa", fontWeight: "700", fontSize: 20 },
+  avatarLgText: { color: "#ffffff", fontWeight: "700", fontSize: 20 },
   modalUsername: { color: "#e6eef8", fontSize: 17, fontWeight: "700" },
-  modalFullName: { color: "#64748b", fontSize: 13, marginTop: 2 },
+  modalFullName: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
   modalBio: { color: "#94a3b8", fontSize: 13, marginTop: 6, lineHeight: 18 },
   modalBioBlock: { color: "#94a3b8", fontSize: 14, lineHeight: 20, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1e293b" },
   statsRow: {
@@ -1217,7 +1563,7 @@ const styles = StyleSheet.create({
   statItem: { alignItems: "center", minWidth: 80 },
   statNumber: { color: "#e6eef8", fontSize: 22, fontWeight: "700" },
   statLabel: {
-    color: "#64748b", fontSize: 12, marginTop: 2,
+    color: "#94a3b8", fontSize: 12, marginTop: 2,
     textTransform: "uppercase", letterSpacing: 0.4,
   },
   statDivider: { width: 1, backgroundColor: "#1e293b" },
@@ -1236,7 +1582,7 @@ const styles = StyleSheet.create({
   },
   searchBarInput: { flex: 1, color: "#e6eef8", fontSize: 15 },
   searchCancelBtn: { paddingHorizontal: 6, paddingVertical: 4 },
-  searchCancelText: { color: "#60a5fa", fontSize: 15 },
+  searchCancelText: { color: "#ffffff", fontSize: 15 },
   anglerRow: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: "#071023", borderRadius: 10,
@@ -1244,7 +1590,7 @@ const styles = StyleSheet.create({
   },
   anglerInfo: { flex: 1 },
   anglerUsername: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
-  anglerFullName: { color: "#64748b", fontSize: 13, marginTop: 2 },
+  anglerFullName: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
 
   // ── Catch detail modal ───────────────────────────────────────────────────
   detailScreen: { flex: 1, backgroundColor: "#0f172a" },
@@ -1264,8 +1610,8 @@ const styles = StyleSheet.create({
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center",
   },
-  detailAvatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 15 },
-  detailUserHandle: { color: "#64748b", fontSize: 13 },
+  detailAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
+  detailUserHandle: { color: "#94a3b8", fontSize: 13 },
   likeCommentRow: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 20, paddingVertical: 12, gap: 24,
@@ -1273,9 +1619,9 @@ const styles = StyleSheet.create({
   },
   likeBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
   commentBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
-  likeCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
-  likeCountActive: { color: "#60a5fa" },
-  commentCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
+  likeCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
+  likeCountActive: { color: "#ffffff" },
+  commentCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
   commentsSection: {
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4,
     borderBottomWidth: 1, borderBottomColor: "#1e293b",
@@ -1284,8 +1630,8 @@ const styles = StyleSheet.create({
   speciesText: { color: "#ffffff", fontSize: 24, fontWeight: "bold", marginBottom: 4 },
   gearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8, alignSelf: "flex-start" },
   gearThumb: { width: 56, height: 56 },
-  gearText: { color: "#60a5fa", fontSize: 18, fontWeight: "600" },
-  dateText: { color: "#64748b", fontSize: 14, marginTop: 4 },
+  gearText: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
+  dateText: { color: "#94a3b8", fontSize: 14, marginTop: 4 },
   detailText: { color: "#cbd5e1", fontSize: 16, marginBottom: 4 },
 
   // Search tabs
@@ -1298,9 +1644,9 @@ const styles = StyleSheet.create({
     flex: 1, alignItems: "center",
     paddingVertical: 10,
   },
-  searchTabBtnActive: { borderBottomWidth: 2, borderBottomColor: "#60a5fa" },
-  searchTabText: { color: "#64748b", fontSize: 14, fontWeight: "600" },
-  searchTabTextActive: { color: "#60a5fa" },
+  searchTabBtnActive: { borderBottomWidth: 2, borderBottomColor: "#ffffff" },
+  searchTabText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
+  searchTabTextActive: { color: "#ffffff" },
 
   // Create group button (in list header)
   createGroupBtn: {
@@ -1343,4 +1689,59 @@ const styles = StyleSheet.create({
   },
   createGroupConfirmText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   createGroupInline: { padding: 16, flex: 1 },
+
+  // Leaderboard
+  lbScroll: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 100 },
+  lbGroup: {
+    backgroundColor: "#071023", borderRadius: 14,
+    borderWidth: 1, borderColor: "#1e293b",
+    marginBottom: 14, overflow: "hidden",
+  },
+  lbGroupHeader: {
+    flexDirection: "row", alignItems: "center", gap: 8,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: "#1e293b",
+    backgroundColor: "#0a1929",
+  },
+  lbGroupTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700", flex: 1 },
+  lbGroupCount: { color: "#94a3b8", fontSize: 12 },
+  lbRow: {
+    flexDirection: "row", alignItems: "center",
+    paddingHorizontal: 12, paddingVertical: 10, gap: 10,
+    borderBottomWidth: 1, borderBottomColor: "#0d1f35",
+  },
+  lbRank: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  lbRankText: { fontSize: 18, fontWeight: "700" },
+  lbThumb: { width: 48, height: 48, borderRadius: 8 },
+  lbThumbEmpty: { backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center" },
+  lbInfo: { flex: 1 },
+  lbUserRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  lbAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  lbAvatarEmpty: {},
+  lbAvatarText: { color: "#ffffff", fontSize: 9, fontWeight: "700" },
+  lbUsername: { color: "#ffffff", fontSize: 13 },
+  lbWeight: { fontSize: 16, fontWeight: "700" },
+  lbSpeciesPhoto: { width: 36, height: 36 },
+
+  // ── Other-user profile modal ─────────────────────────────────────────────
+  upBanner: { height: 140, backgroundColor: "#071023", overflow: "hidden" },
+  upBackBtn: { position: "absolute", top: 12, left: 12, zIndex: 1, padding: 6, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 20 },
+  upAvatarWrapper: { alignItems: "center", marginTop: -44 },
+  upAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 3, borderColor: "#0f172a" },
+  upAvatarImage: { width: 88, height: 88, borderRadius: 44 },
+  upAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
+  upName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
+  upUsername: { color: "#ffffff", fontSize: 14, textAlign: "center" },
+  upBio: { color: "#94a3b8", fontSize: 13, marginTop: 6, lineHeight: 18, textAlign: "center", paddingHorizontal: 24 },
+  upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 16, marginHorizontal: 16, backgroundColor: "#071023", borderRadius: 12, borderWidth: 1, borderColor: "#1e293b", paddingVertical: 14 },
+  upStatItem: { flex: 1, alignItems: "center" },
+  upStatNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
+  upStatLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
+  upActionRow: { flexDirection: "row", marginTop: 12, marginHorizontal: 16 },
+  upActionBtn: { flex: 1, backgroundColor: "#0c4a6e", borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  upActionBtnFollowing: { backgroundColor: "#1e293b" },
+  upActionBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
+  upActionBtnFollowingText: { color: "#94a3b8" },
+  upCatchesHeader: { marginTop: 20, marginBottom: 8, marginLeft: 4 },
+  upCatchesTitle: { color: "#e6eef8", fontSize: 17, fontWeight: "700" },
 });

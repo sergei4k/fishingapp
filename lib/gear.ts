@@ -14,9 +14,9 @@ export const GEAR_CATEGORY_COLOR: Record<GearCategory, string> = {
 };
 
 export const GEAR_CATEGORY_ICON: Record<GearCategory, string> = {
-  lure: "bolt",
-  bait: "leaf",
-  rig:  "wrench",
+  lure: "flash-outline",
+  bait: "leaf-outline",
+  rig:  "construct-outline",
 };
 
 const gearOptions: GearOption[] = [

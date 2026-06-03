@@ -1,6 +1,7 @@
 import { useAuth } from '@/lib/auth';
 import { useLanguage, type Language } from '@/lib/language';
-import { FontAwesome6 as FontAwesome } from '@expo/vector-icons';
+import { pb } from '@/lib/pocketbase';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
@@ -8,6 +9,7 @@ import {
   Alert,
   ImageBackground,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -27,6 +29,24 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [forgotVisible, setForgotVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetEmail.trim()) return;
+    setResetLoading(true);
+    try {
+      await pb.collection('users').requestPasswordReset(resetEmail.trim());
+      Alert.alert(t('resetPasswordSent'), t('resetPasswordSentMessage'));
+      setForgotVisible(false);
+      setResetEmail('');
+    } catch {
+      Alert.alert(t('error'), t('resetPasswordError'));
+    } finally {
+      setResetLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -39,7 +59,10 @@ export default function Login() {
     setLoading(false);
 
     if (error) {
-      Alert.alert(t('error'), error.message);
+      const msg = error.message === 'OFFLINE' ? t('offlineError')
+        : error.message === 'WRONG_PASSWORD' ? t('wrongPassword')
+        : error.message;
+      Alert.alert(t('error'), msg);
     }
   };
 
@@ -83,7 +106,7 @@ export default function Login() {
               <Text style={styles.formTitle}>{t('login')}</Text>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="envelope" size={16} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="mail-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t('emailPlaceholder')}
@@ -98,7 +121,7 @@ export default function Login() {
               </View>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="lock" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder={t('passwordPlaceholder')}
@@ -111,7 +134,7 @@ export default function Login() {
                   onSubmitEditing={handleLogin}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  <FontAwesome name={showPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
@@ -127,7 +150,42 @@ export default function Login() {
                   <Text style={styles.buttonText}>{t('loginButton')}</Text>
                 )}
               </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => { setResetEmail(email); setForgotVisible(true); }} style={styles.forgotBtn}>
+                <Text style={styles.forgotText}>{t('forgotPassword')}</Text>
+              </TouchableOpacity>
             </View>
+
+            <Modal visible={forgotVisible} transparent animationType="fade" onRequestClose={() => setForgotVisible(false)}>
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalBox}>
+                  <Text style={styles.modalTitle}>{t('resetPassword')}</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="mail-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder={t('resetEmailPlaceholder')}
+                      placeholderTextColor="#4b5563"
+                      value={resetEmail}
+                      onChangeText={setResetEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      keyboardAppearance="dark"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    onPress={handleResetPassword}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t('resetPassword')}</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setForgotVisible(false)} style={styles.forgotBtn}>
+                    <Text style={styles.forgotText}>{t('cancel') ?? 'Cancel'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Modal>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>{t('noAccount')}</Text>
@@ -173,7 +231,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
   },
   langBtnActive: {
-    borderColor: '#60a5fa',
+    borderColor: '#ffffff',
     backgroundColor: 'rgba(15, 34, 54, 0.8)',
   },
   langBtnText: {
@@ -182,7 +240,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   langBtnTextActive: {
-    color: '#60a5fa',
+    color: '#ffffff',
   },
   heroText: {
     alignItems: 'center',
@@ -245,7 +303,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   button: {
-    backgroundColor: '#0284c7',
+    backgroundColor: '#0c4a6e',
     borderRadius: 10,
     paddingVertical: 15,
     alignItems: 'center',
@@ -271,8 +329,35 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   footerLink: {
-    color: '#60a5fa',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  forgotBtn: {
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  forgotText: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalBox: {
+    backgroundColor: '#0f1b2d',
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 20,
   },
 });

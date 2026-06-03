@@ -1,8 +1,9 @@
 import { useAuth } from '@/lib/auth';
 import { useLanguage, type Language } from '@/lib/language';
-import { FontAwesome6 as FontAwesome } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
+import Toast from 'react-native-toast-message';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -57,11 +58,14 @@ export default function Register() {
     setLoading(false);
 
     if (error) {
-      Alert.alert(t('error'), error.message);
+      const msg = error.message === 'OFFLINE' ? t('offlineError')
+        : error.message === 'USERNAME_TAKEN' ? t('usernameTaken')
+        : error.message === 'EMAIL_TAKEN' ? t('emailTaken')
+        : error.message;
+      Alert.alert(t('error'), msg);
     } else {
-      Alert.alert(t('registerSuccess'), t('registerSuccessMessage'), [
-        { text: 'OK', onPress: () => router.replace('/(auth)/login' as any) },
-      ]);
+      Toast.show({ type: 'success', text1: t('registerSuccess'), position: 'top', visibilityTime: 3000 });
+      // Auth state change in _layout.tsx redirects to /(tabs) automatically
     }
   };
 
@@ -105,7 +109,7 @@ export default function Register() {
               <Text style={styles.formTitle}>{t('register')}</Text>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="user" size={17} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="person-outline" size={17} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t('namePlaceholder')}
@@ -119,7 +123,7 @@ export default function Register() {
               </View>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="at" size={16} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="at-circle-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t('usernamePlaceholder')}
@@ -133,7 +137,7 @@ export default function Register() {
               </View>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="envelope" size={16} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="mail-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
                   placeholder={t('emailPlaceholder')}
@@ -148,7 +152,7 @@ export default function Register() {
               </View>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="lock" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder={t('passwordPlaceholder')}
@@ -161,12 +165,12 @@ export default function Register() {
                   onSubmitEditing={handleRegister}
                 />
                 <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                  <FontAwesome name={showPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
               <View style={styles.inputWrapper}>
-                <FontAwesome name="lock" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput
                   style={[styles.input, { flex: 1 }]}
                   placeholder={t('confirmPasswordPlaceholder')}
@@ -179,7 +183,7 @@ export default function Register() {
                   onSubmitEditing={handleRegister}
                 />
                 <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeButton}>
-                  <FontAwesome name={showConfirmPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
+                  <Ionicons name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
 
@@ -254,7 +258,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
   },
   langBtnActive: {
-    borderColor: '#60a5fa',
+    borderColor: '#ffffff',
     backgroundColor: 'rgba(15, 34, 54, 0.8)',
   },
   langBtnText: {
@@ -263,7 +267,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   langBtnTextActive: {
-    color: '#60a5fa',
+    color: '#ffffff',
   },
   heroText: {
     alignItems: 'center',
@@ -332,7 +336,7 @@ const styles = StyleSheet.create({
     marginTop: -6,
   },
   button: {
-    backgroundColor: '#0284c7',
+    backgroundColor: '#0c4a6e',
     borderRadius: 10,
     paddingVertical: 15,
     alignItems: 'center',
@@ -358,7 +362,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   footerLink: {
-    color: '#60a5fa',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
   },
@@ -369,7 +373,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   privacyLink: {
-    color: '#60a5fa',
+    color: '#ffffff',
     textDecorationLine: 'underline',
   },
 });

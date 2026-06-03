@@ -89,6 +89,18 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
   }
 }
 
+export async function sendPushNotification(token: string, title: string, body: string): Promise<void> {
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: token, title, body, sound: "default" }),
+    });
+  } catch (e) {
+    console.warn("Failed to send push notification:", e);
+  }
+}
+
 export async function syncPushTokenForUser(userId: string): Promise<string | null> {
   const token = await registerForPushNotificationsAsync();
   if (!token) {

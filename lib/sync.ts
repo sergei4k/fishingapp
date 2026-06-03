@@ -1,14 +1,18 @@
 import { pb } from './pocketbase';
-import { getCatches, updateCatch, addCatch, CatchItem } from './storage';
+import { clearCatches, getCatches, updateCatch, addCatch, CatchItem } from './storage';
 
 export async function syncCatchesFromPB(userId: string): Promise<void> {
+  // Read local data before touching anything
+  const localCatches = await getCatches();
+  const localMap = new Map(localCatches.map((c) => [c.id, c]));
+
   const records = await pb.collection('catches').getFullList({
     filter: `user_id = "${userId}"`,
     requestKey: null,
   });
 
-  const localCatches = await getCatches();
-  const localMap = new Map(localCatches.map((c) => [c.id, c]));
+  // Only clear after a successful fetch so a failed request never wipes local data
+  await clearCatches();
 
   for (const record of records) {
     const imageUrl = record.image
@@ -34,6 +38,8 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         isPublic: record.is_public ?? false,
         imageUrl: imageUrl ?? existing.imageUrl,
         gear: recordGear ?? existing.gear,
+        lat: record.lat ?? existing.lat ?? null,
+        lon: record.lon ?? existing.lon ?? null,
       });
     } else {
       // Catch exists on server but not locally — add it

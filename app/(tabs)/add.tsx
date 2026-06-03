@@ -1,20 +1,25 @@
-import { pb } from "@/lib/pocketbase";
+import { pb, isNetworkError } from "@/lib/pocketbase";
 import { useAuth } from "@/lib/auth";
 import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
-import ExifParser from 'exif-parser';
 import * as DocumentPicker from 'expo-document-picker';
-import { File, Paths } from 'expo-file-system/next';
+import { File, Paths } from 'expo-file-system';
+import * as Location from 'expo-location';
+import { Buffer } from 'buffer';
+import ExifParser from 'exif-parser';
+import MapboxGL from '@rnmapbox/maps';
 import { Image as ExpoImage } from 'expo-image';
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useState } from "react";
+import Toast from "react-native-toast-message";
 import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
 import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import {
     Alert,
+    DeviceEventEmitter,
     FlatList,
     Image,
     KeyboardAvoidingView,
@@ -53,6 +58,22 @@ export default function Add() {
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [waterBody, setWaterBody] = useState<string | null>(null);
   const [detectingWater, setDetectingWater] = useState(false);
+  const [locationPickerVisible, setLocationPickerVisible] = useState(false);
+  const [pendingCoord, setPendingCoord] = useState<{ lat: number; lon: number } | null>(null);
+  const [pickerCenter, setPickerCenter] = useState<[number, number]>([0, 0]);
+
+  const openLocationPicker = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        const pos = await Location.getCurrentPositionAsync({});
+        const center: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        setPickerCenter(center);
+        setPendingCoord({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+      }
+    } catch { /* use default center */ }
+    setLocationPickerVisible(true);
+  };
   const router = useRouter();
 
   const detectWaterBody = async (lat: number, lon: number) => {
@@ -94,37 +115,23 @@ export default function Add() {
 
       setImage(pickedFile.uri);
 
-      const file = new File(pickedFile.uri);
-      const fileBytes = await file.bytes();
-
-      const arrayBuffer = fileBytes.buffer.slice(
-        fileBytes.byteOffset,
-        fileBytes.byteOffset + fileBytes.byteLength
-      );
-
-      const parser = ExifParser.create(arrayBuffer);
-      const exifResult = parser.parse();
-
-      if (__DEV__) {
-        console.log("EXIF result:", exifResult);
-      }
-
       let coords: { lat: number; lon: number } | null = null;
-      const tags = exifResult.tags;
-
-      if (tags && tags.GPSLatitude && tags.GPSLongitude) {
-        let lat = tags.GPSLatitude;
-        let lon = tags.GPSLongitude;
-        if (tags.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
-        if (tags.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
-        if (lat !== 0 || lon !== 0) {
-          if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      try {
+        const res = await fetch(pickedFile.uri);
+        const ab = await res.arrayBuffer();
+        const buf = Buffer.from(new Uint8Array(ab));
+        const tags = ExifParser.create(buf).parse().tags;
+        if (tags?.GPSLatitude && tags?.GPSLongitude) {
+          let lat = tags.GPSLatitude;
+          let lon = tags.GPSLongitude;
+          if (tags.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
+          if (tags.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
+          if ((lat !== 0 || lon !== 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
             coords = { lat, lon };
-            if (__DEV__) {
-              console.log("SUCCESS from EXIF:", coords);
-            }
           }
         }
+      } catch (e) {
+        console.warn('EXIF parse failed:', e);
       }
 
       if (coords) {
@@ -132,10 +139,7 @@ export default function Add() {
         detectWaterBody(coords.lat, coords.lon);
       } else {
         setImageCoords(null);
-        Alert.alert(
-          t("gpsNotFound"),
-          t("gpsNotFoundMessage")
-        );
+        setIsPublic(false);
       }
     } catch (error: any) {
       console.error("Picker/EXIF error:", error);
@@ -190,6 +194,11 @@ export default function Add() {
     setSpeciesSearch("");
   };
 
+  const selectedSpeciesEntry = selectedSpecies ? fishSpecies.find(s => s.id === selectedSpecies) : null;
+  const selectedSpeciesImage = selectedSpecies
+    ? (selectedSpeciesEntry?.image ?? speciesPhotoMap[selectedSpecies] ?? null)
+    : null;
+
   const allGearOptions = getGearOptions(language);
   const filteredGearOptions = gearSearch.trim()
     ? allGearOptions.filter(g => {
@@ -206,17 +215,9 @@ export default function Add() {
   const handleUpload = async () => {
     setIsUploading(true);
     try {
-      if (!imageCoords || imageCoords.lat == null || imageCoords.lon == null) {
-        Alert.alert(
-          t("noCoordinatesInPhoto"),
-          t("noCoordinatesInPhotoMessage")
-        );
-        setIsUploading(false);
-        return;
-      }
-
-      const lat = imageCoords.lat;
-      const lon = imageCoords.lon;
+      const lat = imageCoords?.lat ?? null;
+      const lon = imageCoords?.lon ?? null;
+      const effectivelyPublic = isPublic && lat != null && lon != null;
 
       const lengthNum = length ? Number(length) : null;
       const weightNum = weight ? Number(weight) : null;
@@ -224,6 +225,7 @@ export default function Add() {
 
       let pbImageUrl: string | undefined;
       let pbRecordId: string | undefined;
+      let savedOffline = false;
 
       // Always upload to PocketBase for backup (public or private)
       if (user) {
@@ -231,14 +233,14 @@ export default function Add() {
           const formData = new FormData();
           formData.append('user_id', user.id);
           formData.append('species', selectedSpecies ?? '');
-          formData.append('lat', String(lat));
-          formData.append('lon', String(lon));
+          if (lat != null) formData.append('lat', String(lat));
+          if (lon != null) formData.append('lon', String(lon));
           formData.append('description', description || '');
           formData.append('gear', selectedGear ?? '');
           if (lengthNum != null) formData.append('length_cm', String(lengthNum));
           if (weightNum != null) formData.append('weight_kg', String(weightNum));
           formData.append('created_at', String(createdAt));
-          formData.append('is_public', isPublic ? 'true' : 'false');
+          formData.append('is_public', effectivelyPublic ? 'true' : 'false');
 
           if (image) {
             formData.append('image', {
@@ -255,6 +257,10 @@ export default function Add() {
             pbImageUrl = pb.files.getURL(record, record.image);
           }
 
+          if (weightNum != null && weightNum > 0) {
+            DeviceEventEmitter.emit("catchWithWeightAdded");
+          }
+
           // Grant "rybolov" badge on first catch
           const existingBadges = parseBadges(user.badges);
           if (!existingBadges.includes("rybolov")) {
@@ -269,6 +275,7 @@ export default function Add() {
             }
           }
         } catch (e) {
+          if (isNetworkError(e)) savedOffline = true;
           console.warn('PocketBase sync failed:', e);
         }
       }
@@ -309,9 +316,10 @@ export default function Add() {
         date: new Date(createdAt).toISOString(),
         lat,
         lon,
-        isPublic,
+        isPublic: effectivelyPublic,
       });
 
+      Toast.show({ type: "success", text1: savedOffline ? t("catchSavedOffline") : t("catchSaved"), position: "top", visibilityTime: 3000 });
       router.push("/profile");
 
       setImage(null);
@@ -357,32 +365,86 @@ export default function Add() {
                 <View key={i} style={styles.extraThumbWrapper}>
                   <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
                   <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)}>
-                    <FontAwesome name="xmark" size={9} color="#fff" />
+                    <Ionicons name="close" size={9} color="#fff" />
                   </TouchableOpacity>
                 </View>
               ))}
               {extraPhotos.length < 5 && (
                 <TouchableOpacity style={styles.addExtraBtn} onPress={pickExtraPhoto}>
-                  <FontAwesome name="plus" size={16} color="#64748b" />
+                  <Ionicons name="add" size={16} color="#64748b" />
                 </TouchableOpacity>
               )}
             </View>
           </View>
 
+          {image && !imageCoords && (
+            <View style={styles.noCoordsRow}>
+              <Ionicons name="location-outline" size={16} color="#ef4444" style={{ marginRight: 8 }} />
+              <Text style={styles.noCoordsText}>{t("noCoordsLabel")}</Text>
+              <TouchableOpacity onPress={openLocationPicker} style={styles.addLocationBtn}>
+                <Text style={styles.addLocationBtnText}>{t("addLocationManually")}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <Modal visible={locationPickerVisible} animationType="slide" onRequestClose={() => setLocationPickerVisible(false)}>
+            <View style={{ flex: 1, backgroundColor: "#0f172a" }}>
+              <View style={{ paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>{t("locationPickerTitle")}</Text>
+                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); }}>
+                  <Ionicons name="close" size={22} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+              <View style={{ flex: 1 }}>
+                <MapboxGL.MapView
+                  style={{ flex: 1 }}
+                  styleURL="mapbox://styles/mapbox/dark-v11"
+                  scaleBarEnabled={false}
+                  onRegionDidChange={(e: any) => {
+                    const [lon, lat] = e.geometry.coordinates;
+                    setPendingCoord({ lat, lon });
+                  }}
+                >
+                  <MapboxGL.Camera zoomLevel={12} centerCoordinate={pickerCenter} animationMode="none" animationDuration={0} />
+                </MapboxGL.MapView>
+                <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="location-sharp" size={36} color="#ef4444" style={{ marginBottom: 18 }} />
+                </View>
+              </View>
+              <View style={{ padding: 16, paddingBottom: 40 }}>
+                <TouchableOpacity
+                  style={styles.confirmLocationBtn}
+                  disabled={!pendingCoord}
+                  onPress={() => {
+                    if (!pendingCoord) return;
+                    setImageCoords(pendingCoord);
+                    detectWaterBody(pendingCoord.lat, pendingCoord.lon);
+                    setLocationPickerVisible(false);
+                    setPendingCoord(null);
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{t("locationPickerConfirm")}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
           {imageCoords && (
             <View style={styles.locationRow}>
-              <FontAwesome name="location-dot" size={13} color="#60a5fa" style={{ marginRight: 6 }} />
+              <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
               <Text style={styles.coordsText}>
                 {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
               </Text>
               {(detectingWater || waterBody) && (
                 <View style={styles.waterBadge}>
-                  <FontAwesome name="droplet" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
+                  <Ionicons name="water-outline" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
                   <Text style={styles.waterBadgeText}>
                     {detectingWater ? t("detectingWater") : waterBody}
                   </Text>
                 </View>
               )}
+              <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: 'auto' }]}>
+                <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -401,10 +463,10 @@ export default function Add() {
               style={styles.input}
               placeholder={t("lengthPlaceholder")}
               placeholderTextColor="#94a3b8"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               returnKeyType='done'
               value={length}
-              onChangeText={setLength}
+              onChangeText={(text) => setLength(text.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
               keyboardAppearance="dark"
             />
             <TextInput
@@ -412,67 +474,93 @@ export default function Add() {
               placeholder={t("weightPlaceholder")}
               placeholderTextColor="#94a3b8"
               returnKeyType="done"
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               value={weight}
-              onChangeText={setWeight}
+              onChangeText={(text) => setWeight(text.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
               keyboardAppearance="dark"
             />
           </View>
 
           <View style={styles.speciesWrapper}>
             <Text style={styles.speciesTitle}>{t("species")}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
-              {fishSpecies.map((s) => {
-                const speciesOption = allSpeciesOptions.find(opt => opt.id === s.id);
-                return (
-                  <TouchableOpacity key={s.id} style={[styles.speciesItem, selectedSpecies === s.id && styles.speciesItemSelected]} onPress={() => setSelectedSpecies(s.id)}>
-                    <Image source={s.image} style={styles.speciesImage} />
-                    <Text style={styles.speciesLabel}>{speciesOption?.label || s.id}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>{t("more")}</Text></TouchableOpacity>
-            </ScrollView>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {selectedSpeciesImage && (
+                <View style={styles.selectedPreviewBox}>
+                  <ExpoImage source={selectedSpeciesImage} style={styles.selectedPreviewImg} contentFit="contain" />
+                </View>
+              )}
+              <View style={styles.previewDivider} />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer} style={{ flex: 1 }}>
+                {fishSpecies.map((s) => {
+                  const speciesOption = allSpeciesOptions.find(opt => opt.id === s.id);
+                  return (
+                    <TouchableOpacity key={s.id} style={styles.speciesItem} onPress={() => setSelectedSpecies(s.id)}>
+                      <Image source={s.image} style={styles.speciesImage} />
+                      <Text style={styles.speciesLabel}>{speciesOption?.label || s.id}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity style={styles.moreButton} onPress={openMore}><Text style={styles.moreText}>{t("more")}</Text></TouchableOpacity>
+              </ScrollView>
+            </View>
             <Text style={styles.selectedSpeciesText}>{selectedSpecies ? `${t("selectedSpecies")}: ${getSpeciesLabelTranslated(selectedSpecies, language)}` : t("speciesNotSelected")}</Text>
           </View>
 
           {/* Gear selector */}
           <View style={styles.speciesWrapper}>
             <Text style={styles.speciesTitle}>{t("gear")}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer}>
-              {featuredGear.map((g) => (
-                <TouchableOpacity
-                  key={g.id}
-                  style={[styles.speciesItem, selectedGear === g.id && styles.speciesItemSelected]}
-                  onPress={() => setSelectedGear(g.id)}
-                >
-                  {gearPhotos[g.id] ? (
-                    <ExpoImage source={gearPhotos[g.id]} style={styles.speciesImage} contentFit="contain" />
-                  ) : (
-                    <View style={[styles.gearIconBox, { borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
-                      <FontAwesome name={GEAR_CATEGORY_ICON[g.category] as any} size={28} color={GEAR_CATEGORY_COLOR[g.category]} />
-                    </View>
-                  )}
-                  <Text style={styles.speciesLabel}>{g.label}</Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              {selectedGear && (() => {
+                const gData = allGearOptions.find(x => x.id === selectedGear);
+                return (
+                  <View style={[styles.selectedPreviewBox, gData && { borderColor: GEAR_CATEGORY_COLOR[gData.category] }]}>
+                    {gearPhotos[selectedGear] ? (
+                      <ExpoImage source={gearPhotos[selectedGear]} style={styles.selectedPreviewImg} contentFit="contain" />
+                    ) : gData ? (
+                      <Ionicons name={GEAR_CATEGORY_ICON[gData.category] as any} size={38} color={GEAR_CATEGORY_COLOR[gData.category]} />
+                    ) : null}
+                  </View>
+                );
+              })()}
+              <View style={styles.previewDivider} />
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer} style={{ flex: 1 }}>
+                {featuredGear.map((g) => (
+                  <TouchableOpacity
+                    key={g.id}
+                    style={styles.speciesItem}
+                    onPress={() => setSelectedGear(g.id)}
+                  >
+                    {gearPhotos[g.id] ? (
+                      <ExpoImage source={gearPhotos[g.id]} style={styles.speciesImage} contentFit="contain" />
+                    ) : (
+                      <View style={[styles.gearIconBox, { borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
+                        <Ionicons name={GEAR_CATEGORY_ICON[g.category] as any} size={28} color={GEAR_CATEGORY_COLOR[g.category]} />
+                      </View>
+                    )}
+                    <Text style={styles.speciesLabel}>{g.label}</Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity style={styles.moreButton} onPress={() => setGearModalVisible(true)}>
+                  <Text style={styles.moreText}>{t("more")}</Text>
                 </TouchableOpacity>
-              ))}
-              <TouchableOpacity style={styles.moreButton} onPress={() => setGearModalVisible(true)}>
-                <Text style={styles.moreText}>{t("more")}</Text>
-              </TouchableOpacity>
-            </ScrollView>
+              </ScrollView>
+            </View>
             <Text style={styles.selectedSpeciesText}>
               {selectedGear ? `${t("selectedGear")}: ${getGearLabel(selectedGear, language)}` : t("gearNotSelected")}
             </Text>
           </View>
 
-          <View style={styles.publicRow}>
-            <View>
+          <View style={[styles.publicRow, image && !imageCoords && styles.publicRowDisabled]}>
+            <View style={{ flex: 1 }}>
               <Text style={styles.publicLabel}>{t("makePublic")}</Text>
-              <Text style={styles.publicSub}>{t("makePublicSub")}</Text>
+              <Text style={styles.publicSub}>
+                {image && !imageCoords ? t("noCoordsPrivateNote") : t("makePublicSub")}
+              </Text>
             </View>
             <Switch
               value={isPublic}
               onValueChange={setIsPublic}
+              disabled={image != null && imageCoords == null}
               trackColor={{ false: "#1f2937", true: "#0ea5e9" }}
               thumbColor="#ffffff"
             />
@@ -494,11 +582,11 @@ export default function Add() {
                 <View style={styles.modalHeader}>
                   <Text style={styles.speciesTitle}>{t("selectSpecies")}</Text>
                   <TouchableOpacity onPress={() => { setMoreModalVisible(false); setSpeciesSearch(""); }} hitSlop={8}>
-                    <FontAwesome name="xmark" size={18} color="#64748b" />
+                    <Ionicons name="close" size={18} color="#64748b" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.searchRow}>
-                  <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <TextInput
                     style={styles.searchInput}
                     placeholder={language === "ru" ? "Поиск..." : "Search..."}
@@ -525,7 +613,7 @@ export default function Add() {
                           <ExpoImage source={speciesPhotoMap[s.id]} style={styles.modalItemImage} contentFit="contain" />
                         ) : (
                           <View style={styles.modalItemImagePlaceholder}>
-                            <FontAwesome name="question" size={20} color="#334155" />
+                            <Ionicons name="help-circle-outline" size={20} color="#334155" />
                           </View>
                         )}
                         <View style={styles.modalItemLeft}>
@@ -536,7 +624,7 @@ export default function Add() {
                     </Pressable>
                   )}
                   ListEmptyComponent={
-                    <Text style={{ color: "#475569", textAlign: "center", paddingVertical: 24 }}>
+                    <Text style={{ color: "#94a3b8", textAlign: "center", paddingVertical: 24 }}>
                       {language === "ru" ? "Ничего не найдено" : "No results"}
                     </Text>
                   }
@@ -558,11 +646,11 @@ export default function Add() {
                 <View style={styles.modalHeader}>
                   <Text style={styles.speciesTitle}>{t("selectGear")}</Text>
                   <TouchableOpacity onPress={() => { setGearModalVisible(false); setGearSearch(""); }} hitSlop={8}>
-                    <FontAwesome name="xmark" size={18} color="#64748b" />
+                    <Ionicons name="close" size={18} color="#64748b" />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.searchRow}>
-                  <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+                  <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
                   <TextInput
                     style={styles.searchInput}
                     placeholder={language === "ru" ? "Поиск..." : "Search..."}
@@ -588,7 +676,7 @@ export default function Add() {
                           <ExpoImage source={gearPhotos[g.id]} style={styles.modalItemImage} contentFit="contain" />
                         ) : (
                           <View style={[styles.modalItemImagePlaceholder, { backgroundColor: "#0f2236", borderWidth: 1.5, borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
-                            <FontAwesome name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
+                            <Ionicons name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
                           </View>
                         )}
                         <View style={styles.modalItemLeft}>
@@ -601,7 +689,7 @@ export default function Add() {
                     </Pressable>
                   )}
                   ListEmptyComponent={
-                    <Text style={{ color: "#475569", textAlign: "center", paddingVertical: 24 }}>
+                    <Text style={{ color: "#94a3b8", textAlign: "center", paddingVertical: 24 }}>
                       {language === "ru" ? "Ничего не найдено" : "No results"}
                     </Text>
                   }
@@ -631,19 +719,19 @@ const styles = StyleSheet.create({
   descriptionInput: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
   input: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
   speciesWrapper: { width: "100%", marginBottom: 16 },
-  speciesTitle: { color: "#cfe8ff", marginBottom: 8, marginLeft: 4 },
+  speciesTitle: { color: "#ffffff", marginBottom: 8, marginLeft: 4 },
   speciesContainer: { paddingHorizontal: 4, alignItems: "center" },
   speciesItem: { width: 90, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: "#071023" },
-  speciesItemSelected: { borderWidth: 2, borderColor: "#60a5fa", backgroundColor: "#092032" },
+  speciesItemSelected: { borderWidth: 2, borderColor: "#ffffff", backgroundColor: "#092032" },
   speciesImage: { width: 64, height: 64, marginBottom: 6, resizeMode: "contain" },
   gearIconBox: { width: 64, height: 64, marginBottom: 6, borderRadius: 12, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
   speciesLabel: { color: "#e6eef8", fontSize: 12, textAlign: "center" },
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
-  moreText: { color: "#60a5fa", fontWeight: "700" },
-  selectedSpeciesText: { color: "#cfe8ff", marginTop: 8, marginLeft: 6 },
+  moreText: { color: "#ffffff", fontWeight: "700" },
+  selectedSpeciesText: { color: "#ffffff", marginTop: 8, marginLeft: 6 },
   publicRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#071023", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
-  publicSub: { color: "#64748b", fontSize: 12 },
+  publicSub: { color: "#94a3b8", fontSize: 13 },
   uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
   uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "#071023" },
@@ -659,6 +747,23 @@ const styles = StyleSheet.create({
   modalItemImagePlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
   locationRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", width: "100%", marginBottom: 14, paddingHorizontal: 4, gap: 8 },
+  noCoordsRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14, paddingHorizontal: 4 },
+  noCoordsText: { color: "#ef4444", fontSize: 15, fontWeight: "600", flex: 1 },
+  addLocationBtn: { backgroundColor: "#0c4a6e", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginLeft: 8 },
+  addLocationBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  confirmLocationBtn: { backgroundColor: "#0c4a6e", borderRadius: 12, paddingVertical: 15, alignItems: "center" },
+  publicRowDisabled: { opacity: 0.5 },
   waterBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#0c2d48", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   waterBadgeText: { color: "#38bdf8", fontSize: 13 },
+  selectedPreviewBox: {
+    width: 82, height: 90,
+    backgroundColor: "#071c30", borderRadius: 12,
+    borderWidth: 2, borderColor: "#ffffff",
+    alignItems: "center", justifyContent: "center",
+    marginRight: 10,
+    shadowColor: "#ffffff", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
+    elevation: 4,
+  },
+  selectedPreviewImg: { width: 64, height: 64 },
+  previewDivider: { width: 1.5, height: 72, backgroundColor: "#2d6a99", marginRight: 10 },
 });

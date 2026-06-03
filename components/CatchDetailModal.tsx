@@ -5,11 +5,13 @@ import { useLanguage } from "@/lib/language";
 import { pb } from "@/lib/pocketbase";
 import { getSpeciesLabel, getSpeciesOptions } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
+  Animated,
   ActivityIndicator,
   Alert,
   Dimensions,
@@ -42,6 +44,7 @@ export type CatchDetail = {
   username?: string;
   name?: string;
   avatarUrl?: string;
+  verified?: boolean;
   lat?: number | null;
   lon?: number | null;
   isPublic?: boolean;
@@ -60,6 +63,7 @@ type Props = {
   onClose: () => void;
   onLikeChange?: (catchId: string, delta: number, isLiked: boolean, likeId: string | null) => void;
   onCommentAdded?: (catchId: string) => void;
+  onCommentCountSynced?: (catchId: string, count: number) => void;
   // Owner-only (show edit/delete/public UI when provided)
   onSave?: (catchId: string, fields: EditableFields) => Promise<void>;
   onDelete?: (catchId: string) => void;
@@ -71,6 +75,7 @@ export default function CatchDetailModal({
   onClose,
   onLikeChange,
   onCommentAdded,
+  onCommentCountSynced,
   onSave,
   onDelete,
   onTogglePublic,
@@ -88,11 +93,13 @@ export default function CatchDetailModal({
   const [isLiked, setIsLiked] = useState(false);
   const [likeId, setLikeId] = useState<string | null>(null);
   const pendingOps = useRef<Record<string, number>>({});
+  const likeScale = useRef(new Animated.Value(1)).current;
 
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showComments, setShowComments] = useState(false);
+  const [commentsInitialized, setCommentsInitialized] = useState(false);
 
   const [editing, setEditing] = useState(false);
   const [editDescription, setEditDescription] = useState("");
@@ -106,10 +113,40 @@ export default function CatchDetailModal({
   const [editGearSearch, setEditGearSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
   const [saving, setSaving] = useState(false);
+  const currentCatchId = item?.id ?? null;
+  const commentCountSyncRef = useRef(onCommentCountSynced);
+
+  const upsertComment = (list: any[], nextComment: any) => {
+    if (!nextComment?.id) return list;
+    const existingIndex = list.findIndex((comment) => comment.id === nextComment.id);
+    if (existingIndex === -1) return [...list, nextComment];
+    return list.map((comment, index) => (index === existingIndex ? nextComment : comment));
+  };
+
+  const formatCommentDate = (value: unknown) => {
+    if (!value) return "";
+    const date = new Date(typeof value === "number" ? value : String(value));
+    if (Number.isNaN(date.getTime())) return "";
+    return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US", {
+      day: "numeric",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   useEffect(() => {
-    if (!item) return;
-    const catchId = item.id;
+    commentCountSyncRef.current = onCommentCountSynced;
+  }, [onCommentCountSynced]);
+
+  useEffect(() => {
+    if (!currentCatchId || !commentsInitialized) return;
+    commentCountSyncRef.current?.(currentCatchId, comments.length);
+  }, [comments.length, commentsInitialized, currentCatchId]);
+
+  useEffect(() => {
+    if (!currentCatchId) return;
+    const catchId = currentCatchId;
 
     setPhotoIndex(0);
     setLikeCount(0);
@@ -118,8 +155,11 @@ export default function CatchDetailModal({
     setComments([]);
     setNewComment("");
     setShowComments(false);
+    setCommentsInitialized(false);
     setEditing(false);
     setShowMenu(false);
+    setEditSpeciesSearch("");
+    setEditGearSearch("");
 
     (async () => {
       try {
@@ -132,8 +172,26 @@ export default function CatchDetailModal({
         setIsLiked(!!myLike);
         setLikeId(myLike?.id ?? null);
         setComments(commentsResult);
+        setCommentsInitialized(true);
       } catch {}
     })();
+
+    let unsubComments: (() => void) | null = null;
+    pb.collection("comments").subscribe("*", (e) => {
+      if (e.record?.catch_id !== catchId) return;
+      if (e.action === "create") {
+        setComments((prev) => {
+          const next = upsertComment(prev, e.record);
+          return next;
+        });
+        setCommentsInitialized(true);
+      } else if (e.action === "delete") {
+        setComments((prev) => prev.filter((c) => c.id !== e.record.id));
+        setCommentsInitialized(true);
+      }
+    }, { requestKey: null } as any)
+      .then((fn: () => void) => { unsubComments = fn; })
+      .catch(() => {});
 
     let unsub: (() => void) | null = null;
     pb.collection("likes").subscribe("*", (e) => {
@@ -157,11 +215,19 @@ export default function CatchDetailModal({
       .then((fn: () => void) => { unsub = fn; })
       .catch(() => {});
 
-    return () => { unsub?.(); };
-  }, [item?.id, user?.id]);
+    return () => { unsub?.(); unsubComments?.(); };
+  }, [currentCatchId, user?.id]);
+
+  const animateLike = () => {
+    Animated.sequence([
+      Animated.spring(likeScale, { toValue: 1.4, useNativeDriver: true, speed: 40, bounciness: 12 }),
+      Animated.spring(likeScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }),
+    ]).start();
+  };
 
   const toggleLike = async () => {
     if (!item || !user) return;
+    animateLike();
     const catchId = item.id;
     if (isLiked && likeId) {
       const prevId = likeId;
@@ -201,6 +267,7 @@ export default function CatchDetailModal({
     try {
       await pb.collection("comments").delete(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
+      setCommentsInitialized(true);
     } catch {}
   };
 
@@ -214,11 +281,13 @@ export default function CatchDetailModal({
         username: user.username || user.name || "",
         text: newComment.trim(),
       });
-      setComments((prev) => [...prev, record]);
+      setComments((prev) => upsertComment(prev, record));
+      setCommentsInitialized(true);
       setNewComment("");
       onCommentAdded?.(item.id);
-    } catch {}
-    finally { setSubmitting(false); }
+    } catch {
+      Alert.alert(t("error"), t("saveError"));
+    } finally { setSubmitting(false); }
   };
 
   const handleShare = async () => {
@@ -230,8 +299,8 @@ export default function CatchDetailModal({
       item.length ? `${item.length} cm` : null,
     ].filter(Boolean).join(" • ");
     const message = language === "ru"
-      ? `🎣 ${parts}\n\nПоймано в StrikeFeed — приложение для рыбаков\nhttps://www.rustore.ru/catalog/app/com.rybolov.app`
-      : `🎣 ${parts}\n\nCaught with StrikeFeed — the fishing app\nhttps://www.rustore.ru/catalog/app/com.rybolov.app`;
+      ? `🎣 ${parts}\n\nПоймано в StrikeFeed — приложение для рыбаков\nhttps://play.google.com/store/apps/details?id=com.strikefeed.myapp`
+      : `🎣 ${parts}\n\nCaught with StrikeFeed — the fishing app\nhttps://play.google.com/store/apps/details?id=com.strikefeed.myapp`;
     try {
       await Share.share({ message });
     } catch (e) {
@@ -276,7 +345,8 @@ export default function CatchDetailModal({
 
   const formatDate = (val?: string) => {
     if (!val) return t("recently");
-    const d = new Date(val);
+    const num = Number(val);
+    const d = !isNaN(num) && num > 0 ? new Date(num) : new Date(val);
     return isNaN(d.getTime()) ? t("recently") : d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
   };
 
@@ -289,7 +359,7 @@ export default function CatchDetailModal({
           {/* Header */}
           <View style={styles.header}>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
+              <Ionicons name="arrow-back" size={20} color="#e6eef8" />
             </TouchableOpacity>
             <Text style={styles.headerTitle} numberOfLines={1}>
               {getSpeciesLabel(item?.species, language)}
@@ -297,13 +367,13 @@ export default function CatchDetailModal({
             {canEdit ? (
               <View>
                 <TouchableOpacity style={styles.closeBtn} onPress={() => setShowMenu((v) => !v)} hitSlop={8}>
-                  <FontAwesome name="ellipsis-vertical" size={20} color="#e6eef8" />
+                  <Ionicons name="ellipsis-vertical" size={20} color="#e6eef8" />
                 </TouchableOpacity>
                 {showMenu && (
                   <View style={styles.dropdownMenu}>
                     {onSave && (
                       <TouchableOpacity style={styles.dropdownItem} onPress={startEdit}>
-                        <FontAwesome name="pencil" size={15} color="#cbd5e1" style={{ marginRight: 10 }} />
+                        <Ionicons name="pencil-outline" size={15} color="#cbd5e1" style={{ marginRight: 10 }} />
                         <Text style={styles.dropdownItemText}>{t("edit")}</Text>
                       </TouchableOpacity>
                     )}
@@ -313,7 +383,7 @@ export default function CatchDetailModal({
                         style={styles.dropdownItem}
                         onPress={() => { setShowMenu(false); item && onDelete(item.id); }}
                       >
-                        <FontAwesome name="trash" size={15} color="#f87171" style={{ marginRight: 10 }} />
+                        <Ionicons name="trash-outline" size={15} color="#f87171" style={{ marginRight: 10 }} />
                         <Text style={[styles.dropdownItemText, { color: "#f87171" }]}>{t("delete")}</Text>
                       </TouchableOpacity>
                     )}
@@ -338,9 +408,9 @@ export default function CatchDetailModal({
                     </Text>
                   )}
                 </View>
-                <View>
-                  <Text style={styles.userName}>{item.name || item.username}</Text>
-                  {item.name && item.username ? <Text style={styles.userHandle}>@{item.username}</Text> : null}
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={styles.userName}>{item.username || item.name}</Text>
+                  {item.verified ? <VerifiedBadge size={12} /> : null}
                 </View>
               </View>
             )}
@@ -390,39 +460,50 @@ export default function CatchDetailModal({
             {/* Like / comment row */}
             <View style={styles.likeCommentRow}>
               <TouchableOpacity style={styles.likeBtn} onPress={toggleLike}>
-                <FontAwesome
-                  name="thumbs-up"
-                  iconStyle={isLiked ? "solid" : "regular"}
-                  size={22}
-                  color={isLiked ? "#60a5fa" : "#64748b"}
-                />
+                <Animated.View style={{ transform: [{ scale: likeScale }] }}>
+                  <Ionicons
+                    name={isLiked ? "thumbs-up" : "thumbs-up-outline"}
+                    size={22}
+                    color={isLiked ? "#ffffff" : "#64748b"}
+                  />
+                </Animated.View>
                 <Text style={[styles.likeCount, isLiked && styles.likeCountActive]}>{likeCount}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.commentBtn} onPress={() => setShowComments((s) => !s)}>
-                <FontAwesome name="comment" iconStyle="regular" size={22} color="#64748b" />
+                <Ionicons name="chatbubble-outline" size={22} color="#64748b" />
                 <Text style={styles.commentCount}>{comments.length}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
-                <FontAwesome name="share-from-square" iconStyle="regular" size={22} color="#64748b" />
+                <Ionicons name="share-social-outline" size={22} color="#64748b" />
               </TouchableOpacity>
             </View>
 
             {/* Comments */}
             {showComments && (
               <View style={styles.commentsSection}>
-                {comments.map((c, i) => (
-                  <View key={c.id || i} style={styles.commentItem}>
-                    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                      <Text style={styles.commentUsername}>@{c.username}</Text>
-                      {c.user_id === user?.id && (
-                        <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={8}>
-                          <FontAwesome name="trash" size={13} color="#475569" />
-                        </TouchableOpacity>
-                      )}
+                {comments.map((c, i) => {
+                  const isOwn = c.user_id === user?.id;
+                  return (
+                    <View key={c.id || i} style={[styles.commentRow, isOwn && styles.commentRowOwn]}>
+                      <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
+                        {!isOwn && (
+                          <Text style={styles.commentUsername}>{c.username}</Text>
+                        )}
+                        <Text style={styles.commentText}>{c.text}</Text>
+                        <View style={styles.commentMeta}>
+                          {!!formatCommentDate(c.created ?? c.created_at) && (
+                            <Text style={styles.commentDate}>{formatCommentDate(c.created ?? c.created_at)}</Text>
+                          )}
+                          {isOwn && (
+                            <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={8} style={{ marginLeft: 8 }}>
+                              <Ionicons name="trash-outline" size={11} color="#475569" />
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
                     </View>
-                    <Text style={styles.commentText}>{c.text}</Text>
-                  </View>
-                ))}
+                  );
+                })}
                 <View style={styles.commentInputRow}>
                   <TextInput
                     style={styles.commentInput}
@@ -435,8 +516,8 @@ export default function CatchDetailModal({
                   />
                   <TouchableOpacity onPress={submitComment} disabled={submitting} style={{ padding: 8 }}>
                     {submitting
-                      ? <ActivityIndicator size="small" color="#60a5fa" />
-                      : <FontAwesome name="paper-plane" size={18} color="#60a5fa" />
+                      ? <ActivityIndicator size="small" color="#ffffff" />
+                      : <Ionicons name="send-outline" size={18} color="#ffffff" />
                     }
                   </TouchableOpacity>
                 </View>
@@ -455,7 +536,7 @@ export default function CatchDetailModal({
                       <Text style={styles.editPickerLabel}>{t("species")}</Text>
                       <Text style={styles.editPickerValue}>{getSpeciesLabel(editSpecies, language)}</Text>
                     </View>
-                    <FontAwesome name="chevron-right" size={14} color="#475569" />
+                    <Ionicons name="chevron-forward" size={14} color="#475569" />
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.editPickerRow} onPress={() => setEditGearModal(true)}>
                     {editGear && gearPhotos[editGear] && (
@@ -465,7 +546,7 @@ export default function CatchDetailModal({
                       <Text style={styles.editPickerLabel}>{t("gear")}</Text>
                       <Text style={styles.editPickerValue}>{editGear ? getGearLabel(editGear, language) : t("gearNotSelected")}</Text>
                     </View>
-                    <FontAwesome name="chevron-right" size={14} color="#475569" />
+                    <Ionicons name="chevron-forward" size={14} color="#475569" />
                   </TouchableOpacity>
                 </>
               ) : (
@@ -579,7 +660,7 @@ export default function CatchDetailModal({
                       }
                     }}
                   >
-                    <FontAwesome name="location-dot" size={18} color="#fff" style={{ marginRight: 6 }} />
+                    <Ionicons name="location-sharp" size={18} color="#fff" style={{ marginRight: 6 }} />
                     <Text style={styles.btnText}>{t("showOnMap")}</Text>
                   </TouchableOpacity>
                 )}
@@ -629,7 +710,7 @@ export default function CatchDetailModal({
             </View>
           )}
           <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: 52, right: 20, padding: 8 }}>
-            <FontAwesome name="xmark" size={22} color="#fff" />
+            <Ionicons name="close" size={22} color="#fff" />
           </Pressable>
         </View>
       </Modal>
@@ -646,11 +727,11 @@ export default function CatchDetailModal({
           <View style={styles.pickerHeader}>
             <Text style={styles.pickerTitle}>{t("selectSpecies")}</Text>
             <TouchableOpacity onPress={() => { setEditSpeciesModal(false); setEditSpeciesSearch(""); }} hitSlop={8}>
-              <FontAwesome name="xmark" size={18} color="#64748b" />
+              <Ionicons name="close" size={18} color="#64748b" />
             </TouchableOpacity>
           </View>
           <View style={styles.pickerSearch}>
-            <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+            <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
             <TextInput
               style={styles.pickerSearchInput}
               placeholder={language === "ru" ? "Поиск..." : "Search..."}
@@ -680,7 +761,7 @@ export default function CatchDetailModal({
                     <ExpoImage source={speciesPhotos[s.id]} style={styles.pickerItemImg} contentFit="contain" />
                   ) : (
                     <View style={styles.pickerItemImgPlaceholder}>
-                      <FontAwesome name="question" size={20} color="#334155" />
+                      <Ionicons name="help-circle-outline" size={20} color="#334155" />
                     </View>
                   )}
                   <View style={{ flex: 1 }}>
@@ -706,11 +787,11 @@ export default function CatchDetailModal({
           <View style={styles.pickerHeader}>
             <Text style={styles.pickerTitle}>{t("selectGear")}</Text>
             <TouchableOpacity onPress={() => { setEditGearModal(false); setEditGearSearch(""); }} hitSlop={8}>
-              <FontAwesome name="xmark" size={18} color="#64748b" />
+              <Ionicons name="close" size={18} color="#64748b" />
             </TouchableOpacity>
           </View>
           <View style={styles.pickerSearch}>
-            <FontAwesome name="magnifying-glass" size={14} color="#64748b" style={{ marginRight: 8 }} />
+            <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
             <TextInput
               style={styles.pickerSearchInput}
               placeholder={language === "ru" ? "Поиск..." : "Search..."}
@@ -740,7 +821,7 @@ export default function CatchDetailModal({
                     <ExpoImage source={gearPhotos[g.id]} style={styles.pickerItemImg} contentFit="contain" />
                   ) : (
                     <View style={[styles.pickerItemImgPlaceholder, { borderWidth: 1.5, borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
-                      <FontAwesome name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
+                      <Ionicons name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
                     </View>
                   )}
                   <View style={{ flex: 1 }}>
@@ -791,12 +872,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   avatarImg: { width: 40, height: 40, borderRadius: 20 },
-  avatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 15 },
+  avatarText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
   userName: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
-  userHandle: { color: "#64748b", fontSize: 13 },
+  userHandle: { color: "#94a3b8", fontSize: 13 },
   dotRow: { flexDirection: "row", justifyContent: "center", marginTop: 8, gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#334155" },
-  dotActive: { backgroundColor: "#60a5fa", width: 16 },
+  dotActive: { backgroundColor: "#ffffff", width: 16 },
   likeCommentRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -809,19 +890,42 @@ const styles = StyleSheet.create({
   likeBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
   commentBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
   shareBtn: { flexDirection: "row", alignItems: "center", marginLeft: "auto" as any },
-  likeCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
-  likeCountActive: { color: "#60a5fa" },
-  commentCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
+  likeCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
+  likeCountActive: { color: "#ffffff" },
+  commentCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
   commentsSection: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 12,
     paddingBottom: 4,
     borderBottomWidth: 1,
     borderBottomColor: "#1e293b",
   },
-  commentItem: { marginBottom: 10 },
-  commentUsername: { color: "#60a5fa", fontSize: 13, fontWeight: "600" },
-  commentText: { color: "#cbd5e1", fontSize: 14, marginTop: 2 },
+  commentRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+    justifyContent: "flex-start",
+  },
+  commentRowOwn: {
+    justifyContent: "flex-end",
+  },
+  commentBubble: {
+    maxWidth: "78%",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  commentBubbleOther: {
+    backgroundColor: "#1e293b",
+    borderBottomLeftRadius: 4,
+  },
+  commentBubbleOwn: {
+    backgroundColor: "#0c4a6e",
+    borderBottomRightRadius: 4,
+  },
+  commentUsername: { color: "#cbd5e1", fontSize: 11, fontWeight: "600", marginBottom: 2 },
+  commentDate: { color: "#94a3b8", fontSize: 10, marginTop: 4 },
+  commentText: { color: "#e2e8f0", fontSize: 14 },
+  commentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
   commentInputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -836,7 +940,7 @@ const styles = StyleSheet.create({
   detailSpecies: { color: "#fff", fontSize: 22, fontWeight: "700" },
   detailGearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
   detailGearThumb: { width: 56, height: 56 },
-  detailGear: { color: "#60a5fa", fontSize: 18, fontWeight: "600" },
+  detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
   detailDate: { color: "#94a3b8", fontSize: 14, marginTop: 4, marginBottom: 8 },
   label: { color: "#fff", fontSize: 16, fontWeight: "600", marginTop: 16 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
@@ -856,7 +960,7 @@ const styles = StyleSheet.create({
     borderColor: "#1e293b",
   },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
-  publicSub: { color: "#64748b", fontSize: 12 },
+  publicSub: { color: "#94a3b8", fontSize: 12 },
   modalActions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btnSave: {
     backgroundColor: "#1e3a5f",
@@ -918,11 +1022,11 @@ const styles = StyleSheet.create({
     borderColor: "#1e293b",
   },
   editPickerThumb: { width: 44, height: 44 },
-  editPickerLabel: { color: "#64748b", fontSize: 12, marginBottom: 2 },
+  editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },
   editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
   pickerModal: { flex: 1, backgroundColor: "#071023" },
   pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
-  pickerTitle: { color: "#cfe8ff", fontSize: 16, fontWeight: "700" },
+  pickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   pickerSearch: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   pickerSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
   pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },

@@ -1,9 +1,12 @@
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import { useLanguage, type Language } from "@/lib/language";
-import { FontAwesome6 as FontAwesome } from "@expo/vector-icons";
+import { parseBadges } from "@/lib/badges";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import React, { useState } from "react";
+import Constants from "expo-constants";
+import React, { useEffect, useState } from "react";
 import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -17,6 +20,16 @@ export default function Settings() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [bio, setBio] = useState<string>(user?.bio ?? "");
   const [savingBio, setSavingBio] = useState(false);
+  const [bioSaved, setBioSaved] = useState(false);
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+
+  const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
+
+  useEffect(() => {
+    pb.collection("app_config").getFirstListItem('key = "latest_version"', { requestKey: null })
+      .then((r) => setLatestVersion(r.value as string))
+      .catch(() => {});
+  }, []);
 
   const handlePickAvatar = async () => {
     if (!user) return;
@@ -74,6 +87,8 @@ export default function Settings() {
     try {
       await pb.collection("users").update(user.id, { bio });
       pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, bio });
+      setBioSaved(true);
+      setTimeout(() => setBioSaved(false), 2500);
     } catch (e) {
       Alert.alert(t("error"), t("uploadError"));
     } finally {
@@ -105,7 +120,12 @@ export default function Settings() {
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               {user.name ? <Text style={styles.userName}>{user.name}</Text> : null}
-              {user.username ? <Text style={styles.userUsername}>@{user.username}</Text> : null}
+              {user.username ? (
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                  <Text style={styles.userUsername}>{user.username}</Text>
+                  {parseBadges(user.badges).includes("verified") ? <VerifiedBadge size={13} /> : null}
+                </View>
+              ) : null}
             </View>
           </View>
         )}
@@ -117,7 +137,7 @@ export default function Settings() {
               style={styles.bioInput}
               value={bio}
               onChangeText={setBio}
-              placeholder={language === "ru" ? "Расскажи о себе..." : "Tell others about yourself..."}
+              placeholder={language === "ru" ? "Расскажи о себе, добавь соцсети..." : "Tell others about yourself, add your socials..."}
               placeholderTextColor="#475569"
               multiline
               maxLength={160}
@@ -126,11 +146,18 @@ export default function Settings() {
             <View style={styles.bioFooter}>
               <Text style={styles.bioCount}>{bio.length}/160</Text>
               <TouchableOpacity
-                style={[styles.bioSaveBtn, savingBio && { opacity: 0.5 }]}
+                style={[styles.bioSaveBtn, savingBio && { opacity: 0.5 }, bioSaved && styles.bioSaveBtnSaved]}
                 onPress={handleSaveBio}
                 disabled={savingBio}
               >
-                <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Сохранить" : "Save"}</Text>
+                {bioSaved ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ionicons name="checkmark" size={14} color="#fff" />
+                    <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Сохранено" : "Saved"}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Сохранить" : "Save"}</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -144,14 +171,14 @@ export default function Settings() {
             onPress={() => setLanguageModalVisible(true)}
           >
             <View style={styles.settingLeft}>
-              <FontAwesome name="language" size={20} color="#60a5fa" />
+              <Ionicons name="globe-outline" size={20} color="#ffffff" />
               <Text style={styles.settingText}>{t("language")}</Text>
             </View>
             <View style={styles.settingRight}>
               <Text style={styles.settingValue}>
                 {language === "en" ? "English (US)" : "Русский"}
               </Text>
-              <FontAwesome name="chevron-right" size={16} color="#94a3b8" style={{ marginLeft: 8 }} />
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 8 }} />
             </View>
           </TouchableOpacity>
         </View>
@@ -161,18 +188,47 @@ export default function Settings() {
           
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
-              <FontAwesome name="circle-info" size={20} color="#60a5fa" />
+              <Ionicons name="information-circle-outline" size={20} color="#ffffff" />
               <Text style={styles.settingText}>{t("version")}</Text>
             </View>
-            <Text style={styles.settingValue}>1.2.0</Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.settingValue}>{currentVersion}</Text>
+              {latestVersion && (() => {
+                const cmp = (a: string, b: string) => {
+                  const pa = a.split(".").map(Number);
+                  const pb_ = b.split(".").map(Number);
+                  for (let i = 0; i < 3; i++) {
+                    if ((pa[i] ?? 0) < (pb_[i] ?? 0)) return -1;
+                    if ((pa[i] ?? 0) > (pb_[i] ?? 0)) return 1;
+                  }
+                  return 0;
+                };
+                const isOld = cmp(currentVersion, latestVersion) < 0;
+                return isOld ? (
+                  <View style={styles.updateBadge}>
+                    <Ionicons name="arrow-up-circle-outline" size={13} color="#f59e0b" />
+                    <Text style={styles.updateBadgeText}>
+                      {language === "ru" ? "Есть обновление" : "Update available"}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.upToDateBadge}>
+                    <Ionicons name="checkmark-circle-outline" size={13} color="#22c55e" />
+                    <Text style={styles.upToDateBadgeText}>
+                      {language === "ru" ? "Актуальная" : "Up to date"}
+                    </Text>
+                  </View>
+                );
+              })()}
+            </View>
           </View>
 
           <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}>
             <View style={styles.settingLeft}>
-              <FontAwesome name="file-lines" size={20} color="#60a5fa" />
+              <Ionicons name="document-text-outline" size={20} color="#ffffff" />
               <Text style={styles.settingText}>{t("privacyPolicy")}</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
           </TouchableOpacity>
         </View>
 
@@ -182,7 +238,7 @@ export default function Settings() {
           {user?.email && (
             <View style={styles.settingItem}>
               <View style={styles.settingLeft}>
-                <FontAwesome name="envelope" size={20} color="#60a5fa" />
+                <Ionicons name="mail-outline" size={20} color="#ffffff" />
                 <Text style={styles.settingText}>{user.email}</Text>
               </View>
             </View>
@@ -202,19 +258,19 @@ export default function Settings() {
             }}
           >
             <View style={styles.settingLeft}>
-              <FontAwesome name="right-from-bracket" size={20} color="#ef4444" />
+              <Ionicons name="log-out-outline" size={20} color="#ef4444" />
               <Text style={[styles.settingText, styles.dangerText]}>{t("signOut")}</Text>
             </View>
-            <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
           </TouchableOpacity>
 
           {user && (
             <TouchableOpacity style={styles.settingItem} onPress={handleDeleteAccount}>
               <View style={styles.settingLeft}>
-                <FontAwesome name="trash" size={20} color="#ef4444" />
+                <Ionicons name="trash-outline" size={20} color="#ef4444" />
                 <Text style={[styles.settingText, styles.dangerText]}>{t("deleteAccount")}</Text>
               </View>
-              <FontAwesome name="chevron-right" size={16} color="#94a3b8" />
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
             </TouchableOpacity>
           )}
         </View>
@@ -232,7 +288,7 @@ export default function Settings() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{t("language")}</Text>
               <TouchableOpacity onPress={() => setLanguageModalVisible(false)}>
-                <FontAwesome name="xmark" size={24} color="#94a3b8" />
+                <Ionicons name="close" size={24} color="#94a3b8" />
               </TouchableOpacity>
             </View>
             
@@ -244,7 +300,7 @@ export default function Settings() {
                 Русский
               </Text>
               {language === "ru" && (
-                <FontAwesome name="check" size={20} color="#60a5fa" />
+                <Ionicons name="checkmark" size={20} color="#ffffff" />
               )}
             </TouchableOpacity>
 
@@ -256,7 +312,7 @@ export default function Settings() {
                 English (US)
               </Text>
               {language === "en" && (
-                <FontAwesome name="check" size={20} color="#60a5fa" />
+                <Ionicons name="checkmark" size={20} color="#ffffff" />
               )}
             </TouchableOpacity>
           </View>
@@ -307,7 +363,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
   },
   userAvatarText: {
-    color: "#60a5fa",
+    color: "#ffffff",
     fontWeight: "700",
     fontSize: 20,
   },
@@ -317,7 +373,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   userUsername: {
-    color: "#64748b",
+    color: "#94a3b8",
     fontSize: 14,
     marginTop: 2,
   },
@@ -399,14 +455,14 @@ const styles = StyleSheet.create({
   languageOptionActive: {
     backgroundColor: "#1e293b",
     borderWidth: 1,
-    borderColor: "#60a5fa",
+    borderColor: "#ffffff",
   },
   languageOptionText: {
     color: "#e6eef8",
     fontSize: 16,
   },
   languageOptionTextActive: {
-    color: "#60a5fa",
+    color: "#ffffff",
     fontWeight: "600",
   },
   bioCard: {
@@ -438,15 +494,20 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   bioCount: {
-    color: "#475569",
+    color: "#94a3b8",
     fontSize: 12,
   },
   bioSaveBtn: {
-    backgroundColor: "#0284c7",
+    backgroundColor: "#0c4a6e",
     paddingHorizontal: 16,
     paddingVertical: 7,
     borderRadius: 8,
   },
+  bioSaveBtnSaved: { backgroundColor: "#16a34a" },
+  updateBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#451a03", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  updateBadgeText: { color: "#f59e0b", fontSize: 11, fontWeight: "700" },
+  upToDateBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#052e16", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  upToDateBadgeText: { color: "#22c55e", fontSize: 11, fontWeight: "700" },
   bioSaveBtnText: {
     color: "#fff",
     fontWeight: "700",
