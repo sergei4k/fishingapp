@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ImageBackground,
   KeyboardAvoidingView,
   Modal,
@@ -21,7 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
@@ -48,6 +49,16 @@ export default function Login() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithGoogle();
+    setLoading(false);
+    if (error && error.message !== 'CANCELLED' && !pb.authStore.isValid) {
+      const msg = error.message === 'OFFLINE' ? t('offlineError') : t('wrongPassword');
+      Alert.alert(t('error'), msg);
+    }
+  };
+
   const handleLogin = async () => {
     if (!email.trim() || !password) {
       Alert.alert(t('error'), t('fillAllFields'));
@@ -61,7 +72,7 @@ export default function Login() {
     if (error) {
       const msg = error.message === 'OFFLINE' ? t('offlineError')
         : error.message === 'WRONG_PASSWORD' ? t('wrongPassword')
-        : error.message;
+        : t('wrongPassword');
       Alert.alert(t('error'), msg);
     }
   };
@@ -154,6 +165,18 @@ export default function Login() {
               <TouchableOpacity onPress={() => { setResetEmail(email); setForgotVisible(true); }} style={styles.forgotBtn}>
                 <Text style={styles.forgotText}>{t('forgotPassword')}</Text>
               </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{language === 'ru' ? 'или' : 'or'}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity style={styles.googleBtn} onPress={handleGoogleLogin} disabled={loading} activeOpacity={0.85}>
+                <Image source={require('../../assets/images/google-logo.png')} style={styles.googleLogo} />
+                <Text style={styles.googleBtnText}>{language === 'ru' ? 'Войти через Google' : 'Continue with Google'}</Text>
+              </TouchableOpacity>
+
             </View>
 
             <Modal visible={forgotVisible} transparent animationType="fade" onRequestClose={() => setForgotVisible(false)}>
@@ -359,5 +382,73 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     marginBottom: 20,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  dividerText: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  vkBtn: {
+    backgroundColor: '#0077FF',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthBtn: {
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthLogo: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  oauthLogoText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  oauthBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  googleBtn: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  googleLogo: {
+    width: 22,
+    height: 22,
+  },
+  googleBtnText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

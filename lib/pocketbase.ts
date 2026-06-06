@@ -1,5 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import EventSource from 'react-native-sse';
 import PocketBase, { AsyncAuthStore } from 'pocketbase';
+
+if (typeof (global as any).EventSource === 'undefined') {
+  (global as any).EventSource = EventSource;
+}
 
 const store = new AsyncAuthStore({
   save: async (serialized) => AsyncStorage.setItem('@pb_auth', serialized),

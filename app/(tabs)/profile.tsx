@@ -12,6 +12,7 @@ import CatchDetailModal, { EditableFields } from "@/components/CatchDetailModal"
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image as ExpoImage } from "expo-image";
+import ImageWithLoader from "@/components/ImageWithLoader";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -58,6 +59,7 @@ export default function Profile() {
   };
 
   const [catches, setCatches] = useState<CatchWithExtras[]>([]);
+  const [loadingCatches, setLoadingCatches] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCatch, setSelectedCatch] = useState<CatchWithExtras | null>(null);
   const [followerCount, setFollowerCount] = useState(0);
@@ -89,6 +91,8 @@ export default function Profile() {
       setCatches(items as CatchWithExtras[]);
     } catch (e) {
       console.error("load error:", e);
+    } finally {
+      setLoadingCatches(false);
     }
   };
 
@@ -256,7 +260,7 @@ export default function Profile() {
       {/* Banner */}
       <View style={styles.bannerContainer}>
         {bannerSource ? (
-          <ExpoImage source={bannerSource} contentFit="cover" style={styles.bannerImage} />
+          <ImageWithLoader source={bannerSource} contentFit="cover" style={styles.bannerImage} />
         ) : (
           <View style={styles.bannerPlaceholder} />
         )}
@@ -269,7 +273,7 @@ export default function Profile() {
       <View style={styles.avatarWrapper}>
         <View style={styles.profileAvatar}>
           {user.avatar ? (
-            <ExpoImage
+            <ImageWithLoader
               source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` }}
               contentFit="cover"
               style={styles.profileAvatarImage}
@@ -418,14 +422,16 @@ export default function Profile() {
         keyboardDismissMode="on-drag"
         onScrollBeginDrag={() => Keyboard.dismiss()}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="fish-outline" size={40} color="#38bdf8" style={{ marginBottom: 12 }} />
-            <Text style={styles.emptyTitle}>{t("noCatchesYet")}</Text>
-            <Text style={styles.emptyBadge}>{t("profileEmptyBadge")}</Text>
-            <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/(tabs)/add")}>
-              <Text style={styles.emptyBtnText}>{t("addFirstCatch")}</Text>
-            </TouchableOpacity>
-          </View>
+          loadingCatches ? null : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="fish-outline" size={40} color="#38bdf8" style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyTitle}>{t("noCatchesYet")}</Text>
+              <Text style={styles.emptyBadge}>{t("profileEmptyBadge")}</Text>
+              <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/(tabs)/add")}>
+                <Text style={styles.emptyBtnText}>{t("addFirstCatch")}</Text>
+              </TouchableOpacity>
+            </View>
+          )
         }
         contentContainerStyle={{ paddingBottom: 140 }}
       />
@@ -464,7 +470,7 @@ export default function Profile() {
                 <View style={styles.followUserRow}>
                   <View style={styles.followAvatar}>
                     {u.avatar ? (
-                      <ExpoImage
+                      <ImageWithLoader
                         source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}` }}
                         style={styles.followAvatarImg}
                         contentFit="cover"

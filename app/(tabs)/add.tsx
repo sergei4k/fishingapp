@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
 import * as DocumentPicker from 'expo-document-picker';
+import { Blurhash } from 'react-native-blurhash';
 import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
 import { Buffer } from 'buffer';
@@ -355,6 +356,12 @@ export default function Add() {
           contentInsetAdjustmentBehavior="never"
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         >
+          <View style={styles.addScreenHeader}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.closeBtn} hitSlop={8}>
+              <Ionicons name="close" size={24} color="#94a3b8" />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.imageRow}>
             <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
               {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
@@ -766,4 +773,6 @@ const styles = StyleSheet.create({
   },
   selectedPreviewImg: { width: 64, height: 64 },
   previewDivider: { width: 1.5, height: 72, backgroundColor: "#2d6a99", marginRight: 10 },
+  addScreenHeader: { width: "100%", alignItems: "flex-end", marginBottom: 4 },
+  closeBtn: { padding: 4 },
 });

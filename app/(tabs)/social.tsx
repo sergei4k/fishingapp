@@ -13,6 +13,7 @@ import GroupModal from "@/components/GroupModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
+import ImageWithLoader from "@/components/ImageWithLoader";
 import { useFocusEffect } from "@react-navigation/native";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -145,6 +146,7 @@ export default function Social() {
   const [loadingDiscover, setLoadingDiscover] = useState(false);
   const [loadingMoreDiscover, setLoadingMoreDiscover] = useState(false);
   const likeInFlight = useRef<Set<string>>(new Set());
+  const followInFlight = useRef<Set<string>>(new Set());
   const pendingOps = useRef<Map<string, number>>(new Map()); // "catchId:action" → timestamp
   const pendingCommentOps = useRef<Map<string, number>>(new Map()); // catchId → timestamp of optimistic increment
 
@@ -668,12 +670,15 @@ export default function Social() {
 
   const toggleFollow = async (targetUser: any) => {
     if (!user) return;
+    if (followInFlight.current.has(targetUser.id)) return;
+    followInFlight.current.add(targetUser.id);
     const existing = myFollows.find((f) => f.following_id === targetUser.id);
     if (existing) {
       try {
         await pb.collection("follows").delete(existing.id);
         setMyFollows((prev) => prev.filter((f) => f.id !== existing.id));
       } catch { console.warn("unfollow error"); }
+      finally { followInFlight.current.delete(targetUser.id); }
     } else {
       try {
         const record = await pb.collection("follows").create({
@@ -690,6 +695,7 @@ export default function Social() {
           })
           .catch(() => {});
       } catch (e) { console.warn("follow error:", e); }
+      finally { followInFlight.current.delete(targetUser.id); }
     }
   };
 
@@ -707,11 +713,8 @@ export default function Social() {
     setUserFollowingCount(0);
     setLoadingUserCatches(true);
     try {
-      const [userResult, records, followersResult, followingResult] = await Promise.all([
-        pb.collection("users").getList(1, 1, {
-          filter: `id = "${targetUser.id}"`,
-          requestKey: null,
-        }).catch(() => ({ items: [] as any[] })),
+      const [fullUser, records, followersResult, followingResult] = await Promise.all([
+        pb.collection("users").getOne(targetUser.id, { requestKey: null }).catch(() => null),
         pb.collection("catches").getFullList({
           filter: `user_id = "${targetUser.id}" && is_public = true`,
           sort: "-created_at",
@@ -726,7 +729,6 @@ export default function Social() {
           requestKey: null,
         }).catch(() => ({ totalItems: 0 })),
       ]);
-      const fullUser = (userResult as any).items?.[0];
       if (fullUser) {
         setSelectedUser((prev: any) => ({
           ...prev,
@@ -734,6 +736,9 @@ export default function Social() {
           username: fullUser.username ?? prev.username ?? "",
           badges: fullUser.badges,
           bio: fullUser.bio ?? "",
+          avatarUrl: fullUser.avatar
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${fullUser.id}/${fullUser.avatar}`
+            : prev.avatarUrl ?? null,
         }));
       }
       setUserCatches(await enrichCatches(records as any[], user?.id));
@@ -775,7 +780,7 @@ export default function Social() {
         >
           <View style={styles.feedAvatar}>
             {item._avatarUrl ? (
-              <ExpoImage source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.feedAvatarImage} />
+              <ImageWithLoader source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.feedAvatarImage} />
             ) : (
               <Text style={styles.feedAvatarText}>
                 {(item._username || "?").slice(0, 2).toUpperCase()}
@@ -804,7 +809,7 @@ export default function Social() {
 
       {/* Photo */}
       {item.image_uri ? (
-        <ExpoImage
+        <ImageWithLoader
           source={{ uri: item.image_uri }}
           style={styles.feedPhoto}
           contentFit="cover"
@@ -857,7 +862,7 @@ export default function Social() {
   const renderListCard = ({ item }: { item: CatchItem }) => (
     <TouchableOpacity style={styles.catchRow} onPress={() => openDetail(item)} activeOpacity={0.75}>
       {item.image_uri ? (
-        <ExpoImage source={{ uri: item.image_uri }} style={styles.catchThumb} contentFit="cover" />
+        <ImageWithLoader source={{ uri: item.image_uri }} style={styles.catchThumb} contentFit="cover" />
       ) : (
         <View style={[styles.catchThumb, styles.catchThumbEmpty]}>
           <Ionicons name="camera-outline" size={20} color="#334155" />
@@ -867,7 +872,7 @@ export default function Social() {
         <View style={styles.catchAuthorRow}>
           <View style={styles.catchAuthorAvatar}>
             {item._avatarUrl ? (
-              <ExpoImage source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.catchAuthorAvatarImg} />
+              <ImageWithLoader source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.catchAuthorAvatarImg} />
             ) : (
               <Text style={styles.catchAuthorAvatarText}>
                 {(item._username || "?").slice(0, 2).toUpperCase()}
@@ -1052,7 +1057,7 @@ export default function Social() {
 
                       {/* Catch thumbnail */}
                       {entry.imageUri ? (
-                        <ExpoImage source={{ uri: entry.imageUri }} style={styles.lbThumb} contentFit="cover" />
+                        <ImageWithLoader source={{ uri: entry.imageUri }} style={styles.lbThumb} contentFit="cover" />
                       ) : (
                         <View style={[styles.lbThumb, styles.lbThumbEmpty]}>
                           <Ionicons name="camera-outline" size={16} color="#334155" />
@@ -1063,7 +1068,7 @@ export default function Social() {
                       <View style={styles.lbInfo}>
                         <View style={styles.lbUserRow}>
                           {entry.avatarUrl ? (
-                            <ExpoImage source={{ uri: entry.avatarUrl }} style={styles.lbAvatar} contentFit="cover" />
+                            <ImageWithLoader source={{ uri: entry.avatarUrl }} style={styles.lbAvatar} contentFit="cover" />
                           ) : (
                             <View style={[styles.lbAvatar, styles.lbAvatarEmpty]}>
                               <Text style={styles.lbAvatarText}>
@@ -1109,7 +1114,7 @@ export default function Social() {
                 {/* Banner */}
                 <View style={styles.upBanner}>
                   {userCatches[0]?.image_uri ? (
-                    <ExpoImage source={{ uri: userCatches[0].image_uri }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
+                    <ImageWithLoader source={{ uri: userCatches[0].image_uri }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
                   ) : (
                     <View style={{ flex: 1, backgroundColor: "#0a1929" }} />
                   )}
@@ -1122,7 +1127,7 @@ export default function Social() {
                 <View style={styles.upAvatarWrapper}>
                   <View style={styles.upAvatar}>
                     {selectedUser?.avatarUrl ? (
-                      <ExpoImage source={{ uri: selectedUser.avatarUrl }} contentFit="cover" style={styles.upAvatarImage} />
+                      <ImageWithLoader source={{ uri: selectedUser.avatarUrl }} contentFit="cover" style={styles.upAvatarImage} />
                     ) : (
                       <Text style={styles.upAvatarText}>{initials(selectedUser)}</Text>
                     )}
@@ -1252,7 +1257,7 @@ export default function Social() {
                 >
                   <View style={styles.feedAvatar}>
                     {item.avatarUrl || item.avatar ? (
-                      <ExpoImage
+                      <ImageWithLoader
                         source={{ uri: item.avatarUrl || `${pb.baseURL}/api/files/_pb_users_auth_/${item.id}/${item.avatar}` }}
                         contentFit="cover"
                         style={styles.feedAvatarImage}
@@ -1311,7 +1316,7 @@ export default function Social() {
                 >
                   <View style={styles.feedAvatar}>
                     {item.avatar ? (
-                      <ExpoImage
+                      <ImageWithLoader
                         source={{ uri: `${pb.baseURL}/api/files/groups/${item.id}/${item.avatar}` }}
                         contentFit="cover"
                         style={styles.feedAvatarImage}

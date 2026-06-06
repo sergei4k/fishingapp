@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter, useSegments, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import '../global.css';
 
 const toastConfig = {
@@ -94,7 +94,8 @@ function RootNavigator() {
   if (loading || !versionChecked) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator size="large" color="#ffffff" />
+        <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
+        <ActivityIndicator size="small" color="#94a3b8" />
       </View>
     );
   }

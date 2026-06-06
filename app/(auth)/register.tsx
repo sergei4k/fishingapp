@@ -212,6 +212,7 @@ export default function Register() {
                   <Text style={styles.buttonText}>{t('registerButton')}</Text>
                 )}
               </TouchableOpacity>
+
             </View>
 
             <View style={styles.footer}>
@@ -375,5 +376,55 @@ const styles = StyleSheet.create({
   privacyLink: {
     color: '#ffffff',
     textDecorationLine: 'underline',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  dividerText: {
+    color: '#94a3b8',
+    fontSize: 13,
+  },
+  vkBtn: {
+    backgroundColor: '#0077FF',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthBtn: {
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthLogo: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  oauthLogoText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  oauthBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });
