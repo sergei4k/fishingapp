@@ -51,12 +51,8 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    const { error } = await signInWithGoogle();
+    await signInWithGoogle();
     setLoading(false);
-    if (error && error.message !== 'CANCELLED' && !pb.authStore.isValid) {
-      const msg = error.message === 'OFFLINE' ? t('offlineError') : t('wrongPassword');
-      Alert.alert(t('error'), msg);
-    }
   };
 
   const handleLogin = async () => {

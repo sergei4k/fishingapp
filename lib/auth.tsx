@@ -81,7 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = async () => {
     try {
       const redirectUrl = 'fishingapp://oauth2';
-      await pb.collection('users').authWithOAuth2({
+      const authData = await pb.collection('users').authWithOAuth2({
         provider: 'google',
         urlCallback: async (url: string) => {
           const result = await WebBrowser.openAuthSessionAsync(url, redirectUrl);

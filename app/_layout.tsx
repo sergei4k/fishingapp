@@ -4,7 +4,7 @@ import { pb } from '@/lib/pocketbase';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import { useRouter, useSegments, Slot } from 'expo-router';
+import { useRouter, usePathname, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import '../global.css';
@@ -50,22 +50,38 @@ function UpdateRequired() {
   );
 }
 
+function needsUsernameSetup(user: any) {
+  if (!user) return false;
+  const u = user.username ?? '';
+  return !u || /^users?\d+$/.test(u);
+}
+
 function useProtectedRoute() {
-  const { session, loading } = useAuth();
-  const segments = useSegments();
+  const { session, loading, user } = useAuth();
+  const pathname = usePathname();
   const router = useRouter();
 
   useEffect(() => {
     if (loading) return;
+    if (!pathname) return;
 
-    const inAuthGroup = (segments[0] as string) === '(auth)';
+const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/login') || pathname.startsWith('/register');
+    const onSetupUsername = pathname.includes('setup-username');
 
     if (!session && !inAuthGroup) {
       router.replace('/(auth)/login' as const as any);
-    } else if (session && inAuthGroup) {
+    } else if (session && onSetupUsername && !needsUsernameSetup(user)) {
       router.replace('/(tabs)' as const as any);
+    } else if (session && inAuthGroup && !onSetupUsername) {
+      if (needsUsernameSetup(user)) {
+        router.replace('/(auth)/setup-username' as const as any);
+      } else {
+        router.replace('/(tabs)' as const as any);
+      }
+    } else if (session && !inAuthGroup && !onSetupUsername && needsUsernameSetup(user)) {
+      router.replace('/(auth)/setup-username' as const as any);
     }
-  }, [session, loading, segments]);
+  }, [session, loading, pathname, user?.username]);
 }
 
 function RootNavigator() {
