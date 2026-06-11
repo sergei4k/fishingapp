@@ -1,18 +1,14 @@
-import Filter from 'bad-words';
-
-const filter = new Filter();
-
-// Russian profanity (latin transliteration + common bypass attempts)
-filter.addWords(
-  'huy', 'khuy', 'hui', 'chuy', 'pizda', 'pizdа', 'blyad', 'bliad', 'ebat',
-  'ebal', 'suka', 'mudak', 'pidor', 'pederast', 'xyй', 'залупа', 'ёбаный',
-  'пиздец', 'блядь', 'хуй', 'пизда', 'ебать', 'сука', 'мудак', 'пидор'
-);
+const BLOCKED = [
+  // English
+  'fuck', 'shit', 'nigga', 'niga', 'cunt', 'nigger', 'nigga', 'faggot', 'fag', 'bitch', 'asshole', 'bastard', 'whore', 'slut',
+  // Russian (cyrillic)
+  'хуй', 'хуя', 'хуем', 'хуйня', 'пизда', 'пизды', 'пиздец', 'пизде', 'ебать', 'ебал', 'ебаный', 'ёбаный',
+  'блядь', 'бляди', 'сука', 'суки', 'мудак', 'мудаки', 'пидор', 'пидорас', 'залупа', 'ёб',
+  // Russian (latin transliteration)
+  'huy', 'khuy', 'hui', 'pizda', 'blyad', 'bliad', 'ebat', 'ebal', 'suka', 'mudak', 'pidor',
+];
 
 export function isProfane(text: string): boolean {
-  try {
-    return filter.isProfane(text);
-  } catch {
-    return false;
-  }
+  const lower = text.toLowerCase();
+  return BLOCKED.some((word) => lower.includes(word));
 }

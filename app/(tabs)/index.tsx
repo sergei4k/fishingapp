@@ -16,6 +16,7 @@ import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
+import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import {
   ActivityIndicator,
   Alert,
@@ -35,8 +36,6 @@ import {
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
 
-
-MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? "");
 
 const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
 
@@ -64,6 +63,7 @@ export default function Map() {
 
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const mapboxReady = useMapboxReady();
   const router = useRouter();
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const mapReadyRef = useRef(false);
@@ -411,7 +411,7 @@ export default function Map() {
     try {
       const res = await fetch(
         `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
-        `?access_token=${process.env.EXPO_PUBLIC_MAPBOX_TOKEN}&language=${language}&limit=5`
+        `?access_token=${MAPBOX_ACCESS_TOKEN}&language=${language}&limit=5`
       );
       const data = await res.json();
       setSearchResults(
@@ -441,6 +441,14 @@ export default function Map() {
   }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────────
+
+  if (!mapboxReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0f172a", alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="small" color="#94a3b8" />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -522,8 +530,8 @@ export default function Map() {
           id="catches"
           shape={catchesGeoJSON}
           cluster
-          clusterRadius={50}
-          clusterMaxZoomLevel={14}
+          clusterRadius={80}
+          clusterMaxZoomLevel={12}
           onPress={handleMarkerPress}
         >
           <MapboxGL.CircleLayer

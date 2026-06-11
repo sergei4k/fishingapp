@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import { Buffer } from 'buffer';
 import ExifParser from 'exif-parser';
 import MapboxGL from '@rnmapbox/maps';
+import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from 
 import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import {
+    ActivityIndicator,
     Alert,
     DeviceEventEmitter,
     FlatList,
@@ -42,6 +44,7 @@ import speciesPhotoMap from "@/lib/speciesPhotos";
 export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const mapboxReady = useMapboxReady();
 
   const [image, setImage] = useState<string | null>(null);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
@@ -78,7 +81,7 @@ export default function Add() {
   const router = useRouter();
 
   const detectWaterBody = async (lat: number, lon: number) => {
-    const token = process.env.EXPO_PUBLIC_MAPBOX_TOKEN;
+    const token = MAPBOX_ACCESS_TOKEN;
     if (!token) return;
     setDetectingWater(true);
     setWaterBody(null);
@@ -403,20 +406,28 @@ export default function Add() {
                 </TouchableOpacity>
               </View>
               <View style={{ flex: 1 }}>
-                <MapboxGL.MapView
-                  style={{ flex: 1 }}
-                  styleURL="mapbox://styles/mapbox/dark-v11"
-                  scaleBarEnabled={false}
-                  onRegionDidChange={(e: any) => {
-                    const [lon, lat] = e.geometry.coordinates;
-                    setPendingCoord({ lat, lon });
-                  }}
-                >
-                  <MapboxGL.Camera zoomLevel={12} centerCoordinate={pickerCenter} animationMode="none" animationDuration={0} />
-                </MapboxGL.MapView>
-                <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
-                  <Ionicons name="location-sharp" size={36} color="#ef4444" style={{ marginBottom: 18 }} />
-                </View>
+                {mapboxReady ? (
+                  <>
+                    <MapboxGL.MapView
+                      style={{ flex: 1 }}
+                      styleURL="mapbox://styles/mapbox/dark-v11"
+                      scaleBarEnabled={false}
+                      onRegionDidChange={(e: any) => {
+                        const [lon, lat] = e.geometry.coordinates;
+                        setPendingCoord({ lat, lon });
+                      }}
+                    >
+                      <MapboxGL.Camera zoomLevel={12} centerCoordinate={pickerCenter} animationMode="none" animationDuration={0} />
+                    </MapboxGL.MapView>
+                    <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
+                      <Ionicons name="location-sharp" size={36} color="#ef4444" style={{ marginBottom: 18 }} />
+                    </View>
+                  </>
+                ) : (
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                    <ActivityIndicator size="small" color="#94a3b8" />
+                  </View>
+                )}
               </View>
               <View style={{ padding: 16, paddingBottom: 40 }}>
                 <TouchableOpacity

@@ -944,7 +944,7 @@ export default function Social() {
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={styles.searchIconBtn} onPress={openSearch}>
-          <Ionicons name="search-outline" size={18} color="#94a3b8" />
+          <Ionicons name="search" size={22} color="#e6eef8" />
         </TouchableOpacity>
       </View>
 

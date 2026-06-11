@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLanguage } from "@/lib/language";
+import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 
 type WeatherData = {
   utc_offset_seconds: number;
@@ -591,7 +592,7 @@ export default function Weather() {
           `&hourly=wave_height,wave_period&timezone=auto&forecast_days=3`
         ).catch(() => null),
         fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality&access_token=${process.env.EXPO_PUBLIC_MAPBOX_TOKEN}`
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality&access_token=${MAPBOX_ACCESS_TOKEN}`
         ).catch(() => null),
         tidesToken
           ? fetch(

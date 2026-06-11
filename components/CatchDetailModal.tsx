@@ -496,7 +496,7 @@ export default function CatchDetailModal({
                           )}
                           {isOwn && (
                             <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={8} style={{ marginLeft: 8 }}>
-                              <Ionicons name="trash-outline" size={11} color="#475569" />
+                              <Ionicons name="trash" size={15} color="#f87171" />
                             </TouchableOpacity>
                           )}
                         </View>

@@ -1,6 +1,7 @@
 import { useAuth } from '@/lib/auth';
 import { pb } from '@/lib/pocketbase';
 import { useLanguage } from '@/lib/language';
+import { isProfane } from '@/lib/profanity';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import {
@@ -44,6 +45,10 @@ export default function SetupUsername() {
     }
     if (!/^[a-z0-9_]+$/.test(trimmed)) {
       Alert.alert(t('Ошибка', 'Error'), t('Только буквы, цифры и _', 'Only letters, numbers and _'));
+      return;
+    }
+    if (isProfane(trimmed)) {
+      Alert.alert(t('Ошибка', 'Error'), t('Недопустимое имя', 'Username not allowed'));
       return;
     }
     setLoading(true);

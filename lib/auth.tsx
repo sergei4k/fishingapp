@@ -50,50 +50,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
     try {
-      await pb.collection('users').create({
-        email,
-        password,
-        passwordConfirm: password,
-        name: meta?.name ?? '',
-        username: meta?.username?.toLowerCase() ?? '',
-      });
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('TIMEOUT')), 20000)
+      );
+      await Promise.race([
+        pb.collection('users').create({
+          email,
+          password,
+          passwordConfirm: password,
+          name: meta?.name ?? '',
+          username: meta?.username?.toLowerCase() ?? '',
+        }),
+        timeout,
+      ]);
       await pb.collection('users').authWithPassword(email, password);
       return { error: null };
     } catch (e: any) {
       if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
+      if (e?.message === 'TIMEOUT') return { error: { message: 'OFFLINE' } };
       const data = (e as any)?.response?.data;
       if (data?.email?.code === 'validation_not_unique') return { error: { message: 'EMAIL_TAKEN' } };
       if (data?.username?.code === 'validation_not_unique') return { error: { message: 'USERNAME_TAKEN' } };
-      return { error: { message: e?.response?.message ?? e?.message ?? 'Registration failed' } };
+      const status = e?.status ?? e?.response?.status;
+      const serverMsg = e?.response?.message ?? e?.message ?? '';
+      return { error: { message: `ERR_${status ?? 'UNKNOWN'}: ${serverMsg}` } };
     }
   };
 
   const signIn = async (email: string, password: string) => {
     try {
-      await pb.collection('users').authWithPassword(email, password);
+      const timeout = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('TIMEOUT')), 20000)
+      );
+      await Promise.race([
+        pb.collection('users').authWithPassword(email, password),
+        timeout,
+      ]);
       return { error: null };
     } catch (e: any) {
-      if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
+      if (e?.message === 'TIMEOUT' || isNetworkError(e)) return { error: { message: 'OFFLINE' } };
       return { error: { message: 'WRONG_PASSWORD' } };
     }
   };
 
   const signInWithGoogle = async () => {
     try {
-      const redirectUrl = 'fishingapp://oauth2';
-      const authData = await pb.collection('users').authWithOAuth2({
+      await pb.collection('users').authWithOAuth2({
         provider: 'google',
         urlCallback: async (url: string) => {
-          const result = await WebBrowser.openAuthSessionAsync(url, redirectUrl);
-          if (result.type !== 'success') throw new Error('CANCELLED');
-          return result.url;
+          await WebBrowser.openBrowserAsync(url);
         },
       });
       return { error: null };
     } catch (e: any) {
-      if (e?.message === 'CANCELLED') return { error: { message: 'CANCELLED' } };
+      console.warn('[Google OAuth error]', e?.status, e?.message, JSON.stringify(e?.response));
       if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
-      return { error: { message: 'WRONG_PASSWORD' } };
+      if ((e as any)?.isAbort || e?.message?.includes('cancelled') || e?.message?.includes('manually cancelled')) return { error: { message: 'CANCELLED' } };
+      return { error: { message: 'GOOGLE_FAILED' } };
     }
   };
 

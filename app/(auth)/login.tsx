@@ -51,8 +51,16 @@ export default function Login() {
 
   const handleGoogleLogin = async () => {
     setLoading(true);
-    await signInWithGoogle();
+    const { error } = await signInWithGoogle();
     setLoading(false);
+    if (error && error.message === 'GOOGLE_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Google. Попробуйте войти по email и паролю.'
+          : 'Google sign-in failed. Please try email and password instead.',
+      );
+    }
   };
 
   const handleLogin = async () => {

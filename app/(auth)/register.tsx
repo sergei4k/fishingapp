@@ -1,5 +1,6 @@
 import { useAuth } from '@/lib/auth';
 import { useLanguage, type Language } from '@/lib/language';
+import { isProfane } from '@/lib/profanity';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
@@ -42,6 +43,11 @@ export default function Register() {
 
     if (password.length < 6) {
       Alert.alert(t('error'), t('passwordTooShort'));
+      return;
+    }
+
+    if (isProfane(username.trim())) {
+      Alert.alert(t('error'), language === 'ru' ? 'Недопустимое имя пользователя' : 'Username not allowed');
       return;
     }
 

@@ -1,6 +1,7 @@
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { LanguageProvider } from '@/lib/language';
 import { pb } from '@/lib/pocketbase';
+import '@/lib/mapbox';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
