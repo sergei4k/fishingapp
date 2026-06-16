@@ -19,6 +19,11 @@ export default function Settings() {
     user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` : null
   );
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [name, setName] = useState<string>(user?.name ?? "");
+  const [username, setUsername] = useState<string>(user?.username ?? "");
+  const [profileInitialized, setProfileInitialized] = useState(!!user?.id);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
   const [bio, setBio] = useState<string>(user?.bio ?? "");
   const [bioInitialized, setBioInitialized] = useState(!!user?.id);
   const [savingBio, setSavingBio] = useState(false);
@@ -27,6 +32,14 @@ export default function Settings() {
   const [pushTokenStatus, setPushTokenStatus] = useState<string>("checking…");
 
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
+
+  useEffect(() => {
+    if (!profileInitialized && user?.id) {
+      setName(user.name ?? "");
+      setUsername(user.username ?? "");
+      setProfileInitialized(true);
+    }
+  }, [user?.id, profileInitialized]);
 
   useEffect(() => {
     if (!bioInitialized && user?.id) {
@@ -115,6 +128,38 @@ export default function Settings() {
     }
   };
 
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    const trimmedUsername = username.trim();
+    const trimmedName = name.trim();
+    if (!/^\w{3,}$/.test(trimmedUsername)) {
+      Alert.alert(t("error"), t("usernameInvalid"));
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      if (trimmedUsername !== user.username) {
+        const existing = await pb.collection("users").getList(1, 1, {
+          filter: `username = "${trimmedUsername}" && id != "${user.id}"`,
+          requestKey: null,
+        });
+        if (existing.totalItems > 0) {
+          Alert.alert(t("error"), t("usernameTaken"));
+          setSavingProfile(false);
+          return;
+        }
+      }
+      await pb.collection("users").update(user.id, { name: trimmedName, username: trimmedUsername });
+      pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, name: trimmedName, username: trimmedUsername });
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2500);
+    } catch (e) {
+      Alert.alert(t("error"), t("saveError"));
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert(
       t("deleteAccount"),
@@ -182,6 +227,51 @@ export default function Settings() {
                   {parseBadges(user.badges).includes("verified") ? <VerifiedBadge size={13} /> : null}
                 </View>
               ) : null}
+            </View>
+          </View>
+        )}
+
+        {user && (
+          <View style={styles.bioCard}>
+            <Text style={styles.bioLabel}>{language === "ru" ? "Профиль" : "Profile"}</Text>
+            <TextInput
+              style={[styles.bioInput, styles.profileInput]}
+              value={name}
+              onChangeText={setName}
+              placeholder={t("namePlaceholder")}
+              placeholderTextColor="#475569"
+              maxLength={60}
+              keyboardAppearance="dark"
+              autoCapitalize="words"
+            />
+            <View style={styles.profileDivider} />
+            <TextInput
+              style={[styles.bioInput, styles.profileInput]}
+              value={username}
+              onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^\w]/g, ""))}
+              placeholder={t("usernamePlaceholder")}
+              placeholderTextColor="#475569"
+              maxLength={30}
+              keyboardAppearance="dark"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <View style={styles.bioFooter}>
+              <Text style={styles.bioCount}>@{username || "…"}</Text>
+              <TouchableOpacity
+                style={[styles.bioSaveBtn, savingProfile && { opacity: 0.5 }, profileSaved && styles.bioSaveBtnSaved]}
+                onPress={handleSaveProfile}
+                disabled={savingProfile}
+              >
+                {profileSaved ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                    <Ionicons name="checkmark" size={14} color="#fff" />
+                    <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Сохранено" : "Saved"}</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.bioSaveBtnText}>{t("save")}</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         )}
@@ -550,6 +640,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     minHeight: 72,
     textAlignVertical: "top",
+  },
+  profileInput: {
+    minHeight: 0,
+    paddingVertical: 6,
+  },
+  profileDivider: {
+    height: 1,
+    backgroundColor: "#1e293b",
+    marginVertical: 4,
   },
   bioFooter: {
     flexDirection: "row",
