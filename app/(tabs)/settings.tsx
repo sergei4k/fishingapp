@@ -20,6 +20,7 @@ export default function Settings() {
   );
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [bio, setBio] = useState<string>(user?.bio ?? "");
+  const [bioInitialized, setBioInitialized] = useState(!!user?.id);
   const [savingBio, setSavingBio] = useState(false);
   const [bioSaved, setBioSaved] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
@@ -28,9 +29,43 @@ export default function Settings() {
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
 
   useEffect(() => {
-    registerForPushNotificationsAsync().then((token) => {
-      setPushTokenStatus(token ? `OK: ${token.slice(0, 24)}…` : "FAILED — no token");
-    });
+    if (!bioInitialized && user?.id) {
+      setBio(user.bio ?? "");
+      setBioInitialized(true);
+    }
+  }, [user?.id, bioInitialized]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const Constants_ = await import("expo-constants");
+        const ownership = Constants_.default.appOwnership;
+        if (ownership === "expo") { setPushTokenStatus("FAILED — Expo Go"); return; }
+
+        let Notifs: any;
+        try { Notifs = require("expo-notifications"); }
+        catch { setPushTokenStatus("FAILED — module unavailable"); return; }
+
+        const { status } = await Notifs.getPermissionsAsync();
+        const finalStatus = status !== "granted"
+          ? (await Notifs.requestPermissionsAsync()).status
+          : status;
+        if (finalStatus !== "granted") { setPushTokenStatus("FAILED — permission denied"); return; }
+
+        const projectId = Constants_.default?.expoConfig?.extra?.eas?.projectId
+          ?? Constants_.default?.easConfig?.projectId ?? null;
+        if (!projectId) { setPushTokenStatus("FAILED — no projectId"); return; }
+
+        try {
+          const token = (await Notifs.getExpoPushTokenAsync({ projectId })).data;
+          setPushTokenStatus(token ? `OK: ${token.slice(0, 28)}…` : "FAILED — empty token");
+        } catch (e: any) {
+          setPushTokenStatus(`FAILED — ${e?.message ?? "getExpoPushToken error"}`);
+        }
+      } catch (e: any) {
+        setPushTokenStatus(`FAILED — ${e?.message ?? "unknown"}`);
+      }
+    })();
   }, []);
 
   useEffect(() => {
