@@ -2,6 +2,7 @@ import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
+import { registerForPushNotificationsAsync } from "@/lib/notifications";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
@@ -22,8 +23,15 @@ export default function Settings() {
   const [savingBio, setSavingBio] = useState(false);
   const [bioSaved, setBioSaved] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [pushTokenStatus, setPushTokenStatus] = useState<string>("checking…");
 
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
+
+  useEffect(() => {
+    registerForPushNotificationsAsync().then((token) => {
+      setPushTokenStatus(token ? `OK: ${token.slice(0, 24)}…` : "FAILED — no token");
+    });
+  }, []);
 
   useEffect(() => {
     pb.collection("app_config").getFirstListItem('key = "latest_version"', { requestKey: null })
@@ -185,7 +193,15 @@ export default function Settings() {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("about")}</Text>
-          
+
+          <View style={styles.settingItem}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="notifications-outline" size={20} color="#ffffff" />
+              <Text style={styles.settingText}>Push token</Text>
+            </View>
+            <Text style={[styles.settingValue, { fontSize: 11, maxWidth: 200 }]} numberOfLines={1}>{pushTokenStatus}</Text>
+          </View>
+
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Ionicons name="information-circle-outline" size={20} color="#ffffff" />
