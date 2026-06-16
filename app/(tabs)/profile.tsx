@@ -327,7 +327,7 @@ export default function Profile() {
         <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/settings')}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Редактировать" : "Edit"}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/social')}>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/social?openSearch=1')}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Найти друзей" : "Find friends"}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={() => {

@@ -137,7 +137,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
 export default function Social() {
   const { user } = useAuth();
   const { language, t } = useLanguage();
-  const { userId: navUserId } = useLocalSearchParams<{ userId?: string }>();
+  const { userId: navUserId, openSearch: openSearchParam } = useLocalSearchParams<{ userId?: string; openSearch?: string }>();
 
   const [activeTab, setActiveTab] = useState<"discover" | "feed" | "records">("discover");
 
@@ -758,6 +758,10 @@ export default function Social() {
       .then((u) => openUser(u))
       .catch(() => {});
   }, [navUserId]);
+
+  useEffect(() => {
+    if (openSearchParam === "1") openSearch();
+  }, [openSearchParam]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
