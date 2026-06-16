@@ -58,7 +58,7 @@ export default function Add() {
   const [gearModalVisible, setGearModalVisible] = useState(false);
   const [gearSearch, setGearSearch] = useState("");
   const [isUploading, setIsUploading] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [waterBody, setWaterBody] = useState<string | null>(null);
   const [detectingWater, setDetectingWater] = useState(false);
