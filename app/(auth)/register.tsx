@@ -41,8 +41,13 @@ export default function Register() {
       return;
     }
 
-    if (password.length < 6) {
+    if (password.length < 8) {
       Alert.alert(t('error'), t('passwordTooShort'));
+      return;
+    }
+
+    if (!/^\w{3,}$/.test(username.trim())) {
+      Alert.alert(t('error'), t('usernameInvalid'));
       return;
     }
 
@@ -67,7 +72,7 @@ export default function Register() {
       const msg = error.message === 'OFFLINE' ? t('offlineError')
         : error.message === 'USERNAME_TAKEN' ? t('usernameTaken')
         : error.message === 'EMAIL_TAKEN' ? t('emailTaken')
-        : error.message;
+        : t('somethingWentWrong');
       Alert.alert(t('error'), msg);
     } else {
       Toast.show({ type: 'success', text1: t('registerSuccess'), position: 'top', visibilityTime: 3000 });

@@ -261,8 +261,8 @@ export default function Add() {
             pbImageUrl = pb.files.getURL(record, record.image);
           }
 
-          if (weightNum != null && weightNum > 0) {
-            DeviceEventEmitter.emit("catchWithWeightAdded");
+          if (lengthNum != null && lengthNum > 0) {
+            DeviceEventEmitter.emit("catchWithLengthAdded");
           }
 
           // Grant "rybolov" badge on first catch

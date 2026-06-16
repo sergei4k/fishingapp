@@ -36,27 +36,6 @@ type WeatherData = {
   };
 };
 
-type TideData = {
-  extremes: {
-    dt: number;
-    date: string;
-    height: number;
-    type: "High" | "Low";
-  }[];
-} | null;
-
-type MarineData = {
-  current?: {
-    wave_height: number | null;
-    wave_direction: number | null;
-    wave_period: number | null;
-  };
-  hourly?: {
-    time: string[];
-    wave_height: (number | null)[];
-    wave_period: (number | null)[];
-  };
-} | null;
 
 function wmoIcon(code: number): string {
   if (code === 0) return "sunny";
@@ -114,13 +93,6 @@ function fishingScore(wind: number, precip: number, code: number, pressure: numb
   return { score, label: t("fishingPoor"), color: "#ef4444" };
 }
 
-function waveLabel(h: number, t: (k: any) => string): string {
-  if (h < 0.5) return t("waveCalm");
-  if (h < 1.25) return t("waveSlight");
-  if (h < 2.5) return t("waveModerate");
-  if (h < 4) return t("waveRough");
-  return t("waveVeryRough");
-}
 
 const COL_W = 36;
 const CHART_H = 180;
@@ -553,8 +525,7 @@ function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]
 export default function Weather() {
   const { t } = useLanguage();
   const [weather, setWeather] = useState<WeatherData | null>(null);
-  const [marine, setMarine] = useState<MarineData>(null);
-  const [tides, setTides] = useState<TideData>(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationName, setLocationName] = useState<string | null>(null);
@@ -578,8 +549,7 @@ export default function Weather() {
       }
       const { latitude, longitude } = loc.coords;
 
-      const tidesToken = process.env.EXPO_PUBLIC_WORLDTIDES_TOKEN;
-      const [weatherRes, marineRes, geoRes, tidesRes] = await Promise.all([
+      const [weatherRes, geoRes] = await Promise.all([
         fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
           `&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,precipitation,relative_humidity_2m,pressure_msl` +
@@ -587,18 +557,8 @@ export default function Weather() {
           `&timezone=auto&forecast_days=2`
         ),
         fetch(
-          `https://marine-api.open-meteo.com/v1/marine?latitude=${latitude}&longitude=${longitude}` +
-          `&current=wave_height,wave_direction,wave_period` +
-          `&hourly=wave_height,wave_period&timezone=auto&forecast_days=3`
-        ).catch(() => null),
-        fetch(
           `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality&access_token=${MAPBOX_ACCESS_TOKEN}`
         ).catch(() => null),
-        tidesToken
-          ? fetch(
-              `https://www.worldtides.info/api/v3?extremes&lat=${latitude}&lon=${longitude}&key=${tidesToken}&days=3`
-            ).catch(() => null)
-          : Promise.resolve(null),
       ]);
 
       if (!weatherRes.ok) throw new Error(`${weatherRes.status}`);
@@ -606,22 +566,12 @@ export default function Weather() {
       if (!data?.current) throw new Error(t("error"));
       setWeather(data);
 
-      if (marineRes?.ok) {
-        const md = await marineRes.json();
-        const hasWave = md?.current?.wave_height != null;
-        setMarine(hasWave ? md : null);
-      }
-
       if (geoRes) {
         const geo = await geoRes.json();
         const place = geo?.features?.[0]?.text;
         if (place) setLocationName(place);
       }
 
-      if (tidesRes?.ok) {
-        const td = await tidesRes.json();
-        if (td?.extremes?.length) setTides(td);
-      }
     } catch (e: any) {
       setError(e?.message ?? t("error"));
     } finally {
@@ -656,12 +606,6 @@ export default function Weather() {
   const trend = pressureTrend(weather.hourly, t);
   const pressurefish = pressureFishLabel(c.pressure_msl, t);
 
-  const marineHourly = marine?.hourly
-    ? marine.hourly.time
-        .map((t, i) => ({ time: t, wh: marine.hourly!.wave_height[i], wp: marine.hourly!.wave_period[i] }))
-        .filter(h => new Date(h.time) >= new Date() && h.wh != null)
-        .slice(0, 24)
-    : [];
 
 
   return (
@@ -722,84 +666,6 @@ export default function Weather() {
           </View>
         </View>
 
-        {/* Tides / Marine */}
-        {marine && marine.current && (
-          <>
-            <Text style={styles.sectionTitle}>{t("seaConditions")}</Text>
-            <View style={styles.marineCard}>
-              <View style={styles.marineRow}>
-                <View style={styles.marineStat}>
-                  <Ionicons name="water" size={18} color="#ffffff" />
-                  <Text style={styles.marineValue}>
-                    {marine.current.wave_height != null ? marine.current.wave_height.toFixed(1) : "--"} m
-                  </Text>
-                  <Text style={styles.marineLabel}>{t("waveHeight")}</Text>
-                  {marine.current.wave_height != null && (
-                    <Text style={styles.marineSubLabel}>{waveLabel(marine.current.wave_height, t)}</Text>
-                  )}
-                </View>
-                <View style={styles.marineDivider} />
-                <View style={styles.marineStat}>
-                  <Ionicons name="time-outline" size={18} color="#ffffff" />
-                  <Text style={styles.marineValue}>
-                    {marine.current.wave_period != null ? Math.round(marine.current.wave_period) : "--"} s
-                  </Text>
-                  <Text style={styles.marineLabel}>{t("wavePeriod")}</Text>
-                </View>
-                <View style={styles.marineDivider} />
-                <View style={styles.marineStat}>
-                  <Ionicons name="compass-outline" size={18} color="#ffffff" />
-                  <Text style={styles.marineValue}>
-                    {marine.current.wave_direction != null ? windDir(marine.current.wave_direction) : "--"}
-                  </Text>
-                  <Text style={styles.marineLabel}>{t("waveDir")}</Text>
-                </View>
-              </View>
-
-              {marineHourly.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 16 }}>
-                  {marineHourly.map((h) => {
-                    const d = new Date(h.time);
-                    return (
-                      <View key={h.time} style={styles.marineHourlyItem}>
-                        <Text style={styles.hourlyTime}>{d.getHours()}:00</Text>
-                        <Ionicons name="water" size={14} color="#ffffff" />
-                        <Text style={styles.hourlyTemp}>{h.wh!.toFixed(1)}m</Text>
-                        <Text style={styles.marineSubLabel}>{h.wp != null ? `${Math.round(h.wp)}s` : ""}</Text>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-              )}
-            </View>
-          </>
-        )}
-
-        {/* Tides */}
-        {tides && (
-          <>
-            <Text style={styles.sectionTitle}>{t("tides")}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hourlyScroll}>
-              {tides.extremes
-                .filter(e => new Date(e.date) >= new Date())
-                .slice(0, 10)
-                .map((e) => {
-                  const d = new Date(e.date);
-                  const isHigh = e.type === "High";
-                  const color = isHigh ? "#ffffff" : "#94a3b8";
-                  return (
-                    <View key={e.dt} style={styles.tideItem}>
-                      <Text style={styles.hourlyTime}>{d.getHours().toString().padStart(2, "0")}:{d.getMinutes().toString().padStart(2, "0")}</Text>
-                      <Ionicons name={isHigh ? "trending-up" : "trending-down"} size={20} color={color} />
-                      <Text style={[styles.tideHeight, { color }]}>{e.height.toFixed(1)}m</Text>
-                      <Text style={[styles.tideType, { color }]}>{isHigh ? t("highTide") : t("lowTide")}</Text>
-                    </View>
-                  );
-                })}
-            </ScrollView>
-          </>
-        )}
-
         {/* Hourly chart: temperature + precipitation */}
         <Text style={styles.sectionTitle}>{t("hourlyForecast")}</Text>
         <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} t={t} />
@@ -850,21 +716,6 @@ const styles = StyleSheet.create({
     color: "#94a3b8", fontSize: 13, fontWeight: "600", textTransform: "uppercase",
     letterSpacing: 0.5, marginHorizontal: 16, marginBottom: 10,
   },
-  marineCard: {
-    backgroundColor: "#071023", borderRadius: 16, padding: 16,
-    marginHorizontal: 16, marginBottom: 16, borderWidth: 1, borderColor: "#1e293b",
-  },
-  marineRow: { flexDirection: "row", justifyContent: "space-around" },
-  marineStat: { alignItems: "center", gap: 4, flex: 1 },
-  marineValue: { color: "#e6eef8", fontSize: 20, fontWeight: "300", marginTop: 4 },
-  marineLabel: { color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
-  marineSubLabel: { color: "#ffffff", fontSize: 11 },
-  marineDivider: { width: 1, backgroundColor: "#1e293b" },
-  marineHourlyItem: { alignItems: "center", gap: 4, marginRight: 18, minWidth: 44 },
-
-  tideItem: { alignItems: "center", gap: 4, marginRight: 24, minWidth: 52 },
-  tideHeight: { fontSize: 16, fontWeight: "600" },
-  tideType: { fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
   hourlyTime: { color: "#94a3b8", fontSize: 12 },
   hourlyTemp: { color: "#e6eef8", fontSize: 14, fontWeight: "600" },
   errorText: { color: "#ef4444", textAlign: "center", marginTop: 60, fontSize: 16 },

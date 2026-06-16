@@ -12,6 +12,7 @@ export default function ImageWithLoader({ loaderColor = "#38bdf8", style, ...pro
       <ExpoImage
         {...props}
         style={StyleSheet.absoluteFill}
+        cachePolicy="memory-disk"
         onLoadStart={() => setLoading(true)}
         onLoadEnd={() => setLoading(false)}
       />

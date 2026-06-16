@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import { useFocusEffect } from "@react-navigation/native";
+import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -95,7 +96,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
         userMap[u.id] = {
           username: u.username || u.name || "",
           avatarUrl: u.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}`
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100`
             : null,
           badges: parseBadges(u.badges),
         };
@@ -127,7 +128,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
       _isLiked: !!myLike,
       _likeId: myLike?.id ?? null,
       image_uri: c.image
-        ? `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${c.image}`
+        ? `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${c.image}?thumb=600x600`
         : c.image_uri ?? null,
     };
   });
@@ -136,6 +137,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
 export default function Social() {
   const { user } = useAuth();
   const { language, t } = useLanguage();
+  const { userId: navUserId } = useLocalSearchParams<{ userId?: string }>();
 
   const [activeTab, setActiveTab] = useState<"discover" | "feed" | "records">("discover");
 
@@ -185,7 +187,7 @@ export default function Social() {
 
   // Records / leaderboard
   type LeaderboardEntry = {
-    catchId: string; species: string; weight: number;
+    catchId: string; species: string; length: number;
     username: string; name: string; avatarUrl: string | null;
     badges: BadgeId[]; imageUri: string | null; rank: number;
   };
@@ -198,8 +200,8 @@ export default function Social() {
     setLoadingLeaderboard(true);
     try {
       const records = await pb.collection("catches").getFullList({
-        filter: "is_public = true && weight_kg > 0",
-        sort: "-weight_kg",
+        filter: "is_public = true && length_cm > 0",
+        sort: "-length_cm",
         requestKey: null,
       });
       const uniqueIds = [...new Set(records.map((r: any) => r.user_id).filter(Boolean))] as string[];
@@ -212,7 +214,7 @@ export default function Social() {
             userMap[u.id] = {
               username: u.username || u.name || "",
               name: u.name || "",
-              avatarUrl: u.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}` : null,
+              avatarUrl: u.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100` : null,
               badges: parseBadges(u.badges),
             };
           }
@@ -224,13 +226,13 @@ export default function Social() {
         if (!sp) continue;
         const u = userMap[r.user_id] ?? { username: "", name: "", avatarUrl: null, badges: [] };
         const entries = speciesMap.get(sp) ?? [];
-        const weight = parseFloat(r.weight_kg);
-        if (!weight || weight <= 0) continue;
+        const length = parseFloat(r.length_cm);
+        if (!length || length <= 0) continue;
         entries.push({
-          catchId: r.id, species: sp, weight,
+          catchId: r.id, species: sp, length,
           username: u.username, name: u.name, avatarUrl: u.avatarUrl,
           badges: u.badges,
-          imageUri: r.image ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}` : null,
+          imageUri: r.image ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}?thumb=300x300` : null,
           rank: entries.length + 1,
         });
         speciesMap.set(sp, entries);
@@ -239,7 +241,7 @@ export default function Social() {
       for (const [sp, entries] of speciesMap) {
         groups.push({ species: sp, entries });
       }
-      groups.sort((a, b) => b.entries[0].weight - a.entries[0].weight);
+      groups.sort((a, b) => b.entries[0].length - a.entries[0].length);
       setLeaderboard(groups);
     } catch (e) { console.warn("leaderboard error:", e); }
     finally { setLoadingLeaderboard(false); }
@@ -371,7 +373,7 @@ export default function Social() {
   }, [syncCommentCountInLists]);
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener("catchWithWeightAdded", () => {
+    const sub = DeviceEventEmitter.addListener("catchWithLengthAdded", () => {
       leaderboardLoaded.current = false;
       if (activeTab === "records") {
         leaderboardLoaded.current = true;
@@ -691,9 +693,11 @@ export default function Social() {
             if (target.pushToken) {
               const senderName = user.username || user.name || "Someone";
               sendPushNotification(target.pushToken, "New follower", `${senderName} started following you`);
+            } else {
+              console.warn("[follow] target has no pushToken, skipping notification");
             }
           })
-          .catch(() => {});
+          .catch((e) => console.warn("[follow] failed to fetch target pushToken:", e?.status, e?.message));
       } catch (e) { console.warn("follow error:", e); }
       finally { followInFlight.current.delete(targetUser.id); }
     }
@@ -747,6 +751,13 @@ export default function Social() {
     } catch (e) { console.warn("openUser error:", e); }
     finally { setLoadingUserCatches(false); }
   };
+
+  useEffect(() => {
+    if (!navUserId) return;
+    pb.collection("users").getOne(navUserId, { requestKey: null })
+      .then((u) => openUser(u))
+      .catch(() => {});
+  }, [navUserId]);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1011,7 +1022,7 @@ export default function Social() {
           <View style={styles.centerMsg}>
             <Ionicons name="trophy-outline" size={44} color="#1e3a5f" />
             <Text style={styles.centerText}>
-              {language === "ru" ? "Пока нет рекордов с весом" : "No weighted catches yet"}
+              {language === "ru" ? "Пока нет уловов с длиной" : "No catches with length yet"}
             </Text>
           </View>
         ) : (
@@ -1041,7 +1052,7 @@ export default function Social() {
                         id: entry.catchId,
                         imageUrl: entry.imageUri,
                         species: entry.species,
-                        weight: String(entry.weight),
+                        length: String(entry.length),
                         username: entry.username,
                         name: entry.name,
                         verified: entry.badges.includes("verified"),
@@ -1083,9 +1094,9 @@ export default function Social() {
                         </View>
                       </View>
 
-                      {/* Weight */}
+                      {/* Length */}
                       <Text style={[styles.lbWeight, { color: rankColor }]}>
-                        {Number.isFinite(entry.weight) ? (entry.weight % 1 === 0 ? entry.weight : entry.weight.toFixed(2)) : "?"} kg
+                        {Number.isFinite(entry.length) ? (entry.length % 1 === 0 ? entry.length : entry.length.toFixed(1)) : "?"} cm
                       </Text>
                     </TouchableOpacity>
                   );

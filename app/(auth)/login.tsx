@@ -1,6 +1,7 @@
 import { useAuth } from '@/lib/auth';
 import { useLanguage, type Language } from '@/lib/language';
 import { pb } from '@/lib/pocketbase';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
@@ -220,6 +221,8 @@ export default function Login() {
                 <Text style={styles.footerLink}>{t('registerLink')}</Text>
               </TouchableOpacity>
             </View>
+
+            <Text style={styles.versionText}>v{Constants.expoConfig?.version ?? ''}</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -359,6 +362,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
+  },
+  versionText: {
+    color: 'rgb(218, 218, 218)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 16,
   },
   forgotBtn: {
     alignItems: 'center',

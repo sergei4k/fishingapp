@@ -104,18 +104,15 @@ export async function sendPushNotification(token: string, title: string, body: s
 export async function syncPushTokenForUser(userId: string): Promise<string | null> {
   const token = await registerForPushNotificationsAsync();
   if (!token) {
-    try {
-      await pb.collection("users").update(userId, { pushToken: null });
-    } catch (e) {
-      console.warn("Failed to clear push token:", e);
-    }
+    console.warn("[syncPushTokenForUser] no token obtained — permissions denied or FCM not configured");
     return null;
   }
 
   try {
     await pb.collection("users").update(userId, { pushToken: token });
-  } catch (e) {
-    console.warn("Failed to save push token:", e);
+    console.log("[syncPushTokenForUser] saved token for", userId);
+  } catch (e: any) {
+    console.warn("[syncPushTokenForUser] failed to save token:", e?.status, e?.message);
   }
 
   return token;

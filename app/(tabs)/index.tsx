@@ -70,6 +70,7 @@ export default function Map() {
   const pendingLocationRef = useRef<[number, number] | null>(null);
 
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
+  const [catchesLoaded, setCatchesLoaded] = useState(false);
   const [publicMarkers, setPublicMarkers] = useState<any[]>([]);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [centerCoord] = useState<[number, number]>([37.618423, 55.751244]);
@@ -171,6 +172,8 @@ export default function Map() {
     } catch (err) {
       console.error("refreshMarkers error:", err);
       setMarkers([]);
+    } finally {
+      setCatchesLoaded(true);
     }
   }, []);
 
@@ -225,7 +228,7 @@ export default function Map() {
           .map((r: any) => ({
             ...r,
             image_uri: r.image
-              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}`
+              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}?thumb=400x400`
               : (r.image_uri || null),
             author_username: r.expand?.user_id?.username ?? null,
             author_name: r.expand?.user_id?.name ?? null,
@@ -632,8 +635,8 @@ export default function Map() {
       </View>
 
 
-      {/* Empty state — shown when user has no catches of their own */}
-      {markers.length === 0 && !previewCatch && !newSpotCoord && (
+      {/* Empty state — shown only after catches are confirmed to be empty */}
+      {catchesLoaded && markers.length === 0 && !previewCatch && !newSpotCoord && (
         <View style={styles.emptyCard}>
           <Ionicons name="fish-outline" size={28} color="#38bdf8" style={{ marginBottom: 8 }} />
           <Text style={styles.emptyCardTitle}>{t("noCatchesYet")}</Text>

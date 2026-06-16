@@ -29,7 +29,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(record);
       setLoading(false);
 
-      // Sync once per user session
       if (record?.id && record.id !== syncedUserIdRef.current) {
         syncedUserIdRef.current = record.id;
         syncCatchesFromPB(record.id).catch((e) =>
@@ -53,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('TIMEOUT')), 20000)
       );
+      timeout.catch(() => {});
       await Promise.race([
         pb.collection('users').create({
           email,
@@ -82,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('TIMEOUT')), 20000)
       );
+      timeout.catch(() => {});
       await Promise.race([
         pb.collection('users').authWithPassword(email, password),
         timeout,
@@ -95,15 +96,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      await pb.collection('users').authWithOAuth2({
+      let cancelFn: ((msg: string) => void) | null = null;
+      const cancelPromise = new Promise<never>((_, reject) => {
+        cancelFn = (msg) => reject(new Error(msg));
+      });
+      cancelPromise.catch(() => {});
+
+      const authPromise = pb.collection('users').authWithOAuth2({
         provider: 'google',
         urlCallback: async (url: string) => {
           await WebBrowser.openBrowserAsync(url);
+          // Browser closed — give SSE 3s to deliver result, then cancel
+          setTimeout(() => cancelFn?.('BROWSER_CLOSED'), 3000);
         },
       });
+
+      await Promise.race([authPromise, cancelPromise]);
       return { error: null };
     } catch (e: any) {
       console.warn('[Google OAuth error]', e?.status, e?.message, JSON.stringify(e?.response));
+      if (e?.message === 'BROWSER_CLOSED') return { error: { message: 'CANCELLED' } };
       if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
       if ((e as any)?.isAbort || e?.message?.includes('cancelled') || e?.message?.includes('manually cancelled')) return { error: { message: 'CANCELLED' } };
       return { error: { message: 'GOOGLE_FAILED' } };

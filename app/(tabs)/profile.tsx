@@ -334,8 +334,8 @@ export default function Profile() {
           const handle = user?.username ? `@${user.username}` : "someone";
           Share.share({
             message: language === "ru"
-              ? `Я на StrikeFeed! Найди меня там — ${handle} 🎣\nhttps://strikefeed.app`
-              : `I'm on StrikeFeed! Find me there — ${handle} 🎣\nhttps://strikefeed.app`,
+              ? `Я на StrikeFeed! Найди меня там — ${handle} 🎣\nhttps://play.google.com/store/apps/details?id=com.strikefeed.myapp&utm_source=na_Med`
+              : `I'm on StrikeFeed! Find me there — ${handle} 🎣\nhttps://play.google.com/store/apps/details?id=com.strikefeed.myapp&utm_source=na_Med`,
           });
         }}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Поделиться" : "Share"}</Text>
@@ -467,7 +467,11 @@ export default function Profile() {
                 </Text>
               }
               renderItem={({ item: u }) => (
-                <View style={styles.followUserRow}>
+                <TouchableOpacity
+                  style={styles.followUserRow}
+                  activeOpacity={0.75}
+                  onPress={() => { setFollowListModal(null); router.push({ pathname: "/(tabs)/social", params: { userId: u.id } }); }}
+                >
                   <View style={styles.followAvatar}>
                     {u.avatar ? (
                       <ImageWithLoader
@@ -485,7 +489,8 @@ export default function Profile() {
                     {u.name ? <Text style={styles.followUserName}>{u.name}</Text> : null}
                     {u.username ? <Text style={styles.followUserHandle}>@{u.username}</Text> : null}
                   </View>
-                </View>
+                  <Ionicons name="chevron-forward" size={16} color="#475569" />
+                </TouchableOpacity>
               )}
             />
           )}
