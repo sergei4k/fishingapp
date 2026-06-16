@@ -56,11 +56,24 @@ export default function Settings() {
           ?? Constants_.default?.easConfig?.projectId ?? null;
         if (!projectId) { setPushTokenStatus("FAILED — no projectId"); return; }
 
+        let fcmToken: string | null = null;
+        try {
+          const deviceToken = await Notifs.getDevicePushTokenAsync();
+          fcmToken = deviceToken?.data ?? null;
+        } catch (e: any) {
+          setPushTokenStatus(`FAILED — FCM (Firebase) error: ${e?.message ?? "no native token"}`);
+          return;
+        }
+        if (!fcmToken) {
+          setPushTokenStatus("FAILED — FCM returned empty token (google-services.json issue)");
+          return;
+        }
+
         try {
           const token = (await Notifs.getExpoPushTokenAsync({ projectId })).data;
-          setPushTokenStatus(token ? `OK: ${token.slice(0, 28)}…` : "FAILED — empty token");
+          setPushTokenStatus(token ? `OK: ${token.slice(0, 28)}…` : "FAILED — empty Expo token");
         } catch (e: any) {
-          setPushTokenStatus(`FAILED — ${e?.message ?? "getExpoPushToken error"}`);
+          setPushTokenStatus(`FAILED — Expo API error (FCM ok): ${e?.message ?? "getExpoPushToken error"}`);
         }
       } catch (e: any) {
         setPushTokenStatus(`FAILED — ${e?.message ?? "unknown"}`);
