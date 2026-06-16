@@ -234,6 +234,7 @@ export default function Settings() {
         {user && (
           <View style={styles.bioCard}>
             <Text style={styles.bioLabel}>{language === "ru" ? "Профиль" : "Profile"}</Text>
+            <Text style={styles.profileFieldLabel}>{language === "ru" ? "Имя" : "Name"}</Text>
             <TextInput
               style={[styles.bioInput, styles.profileInput]}
               value={name}
@@ -245,6 +246,7 @@ export default function Settings() {
               autoCapitalize="words"
             />
             <View style={styles.profileDivider} />
+            <Text style={styles.profileFieldLabel}>{language === "ru" ? "Имя пользователя" : "Username"}</Text>
             <TextInput
               style={[styles.bioInput, styles.profileInput]}
               value={username}
@@ -644,6 +646,15 @@ const styles = StyleSheet.create({
   profileInput: {
     minHeight: 0,
     paddingVertical: 6,
+  },
+  profileFieldLabel: {
+    color: "#64748b",
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 2,
+    marginTop: 4,
   },
   profileDivider: {
     height: 1,
