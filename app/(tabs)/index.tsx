@@ -533,8 +533,8 @@ export default function Map() {
           id="catches"
           shape={catchesGeoJSON}
           cluster
-          clusterRadius={80}
-          clusterMaxZoomLevel={12}
+          clusterRadius={50}
+          clusterMaxZoomLevel={10}
           onPress={handleMarkerPress}
         >
           <MapboxGL.CircleLayer
