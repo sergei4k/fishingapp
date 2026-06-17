@@ -41,6 +41,7 @@ export type CatchDetail = {
   weight?: string;
   date?: string;
   gear?: string;
+  userId?: string;
   username?: string;
   name?: string;
   avatarUrl?: string;
@@ -68,6 +69,7 @@ type Props = {
   onSave?: (catchId: string, fields: EditableFields) => Promise<void>;
   onDelete?: (catchId: string) => void;
   onTogglePublic?: (catchId: string, isPublic: boolean) => void;
+  onUserPress?: (userId: string) => void;
 };
 
 export default function CatchDetailModal({
@@ -79,6 +81,7 @@ export default function CatchDetailModal({
   onSave,
   onDelete,
   onTogglePublic,
+  onUserPress,
 }: Props) {
   const { user } = useAuth();
   const { language, t } = useLanguage();
@@ -398,7 +401,11 @@ export default function CatchDetailModal({
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {/* User row */}
             {(item?.username || item?.name || item?.avatarUrl) && (
-              <View style={styles.userRow}>
+              <TouchableOpacity
+                style={styles.userRow}
+                activeOpacity={item.userId && onUserPress ? 0.7 : 1}
+                onPress={() => item.userId && onUserPress && onUserPress(item.userId)}
+              >
                 <View style={styles.avatar}>
                   {item.avatarUrl ? (
                     <ExpoImage source={{ uri: item.avatarUrl }} contentFit="cover" style={styles.avatarImg} />
@@ -412,7 +419,7 @@ export default function CatchDetailModal({
                   <Text style={styles.userName}>{item.username || item.name}</Text>
                   {item.verified ? <VerifiedBadge size={12} /> : null}
                 </View>
-              </View>
+              </TouchableOpacity>
             )}
 
             {/* Photo carousel */}

@@ -724,6 +724,7 @@ export default function Social() {
 
   const openDetail = (item: CatchItem) => setDetailCatch({
     id: item.id,
+    userId: item.user_id,
     imageUrl: item.image_uri,
     extraPhotos: item.extraPhotos ?? [],
     species: item.species,
@@ -1654,6 +1655,11 @@ export default function Social() {
         onLikeChange={applyLikeToLists}
         onCommentAdded={applyCommentToLists}
         onCommentCountSynced={syncCommentCountInLists}
+        onUserPress={(userId) => {
+          closeDetail();
+          const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
+          openUser({ id: userId, username: item?._username ?? "", name: "", avatarUrl: item?._avatarUrl ?? null, badges: item?._badges ?? [] });
+        }}
       />
 
       {/* Notifications modal */}
