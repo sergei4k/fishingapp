@@ -161,84 +161,110 @@ export default function Social() {
     if (!user) return;
     setLoadingNotifs(true);
     try {
-      const [followRecs, likeRecs, commentRecs] = await Promise.all([
-        pb.collection("follows").getList(1, 30, {
-          filter: `following_id = "${user.id}"`,
-          sort: "-created",
-          expand: "follower_id",
-          requestKey: null,
-        }).catch(() => ({ items: [] })),
-        pb.collection("likes").getList(1, 30, {
-          filter: `catch_id.user_id = "${user.id}" && user_id != "${user.id}"`,
-          sort: "-created",
-          expand: "user_id,catch_id",
-          requestKey: null,
-        }).catch(() => ({ items: [] })),
-        pb.collection("comments").getList(1, 30, {
-          filter: `catch_id.user_id = "${user.id}" && user_id != "${user.id}"`,
-          sort: "-created",
-          expand: "user_id,catch_id",
-          requestKey: null,
-        }).catch(() => ({ items: [] })),
-      ]);
+      // 1. Get recent follows
+      const followRecs = await pb.collection("follows").getList(1, 30, {
+        filter: `following_id = "${user.id}"`,
+        sort: "-created",
+        requestKey: null,
+      }).catch(() => ({ items: [] as any[] }));
 
+      // 2. Get user's catch IDs (most recent 20) to filter likes/comments
+      const myCatches = await pb.collection("catches").getList(1, 20, {
+        filter: `user_id = "${user.id}"`,
+        fields: "id",
+        sort: "-created",
+        requestKey: null,
+      }).catch(() => ({ items: [] as any[] }));
+
+      const myCatchIds: string[] = myCatches.items.map((c: any) => c.id);
+
+      let likeRecs: { items: any[] } = { items: [] };
+      let commentRecs: { items: any[] } = { items: [] };
+
+      if (myCatchIds.length > 0) {
+        const catchFilter = myCatchIds.map((id) => `catch_id = "${id}"`).join(" || ");
+        [likeRecs, commentRecs] = await Promise.all([
+          pb.collection("likes").getList(1, 30, {
+            filter: `(${catchFilter}) && user_id != "${user.id}"`,
+            sort: "-created",
+            requestKey: null,
+          }).catch(() => ({ items: [] as any[] })),
+          pb.collection("comments").getList(1, 30, {
+            filter: `(${catchFilter}) && user_id != "${user.id}"`,
+            sort: "-created",
+            requestKey: null,
+          }).catch(() => ({ items: [] as any[] })),
+        ]);
+      }
+
+      // 3. Fetch all actor users in one query
+      const actorIds = [...new Set([
+        ...followRecs.items.map((r: any) => r.follower_id),
+        ...likeRecs.items.map((r: any) => r.user_id),
+        ...commentRecs.items.map((r: any) => r.user_id),
+      ].filter(Boolean))] as string[];
+
+      const userMap: Record<string, { username: string; avatarUrl: string | null }> = {};
+      if (actorIds.length > 0) {
+        const users = await pb.collection("users").getFullList({
+          filter: actorIds.map((id) => `id = "${id}"`).join(" || "),
+          fields: "id,username,name,avatar",
+          requestKey: null,
+        }).catch(() => [] as any[]);
+        for (const u of users) {
+          userMap[u.id] = {
+            username: u.username || u.name || "User",
+            avatarUrl: u.avatar
+              ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100`
+              : null,
+          };
+        }
+      }
+
+      // 4. Fetch catch thumbnails in one query
+      const catchIds = [...new Set([
+        ...likeRecs.items.map((r: any) => r.catch_id),
+        ...commentRecs.items.map((r: any) => r.catch_id),
+      ].filter(Boolean))] as string[];
+
+      const catchMap: Record<string, string | null> = {};
+      if (catchIds.length > 0) {
+        const catches = await pb.collection("catches").getFullList({
+          filter: catchIds.map((id) => `id = "${id}"`).join(" || "),
+          fields: "id,image,collectionId",
+          requestKey: null,
+        }).catch(() => [] as any[]);
+        for (const c of catches) {
+          catchMap[c.id] = c.image
+            ? `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${c.image}?thumb=100x100`
+            : null;
+        }
+      }
+
+      // 5. Build notification list
       const items: NotifItem[] = [];
 
       for (const r of followRecs.items) {
-        const actor = (r as any).expand?.follower_id;
-        items.push({
-          id: `follow-${r.id}`,
-          type: "follow",
-          actorUsername: actor?.username || actor?.name || "Someone",
-          actorAvatarUrl: actor?.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
-            : null,
-          catchImageUrl: null,
-          createdAt: r.created,
-        });
+        const actor = userMap[r.follower_id];
+        if (!actor) continue;
+        items.push({ id: `follow-${r.id}`, type: "follow", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: null, createdAt: r.created });
       }
-
       for (const r of likeRecs.items) {
-        const actor = (r as any).expand?.user_id;
-        const catch_ = (r as any).expand?.catch_id;
-        items.push({
-          id: `like-${r.id}`,
-          type: "like",
-          actorUsername: actor?.username || actor?.name || "Someone",
-          actorAvatarUrl: actor?.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
-            : null,
-          catchImageUrl: catch_?.image
-            ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100`
-            : null,
-          createdAt: r.created,
-        });
+        const actor = userMap[r.user_id];
+        if (!actor) continue;
+        items.push({ id: `like-${r.id}`, type: "like", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
       }
-
       for (const r of commentRecs.items) {
-        const actor = (r as any).expand?.user_id;
-        const catch_ = (r as any).expand?.catch_id;
-        items.push({
-          id: `comment-${r.id}`,
-          type: "comment",
-          actorUsername: actor?.username || actor?.name || "Someone",
-          actorAvatarUrl: actor?.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
-            : null,
-          catchImageUrl: catch_?.image
-            ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100`
-            : null,
-          createdAt: r.created,
-        });
+        const actor = userMap[r.user_id];
+        if (!actor) continue;
+        items.push({ id: `comment-${r.id}`, type: "comment", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
       }
 
       items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       setNotifications(items);
 
       const lastSeen = await AsyncStorage.getItem(lastSeenNotifsKey);
-      const count = lastSeen
-        ? items.filter((n) => n.createdAt > lastSeen).length
-        : items.length;
+      const count = lastSeen ? items.filter((n) => n.createdAt > lastSeen).length : items.length;
       setUnreadCount(count);
     } catch (e) {
       console.warn("loadNotifications error:", e);
