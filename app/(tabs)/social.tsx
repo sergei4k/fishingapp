@@ -1,3 +1,4 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/lib/auth";
 import { sendPushNotification } from "@/lib/notifications";
 import { pb } from "@/lib/pocketbase";
@@ -140,6 +141,122 @@ export default function Social() {
   const { userId: navUserId, openSearch: openSearchParam } = useLocalSearchParams<{ userId?: string; openSearch?: string }>();
 
   const [activeTab, setActiveTab] = useState<"discover" | "feed" | "records">("discover");
+
+  // ── Notifications ─────────────────────────────────────────────────────────
+  type NotifItem = {
+    id: string;
+    type: "follow" | "like" | "comment";
+    actorUsername: string;
+    actorAvatarUrl: string | null;
+    catchImageUrl: string | null;
+    createdAt: string;
+  };
+  const [notifVisible, setNotifVisible] = useState(false);
+  const [notifications, setNotifications] = useState<NotifItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const lastSeenNotifsKey = "last_seen_notifs";
+
+  const loadNotifications = useCallback(async () => {
+    if (!user) return;
+    setLoadingNotifs(true);
+    try {
+      const [followRecs, likeRecs, commentRecs] = await Promise.all([
+        pb.collection("follows").getList(1, 30, {
+          filter: `following_id = "${user.id}"`,
+          sort: "-created",
+          expand: "follower_id",
+          requestKey: null,
+        }).catch(() => ({ items: [] })),
+        pb.collection("likes").getList(1, 30, {
+          filter: `catch_id.user_id = "${user.id}" && user_id != "${user.id}"`,
+          sort: "-created",
+          expand: "user_id,catch_id",
+          requestKey: null,
+        }).catch(() => ({ items: [] })),
+        pb.collection("comments").getList(1, 30, {
+          filter: `catch_id.user_id = "${user.id}" && user_id != "${user.id}"`,
+          sort: "-created",
+          expand: "user_id,catch_id",
+          requestKey: null,
+        }).catch(() => ({ items: [] })),
+      ]);
+
+      const items: NotifItem[] = [];
+
+      for (const r of followRecs.items) {
+        const actor = (r as any).expand?.follower_id;
+        items.push({
+          id: `follow-${r.id}`,
+          type: "follow",
+          actorUsername: actor?.username || actor?.name || "Someone",
+          actorAvatarUrl: actor?.avatar
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
+            : null,
+          catchImageUrl: null,
+          createdAt: r.created,
+        });
+      }
+
+      for (const r of likeRecs.items) {
+        const actor = (r as any).expand?.user_id;
+        const catch_ = (r as any).expand?.catch_id;
+        items.push({
+          id: `like-${r.id}`,
+          type: "like",
+          actorUsername: actor?.username || actor?.name || "Someone",
+          actorAvatarUrl: actor?.avatar
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
+            : null,
+          catchImageUrl: catch_?.image
+            ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100`
+            : null,
+          createdAt: r.created,
+        });
+      }
+
+      for (const r of commentRecs.items) {
+        const actor = (r as any).expand?.user_id;
+        const catch_ = (r as any).expand?.catch_id;
+        items.push({
+          id: `comment-${r.id}`,
+          type: "comment",
+          actorUsername: actor?.username || actor?.name || "Someone",
+          actorAvatarUrl: actor?.avatar
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${actor.id}/${actor.avatar}?thumb=100x100`
+            : null,
+          catchImageUrl: catch_?.image
+            ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100`
+            : null,
+          createdAt: r.created,
+        });
+      }
+
+      items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      setNotifications(items);
+
+      const lastSeen = await AsyncStorage.getItem(lastSeenNotifsKey);
+      const count = lastSeen
+        ? items.filter((n) => n.createdAt > lastSeen).length
+        : items.length;
+      setUnreadCount(count);
+    } catch (e) {
+      console.warn("loadNotifications error:", e);
+    } finally {
+      setLoadingNotifs(false);
+    }
+  }, [user]);
+
+  const openNotifs = async () => {
+    setNotifVisible(true);
+    const now = new Date().toISOString();
+    await AsyncStorage.setItem(lastSeenNotifsKey, now);
+    setUnreadCount(0);
+  };
+
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
 
   // Discover feed (fullscreen pager)
   const [discoverItems, setDiscoverItems] = useState<CatchItem[]>([]);
@@ -928,8 +1045,33 @@ export default function Social() {
 
   // ── Render ────────────────────────────────────────────────────────────────
 
+  const notifLabel = (n: NotifItem) => {
+    if (n.type === "follow") return language === "ru" ? "подписался на вас" : "followed you";
+    if (n.type === "like") return language === "ru" ? "лайкнул ваш улов" : "liked your catch";
+    return language === "ru" ? "прокомментировал ваш улов" : "commented on your catch";
+  };
+
+  const notifIcon = (type: NotifItem["type"]) => {
+    if (type === "follow") return <Ionicons name="person-add" size={15} color="#38bdf8" />;
+    if (type === "like") return <Ionicons name="heart" size={15} color="#f43f5e" />;
+    return <Ionicons name="chatbubble" size={15} color="#a78bfa" />;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
+      {/* Header row: title + notifications bell */}
+      <View style={styles.socialHeader}>
+        <Text style={styles.socialHeaderTitle}>{language === "ru" ? "Сообщество" : "Community"}</Text>
+        <TouchableOpacity style={styles.notifBtn} onPress={openNotifs}>
+          <Ionicons name="notifications-outline" size={24} color="#e6eef8" />
+          {unreadCount > 0 && (
+            <View style={styles.notifBadge}>
+              <Text style={styles.notifBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
       {/* Tabs + search button */}
       <View style={styles.tabRow}>
         <View style={styles.tabs}>
@@ -1416,6 +1558,58 @@ export default function Social() {
         onCommentAdded={applyCommentToLists}
         onCommentCountSynced={syncCommentCountInLists}
       />
+
+      {/* Notifications modal */}
+      <Modal visible={notifVisible} animationType="slide" transparent onRequestClose={() => setNotifVisible(false)}>
+        <View style={styles.notifOverlay}>
+          <View style={styles.notifSheet}>
+            <View style={styles.notifSheetHeader}>
+              <Text style={styles.notifSheetTitle}>{language === "ru" ? "Уведомления" : "Notifications"}</Text>
+              <TouchableOpacity onPress={() => setNotifVisible(false)}>
+                <Ionicons name="close" size={24} color="#94a3b8" />
+              </TouchableOpacity>
+            </View>
+            {loadingNotifs ? (
+              <ActivityIndicator color="#fff" style={{ marginTop: 32 }} />
+            ) : notifications.length === 0 ? (
+              <View style={styles.notifEmpty}>
+                <Ionicons name="notifications-off-outline" size={40} color="#1e3a5f" />
+                <Text style={styles.notifEmptyText}>{language === "ru" ? "Уведомлений нет" : "No notifications yet"}</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={notifications}
+                keyExtractor={(n) => n.id}
+                contentContainerStyle={{ paddingBottom: 32 }}
+                renderItem={({ item }) => (
+                  <View style={styles.notifItem}>
+                    <View style={styles.notifAvatar}>
+                      {item.actorAvatarUrl ? (
+                        <ExpoImage source={{ uri: item.actorAvatarUrl }} style={styles.notifAvatarImg} cachePolicy="memory-disk" />
+                      ) : (
+                        <Ionicons name="person" size={20} color="#94a3b8" />
+                      )}
+                      <View style={styles.notifTypeIcon}>{notifIcon(item.type)}</View>
+                    </View>
+                    <View style={styles.notifItemBody}>
+                      <Text style={styles.notifItemText}>
+                        <Text style={styles.notifItemName}>{item.actorUsername}</Text>
+                        {" "}{notifLabel(item)}
+                      </Text>
+                      <Text style={styles.notifItemTime}>
+                        {new Date(item.createdAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US", { month: "short", day: "numeric" })}
+                      </Text>
+                    </View>
+                    {item.catchImageUrl && (
+                      <ExpoImage source={{ uri: item.catchImageUrl }} style={styles.notifCatchThumb} cachePolicy="memory-disk" />
+                    )}
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1764,4 +1958,26 @@ const styles = StyleSheet.create({
   upActionBtnFollowingText: { color: "#94a3b8" },
   upCatchesHeader: { marginTop: 20, marginBottom: 8, marginLeft: 4 },
   upCatchesTitle: { color: "#e6eef8", fontSize: 17, fontWeight: "700" },
+
+  socialHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
+  socialHeaderTitle: { color: "#e6eef8", fontSize: 22, fontWeight: "700" },
+  notifBtn: { padding: 6, position: "relative" },
+  notifBadge: { position: "absolute", top: 2, right: 2, backgroundColor: "#ef4444", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+
+  notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  notifSheet: { backgroundColor: "#0f172a", borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80%", paddingBottom: 20 },
+  notifSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#1e293b" },
+  notifSheetTitle: { color: "#e6eef8", fontSize: 18, fontWeight: "700" },
+  notifEmpty: { alignItems: "center", justifyContent: "center", paddingVertical: 48, gap: 12 },
+  notifEmptyText: { color: "#475569", fontSize: 15 },
+  notifItem: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: "#0f1f35" },
+  notifAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#1e293b", alignItems: "center", justifyContent: "center", position: "relative" },
+  notifAvatarImg: { width: 44, height: 44, borderRadius: 22 },
+  notifTypeIcon: { position: "absolute", bottom: -2, right: -2, backgroundColor: "#0f172a", borderRadius: 10, padding: 1 },
+  notifItemBody: { flex: 1 },
+  notifItemText: { color: "#cbd5e1", fontSize: 14, lineHeight: 20 },
+  notifItemName: { color: "#e6eef8", fontWeight: "700" },
+  notifItemTime: { color: "#475569", fontSize: 12, marginTop: 2 },
+  notifCatchThumb: { width: 44, height: 44, borderRadius: 8 },
 });
