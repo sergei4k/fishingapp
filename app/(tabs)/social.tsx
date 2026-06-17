@@ -2075,6 +2075,6 @@ const styles = StyleSheet.create({
   notifItemBody: { flex: 1 },
   notifItemText: { color: "#cbd5e1", fontSize: 14, lineHeight: 20 },
   notifItemName: { color: "#e6eef8", fontWeight: "700" },
-  notifItemTime: { color: "#475569", fontSize: 12, marginTop: 2 },
+  notifItemTime: { color: "#94a3b8", fontSize: 12, marginTop: 3 },
   notifCatchThumb: { width: 44, height: 44, borderRadius: 8 },
 });
