@@ -91,13 +91,19 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
 export async function sendPushNotification(token: string, title: string, body: string): Promise<void> {
   try {
-    await fetch("https://exp.host/--/api/v2/push/send", {
+    const res = await fetch("https://exp.host/--/api/v2/push/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: token, title, body, sound: "default" }),
     });
+    const json = await res.json().catch(() => null);
+    if (json?.data?.status === "error") {
+      console.warn("[push] Expo push error:", json.data.message, "token:", token?.slice(0, 20));
+    } else {
+      console.log("[push] sent ok to", token?.slice(0, 20));
+    }
   } catch (e) {
-    console.warn("Failed to send push notification:", e);
+    console.warn("[push] fetch failed:", e);
   }
 }
 
