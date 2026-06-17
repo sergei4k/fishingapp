@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Toast from "react-native-toast-message";
 import { useAuth } from "@/lib/auth";
 import { sendPushNotification } from "@/lib/notifications";
 import { pb } from "@/lib/pocketbase";
@@ -283,6 +284,76 @@ export default function Social() {
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  // ── Realtime notification subscriptions ───────────────────────────────────
+  useEffect(() => {
+    if (!user) return;
+
+    const pushNotif = (item: NotifItem, toastText: string) => {
+      setNotifications((prev) => [item, ...prev]);
+      setUnreadCount((c) => c + 1);
+      Toast.show({ type: "success", text1: toastText, position: "top", visibilityTime: 3500 });
+    };
+
+    const fetchActor = async (userId: string) => {
+      try {
+        const u = await pb.collection("users").getOne(userId, { fields: "id,username,name,avatar", requestKey: null });
+        return {
+          username: u.username || u.name || "User",
+          avatarUrl: u.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100` : null,
+        };
+      } catch { return null; }
+    };
+
+    pb.collection("follows").subscribe("*", async (e) => {
+      if (e.action !== "create") return;
+      if (e.record.following_id !== user.id) return;
+      const actor = await fetchActor(e.record.follower_id);
+      if (!actor) return;
+      pushNotif(
+        { id: `follow-${e.record.id}`, type: "follow", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: null, createdAt: e.record.created },
+        `${actor.username} followed you`,
+      );
+    }, { requestKey: null } as any).catch(() => {});
+
+    pb.collection("likes").subscribe("*", async (e) => {
+      if (e.action !== "create") return;
+      if (e.record.user_id === user.id) return;
+      try {
+        const catch_ = await pb.collection("catches").getOne(e.record.catch_id, { fields: "id,user_id,image,collectionId", requestKey: null });
+        if (catch_.user_id !== user.id) return;
+        const actor = await fetchActor(e.record.user_id);
+        if (!actor) return;
+        const catchImageUrl = catch_.image ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100` : null;
+        pushNotif(
+          { id: `like-${e.record.id}`, type: "like", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl, createdAt: e.record.created },
+          `${actor.username} liked your catch`,
+        );
+      } catch {}
+    }, { requestKey: null } as any).catch(() => {});
+
+    pb.collection("comments").subscribe("*", async (e) => {
+      if (e.action !== "create") return;
+      if (e.record.user_id === user.id) return;
+      try {
+        const catch_ = await pb.collection("catches").getOne(e.record.catch_id, { fields: "id,user_id,image,collectionId", requestKey: null });
+        if (catch_.user_id !== user.id) return;
+        const actor = await fetchActor(e.record.user_id);
+        if (!actor) return;
+        const catchImageUrl = catch_.image ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100` : null;
+        pushNotif(
+          { id: `comment-${e.record.id}`, type: "comment", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl, createdAt: e.record.created },
+          `${actor.username} commented on your catch`,
+        );
+      } catch {}
+    }, { requestKey: null } as any).catch(() => {});
+
+    return () => {
+      pb.collection("follows").unsubscribe("*");
+      pb.collection("likes").unsubscribe("*");
+      pb.collection("comments").unsubscribe("*");
+    };
+  }, [user]);
 
   // Discover feed (fullscreen pager)
   const [discoverItems, setDiscoverItems] = useState<CatchItem[]>([]);
