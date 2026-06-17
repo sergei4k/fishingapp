@@ -1,5 +1,5 @@
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { pb } from "./pocketbase";
 
 type NotificationsModule = typeof import("expo-notifications");
@@ -22,12 +22,15 @@ async function getNotificationsModule(): Promise<NotificationsModule | null> {
 
   if (!notificationsConfigured) {
     notificationsModule.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldPlaySound: true,
-        shouldSetBadge: true,
-        shouldShowBanner: true,
-        shouldShowList: true,
-      }),
+      handleNotification: async () => {
+        const foregrounded = AppState.currentState === "active";
+        return {
+          shouldPlaySound: !foregrounded,
+          shouldSetBadge: true,
+          shouldShowBanner: !foregrounded,
+          shouldShowList: !foregrounded,
+        };
+      },
     });
     notificationsConfigured = true;
   }
