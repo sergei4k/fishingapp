@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Политика конфиденциальности — StrikeFeed / Privacy Policy — StrikeFeed</title>
+    <title>Политика конфиденциальности - StrikeFeed / Privacy Policy - StrikeFeed</title>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -21,7 +21,6 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             overflow: hidden;
         }
-        /* Tab buttons */
         .tabs {
             display: flex;
             border-bottom: 2px solid #e2e8f0;
@@ -43,17 +42,9 @@
             border-bottom: 3px solid #60a5fa;
             margin-bottom: -2px;
         }
-        .tab-btn:hover:not(.active) {
-            background: #f1f5f9;
-        }
-        /* Tab content */
-        .tab-content {
-            display: none;
-            padding: 40px;
-        }
-        .tab-content.active {
-            display: block;
-        }
+        .tab-btn:hover:not(.active) { background: #f1f5f9; }
+        .tab-content { display: none; padding: 40px; }
+        .tab-content.active { display: block; }
         h1 { color: #1a1a1a; font-size: 24px; margin-top: 0; margin-bottom: 6px; }
         h2 { color: #2d3748; margin-top: 32px; font-size: 18px; }
         h3 { color: #4a5568; font-size: 15px; margin-top: 16px; }
@@ -80,8 +71,8 @@
 
     <!-- ───────────────── RUSSIAN ───────────────── -->
     <div id="tab-ru" class="tab-content active">
-        <h1>Политика конфиденциальности — StrikeFeed</h1>
-        <p class="last-updated">Последнее обновление: 24 апреля 2026 г.</p>
+        <h1>Политика конфиденциальности - StrikeFeed</h1>
+        <p class="last-updated">Последнее обновление: 26 мая 2026 г.</p>
 
         <h2>1. Введение</h2>
         <p>
@@ -100,53 +91,97 @@
             <li>Имя пользователя и отображаемое имя</li>
             <li>Пароль (хранится в хэшированном виде, мы не имеем к нему доступа)</li>
             <li>Фото профиля (по желанию)</li>
+            <li>Краткая биография профиля (по желанию)</li>
         </ul>
 
         <h3>2.2 Данные об уловах</h3>
         <p>При добавлении улова мы собираем:</p>
         <ul>
-            <li>GPS-координаты (извлекаются из EXIF-данных фотографии)</li>
+            <li>GPS-координаты (извлекаются из EXIF-данных фотографии, если доступны)</li>
             <li>Фотографии улова</li>
-            <li>Вид рыбы, длина, вес, описание</li>
+            <li>Вид рыбы, длина, вес, описание, снасть</li>
             <li>Дату добавления записи</li>
             <li>Статус публичности (виден другим пользователям или нет)</li>
         </ul>
 
-        <h3>2.3 Техническая информация</h3>
+        <h3>2.3 Местоположение устройства</h3>
+        <p>
+            Вкладка «Погода» запрашивает доступ к <strong>текущему местоположению устройства</strong>
+            исключительно для получения прогноза погоды, морских условий и приливов для вашего района.
+            Координаты передаются только сторонним метеосервисам (см. раздел 5) и не сохраняются нами.
+        </p>
+
+        <h3>2.4 Социальная активность</h3>
+        <p>
+            При использовании социальных функций приложения мы сохраняем:
+        </p>
+        <ul>
+            <li>Подписки на других пользователей (кто на кого подписан)</li>
+            <li>Лайки и комментарии к публичным уловам</li>
+            <li>Членство в группах и действия внутри групп</li>
+        </ul>
+
+        <h3>2.5 Push-уведомления</h3>
+        <p>
+            Если вы разрешаете уведомления, мы сохраняем токен устройства для отправки уведомлений о
+            новых подписчиках и получении значков (badges). Отключить уведомления можно в любое время
+            через настройки устройства.
+        </p>
+
+        <h3>2.6 Техническая информация</h3>
         <p>
             Мы можем автоматически собирать базовую техническую информацию:
-            тип устройства, версию операционной системы и версию приложения — исключительно для диагностики ошибок и улучшения стабильности.
+            тип устройства, версию операционной системы и версию приложения, исключительно для диагностики ошибок и улучшения стабильности.
         </p>
 
         <h2>3. Как мы используем ваши данные</h2>
         <ul>
-            <li>Обеспечение работы основных функций приложения: журнал уловов, карта, социальные функции</li>
+            <li>Обеспечение работы основных функций приложения: журнал уловов, карта, погода, социальные функции</li>
             <li>Синхронизация ваших уловов между устройствами при входе в аккаунт</li>
-            <li>Отображение публичных уловов на карте для других пользователей приложения (только если вы включили эту опцию)</li>
+            <li>Отображение публичных уловов в ленте и на карте для других пользователей (только если вы включили эту опцию)</li>
+            <li>Показ таблицы рекордов по видам рыб на основе публичных уловов с указанным весом</li>
+            <li>Отправка push-уведомлений о социальной активности (при вашем согласии)</li>
             <li>Улучшение работы приложения и исправление ошибок</li>
         </ul>
         <p>Мы не используем ваши данные в маркетинговых целях и не продаём их третьим лицам.</p>
 
-        <h2>4. Хранение и передача данных</h2>
+        <h2>4. Хранение данных и сроки</h2>
         <p>
-            Данные хранятся локально на вашем устройстве, а также на защищённом сервере, размещённом в России.
+            Данные хранятся локально на вашем устройстве, а также на защищённом сервере.
             Все данные передаются по зашифрованному протоколу HTTPS.
         </p>
         <p>
-            <strong>Публичные уловы</strong> (если вы включили эту опцию) видны другим зарегистрированным пользователям приложения на карте.<br>
+            <strong>Публичные уловы</strong> (если вы включили эту опцию) видны другим зарегистрированным пользователям приложения.<br>
             <strong>Приватные уловы</strong> доступны только вам.
+        </p>
+        <p>
+            Данные хранятся до тех пор, пока существует ваш аккаунт. При удалении аккаунта все связанные
+            данные (уловы, комментарии, подписки, фото) удаляются безвозвратно в течение 30 дней.
         </p>
 
         <h2>5. Передача данных третьим лицам</h2>
-        <p>Мы не продаём и не передаём ваши персональные данные третьим лицам. Исключения:</p>
+        <p>Мы не продаём и не передаём ваши персональные данные третьим лицам. Исключения: технические партнёры, необходимые для работы приложения:</p>
         <ul>
             <li>
-                <strong>Mapbox</strong> — используется для отображения карт.
-                При работе с картой ваше местоположение и действия могут обрабатываться Mapbox в соответствии с их
-                <a href="https://www.mapbox.com/legal/privacy" target="_blank">Политикой конфиденциальности</a>.
+                <strong>PocketBase (бэкенд)</strong>: хранит аккаунты, уловы, социальные данные и фотографии на наших серверах.
             </li>
             <li>
-                <strong>Expo / EAS</strong> — платформа для сборки приложения и доставки обновлений.
+                <strong>Mapbox</strong>: используется для отображения карт и геокодирования.
+                Ваше местоположение и действия на карте могут обрабатываться Mapbox согласно их
+                <a href="https://www.mapbox.com/legal/privacy" target="_blank">Политике конфиденциальности</a>.
+            </li>
+            <li>
+                <strong>Open-Meteo</strong>: бесплатный метеосервис. Ваши координаты передаются для получения прогноза погоды.
+                Open-Meteo не собирает персональные данные и не требует аккаунта.
+                <a href="https://open-meteo.com/en/terms" target="_blank">Условия использования</a>.
+            </li>
+            <li>
+                <strong>WorldTides</strong>: сервис прогноза приливов. Ваши координаты передаются для получения данных о приливах.
+                <a href="https://www.worldtides.info/privacy" target="_blank">Политика конфиденциальности</a>.
+            </li>
+            <li>
+                <strong>Expo / EAS</strong>: платформа для сборки приложения и доставки OTA-обновлений.
+                <a href="https://expo.dev/privacy" target="_blank">Политика конфиденциальности Expo</a>.
             </li>
         </ul>
 
@@ -154,10 +189,11 @@
         <ul>
             <li>Удалить любой улов в любое время через приложение</li>
             <li>Изменить статус улова (публичный / приватный) в любое время</li>
+            <li>Редактировать или удалить биографию профиля в любое время</li>
             <li>Удалить аккаунт и все связанные данные прямо в приложении: <strong>Настройки → Удалить аккаунт</strong></li>
-            <li>Отозвать разрешения на геолокацию и камеру через настройки вашего устройства</li>
+            <li>Отозвать разрешения на геолокацию, камеру и уведомления через настройки вашего устройства</li>
         </ul>
-        <p>Вы можете удалить свой аккаунт в любое время — никаких дополнительных запросов или ожиданий не требуется.</p>
+        <p>Вы можете удалить свой аккаунт в любое время, никаких дополнительных запросов или ожиданий не требуется.</p>
 
         <h2>7. Конфиденциальность детей и защита от CSAE</h2>
         <p>
@@ -198,8 +234,8 @@
 
     <!-- ───────────────── ENGLISH ───────────────── -->
     <div id="tab-en" class="tab-content">
-        <h1>Privacy Policy — StrikeFeed</h1>
-        <p class="last-updated">Last updated: April 24, 2026</p>
+        <h1>Privacy Policy - StrikeFeed</h1>
+        <p class="last-updated">Last updated: May 26, 2026</p>
 
         <h2>1. Introduction</h2>
         <p>
@@ -216,55 +252,96 @@
         <ul>
             <li>Email address</li>
             <li>Username and display name</li>
-            <li>Password (stored as a hash — we cannot access it)</li>
+            <li>Password (stored as a hash, we cannot access it)</li>
             <li>Profile photo (optional)</li>
+            <li>Short profile bio (optional)</li>
         </ul>
 
         <h3>2.2 Catch Data</h3>
         <p>When you add a catch, we collect:</p>
         <ul>
-            <li>GPS coordinates (extracted from the photo's EXIF data)</li>
+            <li>GPS coordinates (extracted from the photo's EXIF data, if available)</li>
             <li>Catch photos</li>
-            <li>Fish species, length, weight, description</li>
+            <li>Fish species, length, weight, description, gear used</li>
             <li>Date of the entry</li>
             <li>Visibility status (public or private)</li>
         </ul>
 
-        <h3>2.3 Technical Information</h3>
+        <h3>2.3 Device Location</h3>
+        <p>
+            The Weather tab requests access to your <strong>current device location</strong> solely to
+            fetch a weather forecast, marine conditions, and tide data for your area.
+            Coordinates are passed only to third-party weather services (see section 5) and are not stored by us.
+        </p>
+
+        <h3>2.4 Social Activity</h3>
+        <p>When you use social features, we store:</p>
+        <ul>
+            <li>Follow relationships (who follows whom)</li>
+            <li>Likes and comments on public catches</li>
+            <li>Group membership and group activity</li>
+        </ul>
+
+        <h3>2.5 Push Notifications</h3>
+        <p>
+            If you grant notification permission, we store your device push token to send notifications about
+            new followers and badge awards. You can disable notifications at any time in your device settings.
+        </p>
+
+        <h3>2.6 Technical Information</h3>
         <p>
             We may automatically collect basic technical information such as device type, OS version,
-            and app version — solely for error diagnostics and stability improvements.
+            and app version, solely for error diagnostics and stability improvements.
         </p>
 
         <h2>3. How We Use Your Data</h2>
         <ul>
-            <li>Providing core app features: catch log, map, social features</li>
+            <li>Providing core app features: catch log, map, weather, social feed</li>
             <li>Syncing your catches across devices when signed in</li>
-            <li>Displaying public catches on the map to other users (only if you enable this)</li>
+            <li>Displaying public catches in the feed and on the map to other users (only if you enable this)</li>
+            <li>Showing species leaderboards based on public catches with recorded weight</li>
+            <li>Sending push notifications about social activity (with your consent)</li>
             <li>Improving app performance and fixing bugs</li>
         </ul>
         <p>We do not use your data for marketing purposes and do not sell it to third parties.</p>
 
-        <h2>4. Data Storage and Transfer</h2>
+        <h2>4. Data Storage and Retention</h2>
         <p>
-            Data is stored locally on your device and on a secure server located in Russia.
+            Data is stored locally on your device and on a secure server.
             All data is transmitted over encrypted HTTPS.
         </p>
         <p>
-            <strong>Public catches</strong> (if enabled) are visible to other registered users on the map.<br>
+            <strong>Public catches</strong> (if enabled) are visible to other registered users in the app.<br>
             <strong>Private catches</strong> are visible to you only.
+        </p>
+        <p>
+            Data is retained for as long as your account exists. When you delete your account, all associated
+            data (catches, comments, follows, photos) is permanently deleted within 30 days.
         </p>
 
         <h2>5. Third-Party Services</h2>
-        <p>We do not sell or share your personal data with third parties. Exceptions:</p>
+        <p>We do not sell or share your personal data with third parties. The following technical partners are required for the app to function:</p>
         <ul>
             <li>
-                <strong>Mapbox</strong> — used for map rendering.
+                <strong>PocketBase (backend)</strong>: stores accounts, catches, social data, and photos on our servers.
+            </li>
+            <li>
+                <strong>Mapbox</strong>: used for map rendering and geocoding.
                 Your location and map interactions may be processed by Mapbox per their
                 <a href="https://www.mapbox.com/legal/privacy" target="_blank">Privacy Policy</a>.
             </li>
             <li>
-                <strong>Expo / EAS</strong> — used for app builds and update delivery.
+                <strong>Open-Meteo</strong>: free weather API. Your coordinates are sent to retrieve local weather forecasts.
+                Open-Meteo does not collect personal data and requires no account.
+                <a href="https://open-meteo.com/en/terms" target="_blank">Terms of use</a>.
+            </li>
+            <li>
+                <strong>WorldTides</strong>: tide prediction service. Your coordinates are sent to retrieve tide data.
+                <a href="https://www.worldtides.info/privacy" target="_blank">Privacy Policy</a>.
+            </li>
+            <li>
+                <strong>Expo / EAS</strong>: used for app builds and OTA update delivery.
+                <a href="https://expo.dev/privacy" target="_blank">Expo Privacy Policy</a>.
             </li>
         </ul>
 
@@ -272,10 +349,11 @@
         <ul>
             <li>Delete any catch at any time within the app</li>
             <li>Change catch visibility (public / private) at any time</li>
+            <li>Edit or remove your profile bio at any time</li>
             <li>Delete your account and all associated data directly in the app: <strong>Settings → Delete Account</strong></li>
-            <li>Revoke location and camera permissions at any time in your device settings</li>
+            <li>Revoke location, camera, and notification permissions at any time in your device settings</li>
         </ul>
-        <p>You can delete your account at any time — no additional requests or waiting required.</p>
+        <p>You can delete your account at any time, no additional requests or waiting required.</p>
 
         <h2>7. Children's Privacy and CSAE Standards</h2>
         <p>
