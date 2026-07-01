@@ -274,7 +274,7 @@ export default function Profile() {
         <View style={styles.profileAvatar}>
           {user.avatar ? (
             <ImageWithLoader
-              source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` }}
+              source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` }}
               contentFit="cover"
               style={styles.profileAvatarImage}
             />
@@ -424,7 +424,6 @@ export default function Profile() {
         ListEmptyComponent={
           loadingCatches ? null : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="fish-outline" size={40} color="#38bdf8" style={{ marginBottom: 12 }} />
               <Text style={styles.emptyTitle}>{t("noCatchesYet")}</Text>
               <Text style={styles.emptyBadge}>{t("profileEmptyBadge")}</Text>
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push("/(tabs)/add")}>
@@ -475,7 +474,7 @@ export default function Profile() {
                   <View style={styles.followAvatar}>
                     {u.avatar ? (
                       <ImageWithLoader
-                        source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}` }}
+                        source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=200x200` }}
                         style={styles.followAvatarImg}
                         contentFit="cover"
                       />
@@ -512,7 +511,7 @@ export default function Profile() {
           name: user?.name,
           verified: parseBadges(user?.badges).includes("verified"),
           avatarUrl: user?.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`
+            ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200`
             : undefined,
           lat: selectedCatch.lat,
           lon: selectedCatch.lon,
@@ -565,7 +564,7 @@ const styles = StyleSheet.create({
   profileAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
   profileName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
   profileUsername: { color: "#94a3b8", fontSize: 14, textAlign: "center", marginTop: 3 },
-  profileBioCard: { backgroundColor: "#071023", borderRadius: 10, marginHorizontal: 16, marginTop: 12, padding: 14, borderWidth: 1, borderColor: "#1e293b" },
+  profileBioCard: { marginHorizontal: 16, marginTop: 12, paddingHorizontal: 2 },
   profileBio: { color: "#cbd5e1", fontSize: 14, lineHeight: 22 },
 
   statsRow: {
@@ -574,10 +573,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 16,
     marginHorizontal: 16,
-    backgroundColor: "#071023",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#1e293b",
     paddingVertical: 14,
   },
   statItem: { flex: 1, alignItems: "center" },
@@ -608,10 +603,6 @@ const styles = StyleSheet.create({
   },
   featureTile: {
     flex: 1,
-    backgroundColor: "#071023",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#1e293b",
     paddingVertical: 14,
     alignItems: "center",
     gap: 4,
@@ -673,10 +664,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#071023",
-    padding: 10,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
     marginBottom: 10,
-    marginHorizontal: 16,
   },
   thumb: { width: 72, height: 72, borderRadius: 8, marginRight: 12 },
   info: { flex: 1 },
@@ -860,12 +850,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 20,
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#94a3b8", fontSize: 12 },
-  editPickerRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#071023", borderRadius: 10, padding: 12, marginBottom: 10, gap: 12, borderWidth: 1, borderColor: "#1e293b" },
+  editPickerRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#071023", borderRadius: 10, padding: 12, marginBottom: 10, gap: 12 },
   editPickerThumb: { width: 44, height: 44 },
   editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },
   editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },

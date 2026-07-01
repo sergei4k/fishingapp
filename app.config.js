@@ -30,7 +30,7 @@ export default {
   expo: {
     name: "StrikeFeed",
     slug: "fishingapp",
-    version: "1.3.0",
+    version: "1.3.7",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
     icon: "./assets/images/logo.png",

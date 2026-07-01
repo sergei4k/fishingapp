@@ -19,6 +19,10 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
       ? pb.files.getURL(record, record.image)
       : undefined;
 
+    const serverExtraPhotos: string[] = Array.isArray(record.images)
+      ? record.images.map((f: string) => pb.files.getURL(record, f))
+      : [];
+
     const existing = localMap.get(record.id);
     const recordGear = record.gear ?? null;
     const localGear = existing?.gear ?? null;
@@ -40,6 +44,7 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         gear: recordGear ?? existing.gear,
         lat: record.lat ?? existing.lat ?? null,
         lon: record.lon ?? existing.lon ?? null,
+        extraPhotos: serverExtraPhotos.length ? serverExtraPhotos : existing.extraPhotos,
       });
     } else {
       // Catch exists on server but not locally — add it
@@ -73,6 +78,7 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         })(),
         isPublic: record.is_public ?? false,
         imageUrl,
+        extraPhotos: serverExtraPhotos,
       };
       await addCatch(item);
     }

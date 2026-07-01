@@ -52,6 +52,7 @@ const speciesOptions: SpeciesOption[] = [
   { id: "bull_shark",    labelRu: "Бычья акула",       labelEn: "Bull Shark",         scientificName: "Carcharhinus leucas" },
   { id: "lake_sturgeon", labelRu: "Озёрный осётр",     labelEn: "Lake Sturgeon",      scientificName: "Acipenser fulvescens" },
   { id: "pagr",          labelRu: "Пагр",              labelEn: "Porgy",              scientificName: "Pagrus pagrus" },
+  { id: "bluefish",      labelRu: "Луфарь",            labelEn: "Bluefish",           scientificName: "Pomatomus saltatrix" },
 ];
 
 export function getSpeciesOptions(language: "ru" | "en" = "ru"): Array<{ id: string; label: string; labelRu: string; labelEn: string; scientificName: string }> {

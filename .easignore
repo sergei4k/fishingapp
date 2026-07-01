@@ -1,0 +1,11 @@
+.gradle-local/
+builds/
+android/app/build/
+android/.gradle/
+android/build/
+android/app/.cxx/
+screenshots/
+node_modules/
+**/android/build/
+**/android/.cxx/
+**/.cxx/

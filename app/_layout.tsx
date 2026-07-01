@@ -1,13 +1,15 @@
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { PurchasesProvider } from '@/lib/purchases';
 import { LanguageProvider } from '@/lib/language';
 import { pb } from '@/lib/pocketbase';
 import '@/lib/mapbox';
+import { clearDeliveredNotifications } from '@/lib/notifications';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
-import { useRouter, usePathname, Slot } from 'expo-router';
+import { useRouter, usePathname, useRootNavigationState, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import '../global.css';
 
 const toastConfig = {
@@ -35,7 +37,7 @@ function compareVersions(a: string, b: string): number {
 function UpdateRequired() {
   return (
     <View style={styles.updateScreen}>
-      <Text style={styles.updateEmoji}>🎣</Text>
+      <Image source={require('../assets/images/logo.png')} style={styles.updateLogo} />
       <Text style={styles.updateTitle}>Update required{'\n'}Требуется обновление</Text>
       <Text style={styles.updateSub}>
         A new version of StrikeFeed is available. Please update to continue.{'\n\n'}
@@ -61,12 +63,14 @@ function useProtectedRoute() {
   const { session, loading, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const navigationState = useRootNavigationState();
 
   useEffect(() => {
+    if (!navigationState?.key) return;
     if (loading) return;
     if (!pathname) return;
 
-const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/login') || pathname.startsWith('/register');
+    const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/login') || pathname.startsWith('/register');
     const onSetupUsername = pathname.includes('setup-username');
 
     if (!session && !inAuthGroup) {
@@ -82,33 +86,38 @@ const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/logi
     } else if (session && !inAuthGroup && !onSetupUsername && needsUsernameSetup(user)) {
       router.replace('/(auth)/setup-username' as const as any);
     }
-  }, [session, loading, pathname, user?.username]);
+  }, [session, loading, pathname, user?.username, navigationState?.key]);
 }
 
 function RootNavigator() {
   const { loading } = useAuth();
   const [updateRequired, setUpdateRequired] = useState(false);
-  const [versionChecked, setVersionChecked] = useState(false);
   useProtectedRoute();
+
+  useEffect(() => {
+    clearDeliveredNotifications();
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") clearDeliveredNotifications();
+    });
+    return () => sub.remove();
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
         const record = await pb.collection('app_config').getFirstListItem('key = "min_version"', { requestKey: null });
-        const minVersion = record.value as string;
-        const currentVersion = Constants.expoConfig?.version ?? '0.0.0';
+        const minVersion = (record.value as string).trim();
+        const currentVersion = Constants.expoConfig?.version ?? (Constants as any).manifest?.version ?? '0.0.0';
         if (compareVersions(currentVersion, minVersion) < 0) {
           setUpdateRequired(true);
         }
       } catch {
         // if config fetch fails, let the user in
-      } finally {
-        setVersionChecked(true);
       }
     })();
   }, []);
 
-  if (loading || !versionChecked) {
+  if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
         <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
@@ -127,10 +136,12 @@ function RootNavigator() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <LanguageProvider>
-          <RootNavigator />
-          <Toast config={toastConfig} />
-      </LanguageProvider>
+      <PurchasesProvider>
+        <LanguageProvider>
+            <RootNavigator />
+            <Toast config={toastConfig} />
+        </LanguageProvider>
+      </PurchasesProvider>
     </AuthProvider>
   );
 }
@@ -143,7 +154,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 36,
   },
-  updateEmoji: { fontSize: 64, marginBottom: 24 },
+  updateLogo: { width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 },
   updateTitle: { color: '#e6eef8', fontSize: 22, fontWeight: '800', marginBottom: 12, textAlign: 'center' },
   updateSub: { color: '#64748b', fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 36 },
   updateBtn: {

@@ -1,5 +1,6 @@
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
+import { usePurchases } from "@/lib/purchases";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
 import { registerForPushNotificationsAsync } from "@/lib/notifications";
@@ -14,9 +15,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { signOut, user } = useAuth();
+  const { enabled: purchasesEnabled, isPro, presentPaywall, restore } = usePurchases();
+  const [restoring, setRestoring] = useState(false);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(
-    user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` : null
+    user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` : null
   );
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [name, setName] = useState<string>(user?.name ?? "");
@@ -203,6 +206,28 @@ export default function Settings() {
     Alert.alert(t("languageChanged"), t("languageChangedMessage"));
   };
 
+  const handleBuyPremium = async () => {
+    const ok = await presentPaywall();
+    if (ok) {
+      Alert.alert(language === "ru" ? "Премиум активирован" : "Premium activated");
+    }
+  };
+
+  const handleRestorePurchases = async () => {
+    if (restoring) return;
+    setRestoring(true);
+    try {
+      const ok = await restore();
+      Alert.alert(
+        ok
+          ? (language === "ru" ? "Покупки восстановлены" : "Purchases restored")
+          : (language === "ru" ? "Покупки не найдены" : "No purchases found")
+      );
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>{t("settings")}</Text>
@@ -311,9 +336,60 @@ export default function Settings() {
           </View>
         )}
 
+        {purchasesEnabled && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{language === "ru" ? "Премиум" : "Premium"}</Text>
+
+            {isPro ? (
+              <View style={styles.settingItem}>
+                <View style={styles.settingLeft}>
+                  <Ionicons name="checkmark-circle" size={20} color="#1d9bf0" />
+                  <Text style={styles.settingText}>
+                    {language === "ru" ? "Премиум активен" : "Premium active"}
+                  </Text>
+                </View>
+                <VerifiedBadge size={20} />
+              </View>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[styles.settingItem, styles.premiumBuy]}
+                  onPress={handleBuyPremium}
+                >
+                  <View style={styles.settingLeft}>
+                    <Ionicons name="star" size={20} color="#f59e0b" />
+                    <View style={styles.premiumTextWrap}>
+                      <Text style={styles.premiumTitle}>
+                        {language === "ru" ? "Купить Премиум" : "Buy Premium"}
+                      </Text>
+                      <Text style={styles.premiumSub}>
+                        {language === "ru"
+                          ? "Значок верификации и премиум-функции"
+                          : "Verified badge & premium features"}
+                      </Text>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.settingItem} onPress={handleRestorePurchases}>
+                  <View style={styles.settingLeft}>
+                    <Ionicons name="refresh-outline" size={20} color="#ffffff" />
+                    <Text style={styles.settingText}>
+                      {restoring
+                        ? (language === "ru" ? "Восстановление…" : "Restoring…")
+                        : (language === "ru" ? "Восстановить покупки" : "Restore purchases")}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t("general")}</Text>
-          
+
           <TouchableOpacity
             style={styles.settingItem}
             onPress={() => setLanguageModalVisible(true)}
@@ -378,6 +454,28 @@ export default function Settings() {
               })()}
             </View>
           </View>
+
+          <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://www.instagram.com/strikefeed.app/')}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="logo-instagram" size={20} color="#E1306C" />
+              <Text style={styles.settingText}>Instagram</Text>
+            </View>
+            <View style={styles.settingRight}>
+              <Text style={styles.settingValue}>@strikefeed.app</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 8 }} />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://t.me/rybolovapp')}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="paper-plane-outline" size={20} color="#229ED9" />
+              <Text style={styles.settingText}>Telegram</Text>
+            </View>
+            <View style={styles.settingRight}>
+              <Text style={styles.settingValue}>@rybolovapp</Text>
+              <Ionicons name="chevron-forward" size={16} color="#94a3b8" style={{ marginLeft: 8 }} />
+            </View>
+          </TouchableOpacity>
 
           <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}>
             <View style={styles.settingLeft}>
@@ -501,8 +599,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 24,
     gap: 14,
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   userAvatar: {
     width: 56,
@@ -562,6 +658,23 @@ const styles = StyleSheet.create({
     color: "#e6eef8",
     fontSize: 16,
     marginLeft: 12,
+  },
+  premiumBuy: {
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.35)",
+  },
+  premiumTextWrap: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  premiumTitle: {
+    color: "#e6eef8",
+    fontSize: 16,
+  },
+  premiumSub: {
+    color: "#94a3b8",
+    fontSize: 12,
+    marginTop: 2,
   },
   dangerText: {
     color: "#ef4444",
@@ -626,8 +739,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   bioLabel: {
     color: "#94a3b8",

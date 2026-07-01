@@ -48,21 +48,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('TIMEOUT')), 20000)
+    );
+    timeout.catch(() => {});
+    const createUser = () => Promise.race([
+      pb.collection('users').create({
+        email,
+        password,
+        passwordConfirm: password,
+        name: meta?.name ?? '',
+        username: meta?.username?.toLowerCase() ?? '',
+      }),
+      timeout,
+    ]);
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT')), 20000)
-      );
-      timeout.catch(() => {});
-      await Promise.race([
-        pb.collection('users').create({
-          email,
-          password,
-          passwordConfirm: password,
-          name: meta?.name ?? '',
-          username: meta?.username?.toLowerCase() ?? '',
-        }),
-        timeout,
-      ]);
+      try {
+        await createUser();
+      } catch (e: any) {
+        if (!isNetworkError(e)) throw e;
+        await new Promise(r => setTimeout(r, 1000));
+        await createUser();
+      }
       await pb.collection('users').authWithPassword(email, password);
       return { error: null };
     } catch (e: any) {
@@ -78,16 +85,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('TIMEOUT')), 20000)
+    );
+    timeout.catch(() => {});
+    const attempt = () => Promise.race([
+      pb.collection('users').authWithPassword(email, password),
+      timeout,
+    ]);
     try {
-      const timeout = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('TIMEOUT')), 20000)
-      );
-      timeout.catch(() => {});
-      await Promise.race([
-        pb.collection('users').authWithPassword(email, password),
-        timeout,
-      ]);
-      return { error: null };
+      let lastNetworkErr: any = null;
+      for (let i = 0; i < 3; i++) {
+        try {
+          await attempt();
+          return { error: null };
+        } catch (e: any) {
+          if (!isNetworkError(e)) throw e;
+          lastNetworkErr = e;
+          await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+        }
+      }
+      throw lastNetworkErr;
     } catch (e: any) {
       if (e?.message === 'TIMEOUT' || isNetworkError(e)) return { error: { message: 'OFFLINE' } };
       return { error: { message: 'WRONG_PASSWORD' } };

@@ -23,8 +23,10 @@ import {
   Animated,
   ActivityIndicator,
   DeviceEventEmitter,
+  Dimensions,
   FlatList,
   Modal,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -56,6 +58,33 @@ function LikeButton({ isLiked, count, onPress, size = 20, style }: {
   );
 }
 
+// Swipeable photo carousel for a feed card (main image + extra photos)
+function FeedPhotoCarousel({ photos }: { photos: string[] }) {
+  const [active, setActive] = useState(0);
+  const [w, setW] = useState(Dimensions.get("window").width);
+  return (
+    <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      <ScrollView
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          if (w > 0) setActive(Math.round(e.nativeEvent.contentOffset.x / w));
+        }}
+      >
+        {photos.map((uri, i) => (
+          <ImageWithLoader key={i} source={{ uri }} style={{ width: w, height: 280 }} contentFit="cover" />
+        ))}
+      </ScrollView>
+      <View style={styles.feedDotRow} pointerEvents="none">
+        {photos.map((_, i) => (
+          <View key={i} style={[styles.feedDot, i === active && styles.feedDotActive]} />
+        ))}
+      </View>
+    </View>
+  );
+}
+
 type CatchItem = Record<string, any> & {
   _username: string;
   _avatarUrl: string | null;
@@ -80,7 +109,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
     userMap[me.id] = {
       username: me.username || me.name || "",
       avatarUrl: me.avatar
-        ? `${pb.baseURL}/api/files/_pb_users_auth_/${me.id}/${me.avatar}`
+        ? `${pb.baseURL}/api/files/_pb_users_auth_/${me.id}/${me.avatar}?thumb=200x200`
         : null,
       badges: parseBadges(me.badges),
     };
@@ -132,6 +161,9 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
       image_uri: c.image
         ? `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${c.image}?thumb=600x600`
         : c.image_uri ?? null,
+      extraPhotos: Array.isArray(c.images)
+        ? c.images.map((f: string) => `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${f}?thumb=600x600`)
+        : [],
     };
   });
 }
@@ -147,8 +179,10 @@ export default function Social() {
   type NotifItem = {
     id: string;
     type: "follow" | "like" | "comment";
+    actorId: string;
     actorUsername: string;
     actorAvatarUrl: string | null;
+    catchId: string | null;
     catchImageUrl: string | null;
     createdAt: string;
   };
@@ -156,6 +190,9 @@ export default function Social() {
   const [notifications, setNotifications] = useState<NotifItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifs, setLoadingNotifs] = useState(false);
+  const [refreshingNotifs, setRefreshingNotifs] = useState(false);
+  // Timestamp of the previous visit — rows newer than this render as unread
+  const [notifSeenBefore, setNotifSeenBefore] = useState<string | null>(null);
   const lastSeenNotifsKey = "last_seen_notifs";
 
   const loadNotifications = useCallback(async () => {
@@ -248,17 +285,17 @@ export default function Social() {
       for (const r of followRecs.items) {
         const actor = userMap[r.follower_id];
         if (!actor) continue;
-        items.push({ id: `follow-${r.id}`, type: "follow", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: null, createdAt: r.created });
+        items.push({ id: `follow-${r.id}`, type: "follow", actorId: r.follower_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: null, catchImageUrl: null, createdAt: r.created });
       }
       for (const r of likeRecs.items) {
         const actor = userMap[r.user_id];
         if (!actor) continue;
-        items.push({ id: `like-${r.id}`, type: "like", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
+        items.push({ id: `like-${r.id}`, type: "like", actorId: r.user_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: r.catch_id, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
       }
       for (const r of commentRecs.items) {
         const actor = userMap[r.user_id];
         if (!actor) continue;
-        items.push({ id: `comment-${r.id}`, type: "comment", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
+        items.push({ id: `comment-${r.id}`, type: "comment", actorId: r.user_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: r.catch_id, catchImageUrl: catchMap[r.catch_id] ?? null, createdAt: r.created });
       }
 
       items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -276,14 +313,31 @@ export default function Social() {
 
   const openNotifs = async () => {
     setNotifVisible(true);
+    // Capture the prior visit so rows arrived since then render as unread,
+    // then stamp this visit as the new baseline.
+    const prev = await AsyncStorage.getItem(lastSeenNotifsKey);
+    setNotifSeenBefore(prev);
     const now = new Date().toISOString();
     await AsyncStorage.setItem(lastSeenNotifsKey, now);
     setUnreadCount(0);
   };
 
+  const refreshNotifs = async () => {
+    setRefreshingNotifs(true);
+    try {
+      await loadNotifications();
+    } finally {
+      setRefreshingNotifs(false);
+    }
+  };
+
   useEffect(() => {
     loadNotifications();
   }, [loadNotifications]);
+
+  useEffect(() => {
+    DeviceEventEmitter.emit("unreadNotifCountChanged", unreadCount);
+  }, [unreadCount]);
 
   // ── Realtime notification subscriptions ───────────────────────────────────
   useEffect(() => {
@@ -311,7 +365,7 @@ export default function Social() {
       const actor = await fetchActor(e.record.follower_id);
       if (!actor) return;
       pushNotif(
-        { id: `follow-${e.record.id}`, type: "follow", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl: null, createdAt: e.record.created },
+        { id: `follow-${e.record.id}`, type: "follow", actorId: e.record.follower_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: null, catchImageUrl: null, createdAt: e.record.created },
         `${actor.username} followed you`,
       );
     }, { requestKey: null } as any).catch(() => {});
@@ -326,7 +380,7 @@ export default function Social() {
         if (!actor) return;
         const catchImageUrl = catch_.image ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100` : null;
         pushNotif(
-          { id: `like-${e.record.id}`, type: "like", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl, createdAt: e.record.created },
+          { id: `like-${e.record.id}`, type: "like", actorId: e.record.user_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: e.record.catch_id, catchImageUrl, createdAt: e.record.created },
           `${actor.username} liked your catch`,
         );
       } catch {}
@@ -342,7 +396,7 @@ export default function Social() {
         if (!actor) return;
         const catchImageUrl = catch_.image ? `${pb.baseURL}/api/files/${catch_.collectionId}/${catch_.id}/${catch_.image}?thumb=100x100` : null;
         pushNotif(
-          { id: `comment-${e.record.id}`, type: "comment", actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchImageUrl, createdAt: e.record.created },
+          { id: `comment-${e.record.id}`, type: "comment", actorId: e.record.user_id, actorUsername: actor.username, actorAvatarUrl: actor.avatarUrl, catchId: e.record.catch_id, catchImageUrl, createdAt: e.record.created },
           `${actor.username} commented on your catch`,
         );
       } catch {}
@@ -605,7 +659,7 @@ export default function Social() {
       if (!updatedUserId) return;
 
       const avatarUrl = e.record.avatar
-        ? `${pb.baseURL}/api/files/_pb_users_auth_/${updatedUserId}/${e.record.avatar}`
+        ? `${pb.baseURL}/api/files/_pb_users_auth_/${updatedUserId}/${e.record.avatar}?thumb=200x200`
         : null;
       const username = e.record.username || e.record.name || "";
       const badges = parseBadges(e.record.badges);
@@ -741,6 +795,12 @@ export default function Social() {
     isPublic: item.is_public ?? item.isPublic,
   });
   const closeDetail = () => setDetailCatch(null);
+
+  // Tapping a notification jumps to the actor's profile (follow, like or comment)
+  const handleNotifPress = (item: NotifItem) => {
+    setNotifVisible(false);
+    openUser({ id: item.actorId, username: item.actorUsername, name: "", avatarUrl: item.actorAvatarUrl, badges: [] });
+  };
 
   const applyLikeToLists = (catchId: string, delta: number, isLiked: boolean, likeId: string | null) => {
     const patch = (items: CatchItem[]) => items.map((c) =>
@@ -887,6 +947,7 @@ export default function Social() {
 
   const toggleFollow = async (targetUser: any) => {
     if (!user) return;
+    if (targetUser.id === user.id) return; // can't follow yourself
     if (followInFlight.current.has(targetUser.id)) return;
     followInFlight.current.add(targetUser.id);
     const existing = myFollows.find((f) => f.following_id === targetUser.id);
@@ -924,7 +985,7 @@ export default function Social() {
       avatarUrl:
         targetUser.avatarUrl ??
         (targetUser.avatar
-          ? `${pb.baseURL}/api/files/_pb_users_auth_/${targetUser.id}/${targetUser.avatar}`
+          ? `${pb.baseURL}/api/files/_pb_users_auth_/${targetUser.id}/${targetUser.avatar}?thumb=200x200`
           : null),
     });
     setUserCatches([]);
@@ -949,16 +1010,20 @@ export default function Social() {
         }).catch(() => ({ totalItems: 0 })),
       ]);
       if (fullUser) {
-        setSelectedUser((prev: any) => ({
-          ...prev,
-          name: fullUser.name ?? prev.name ?? "",
-          username: fullUser.username ?? prev.username ?? "",
-          badges: fullUser.badges,
-          bio: fullUser.bio ?? "",
-          avatarUrl: fullUser.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${fullUser.id}/${fullUser.avatar}`
-            : prev.avatarUrl ?? null,
-        }));
+        setSelectedUser((prev: any) => {
+          // Profile modal may have been closed while this fetch was in flight
+          if (!prev) return prev;
+          return {
+            ...prev,
+            name: fullUser.name ?? prev.name ?? "",
+            username: fullUser.username ?? prev.username ?? "",
+            badges: fullUser.badges,
+            bio: fullUser.bio ?? "",
+            avatarUrl: fullUser.avatar
+              ? `${pb.baseURL}/api/files/_pb_users_auth_/${fullUser.id}/${fullUser.avatar}?thumb=200x200`
+              : prev.avatarUrl ?? null,
+          };
+        });
       }
       setUserCatches(await enrichCatches(records as any[], user?.id));
       setUserFollowerCount((followersResult as any).totalItems ?? 0);
@@ -1037,18 +1102,21 @@ export default function Social() {
         )}
       </View>
 
-      {/* Photo */}
-      {item.image_uri ? (
-        <ImageWithLoader
-          source={{ uri: item.image_uri }}
-          style={styles.feedPhoto}
-          contentFit="cover"
-        />
-      ) : (
-        <View style={styles.feedPhotoEmpty}>
-          <Ionicons name="camera-outline" size={40} color="#1e3a5f" />
-        </View>
-      )}
+      {/* Photo(s) */}
+      {(() => {
+        const photos = [item.image_uri, ...(item.extraPhotos ?? [])].filter(Boolean) as string[];
+        if (photos.length === 0) {
+          return (
+            <View style={styles.feedPhotoEmpty}>
+              <Ionicons name="camera-outline" size={40} color="#1e3a5f" />
+            </View>
+          );
+        }
+        if (photos.length === 1) {
+          return <ImageWithLoader source={{ uri: photos[0] }} style={styles.feedPhoto} contentFit="cover" />;
+        }
+        return <FeedPhotoCarousel photos={photos} />;
+      })()}
 
       {/* Body */}
       <View style={styles.feedCardBody}>
@@ -1149,6 +1217,21 @@ export default function Social() {
     return language === "ru" ? "прокомментировал ваш улов" : "commented on your catch";
   };
 
+  const notifTimeAgo = (iso: string) => {
+    const then = new Date(iso).getTime();
+    if (isNaN(then)) return "";
+    const sec = Math.max(0, Math.floor((Date.now() - then) / 1000));
+    const ru = language === "ru";
+    if (sec < 60) return ru ? "только что" : "just now";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return ru ? `${min} мин` : `${min}m`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return ru ? `${hr} ч` : `${hr}h`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return ru ? `${day} дн` : `${day}d`;
+    return new Date(iso).toLocaleDateString(ru ? "ru-RU" : "en-US", { month: "short", day: "numeric" });
+  };
+
   const notifIcon = (type: NotifItem["type"]) => {
     if (type === "follow") return <Ionicons name="person-add" size={15} color="#38bdf8" />;
     if (type === "like") return <Ionicons name="heart" size={15} color="#f43f5e" />;
@@ -1161,12 +1244,14 @@ export default function Social() {
       <View style={styles.socialHeader}>
         <Text style={styles.socialHeaderTitle}>{language === "ru" ? "Сообщество" : "Community"}</Text>
         <TouchableOpacity style={styles.notifBtn} onPress={openNotifs}>
-          <Ionicons name="notifications-outline" size={24} color="#e6eef8" />
-          {unreadCount > 0 && (
-            <View style={styles.notifBadge}>
-              <Text style={styles.notifBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-            </View>
-          )}
+          <View>
+            <Ionicons name="notifications-outline" size={24} color="#e6eef8" />
+            {unreadCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+              </View>
+            )}
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -1426,7 +1511,7 @@ export default function Social() {
 
                 {/* Follow action */}
                 <View style={styles.upActionRow}>
-                  {selectedUser && (
+                  {selectedUser && selectedUser.id !== user?.id && (
                     <TouchableOpacity
                       style={[styles.upActionBtn, isFollowing(selectedUser.id) && styles.upActionBtnFollowing]}
                       onPress={() => toggleFollow(selectedUser)}
@@ -1513,7 +1598,7 @@ export default function Social() {
                   <View style={styles.feedAvatar}>
                     {item.avatarUrl || item.avatar ? (
                       <ImageWithLoader
-                        source={{ uri: item.avatarUrl || `${pb.baseURL}/api/files/_pb_users_auth_/${item.id}/${item.avatar}` }}
+                        source={{ uri: item.avatarUrl || `${pb.baseURL}/api/files/_pb_users_auth_/${item.id}/${item.avatar}?thumb=200x200` }}
                         contentFit="cover"
                         style={styles.feedAvatarImage}
                       />
@@ -1572,7 +1657,7 @@ export default function Social() {
                   <View style={styles.feedAvatar}>
                     {item.avatar ? (
                       <ImageWithLoader
-                        source={{ uri: `${pb.baseURL}/api/files/groups/${item.id}/${item.avatar}` }}
+                        source={{ uri: `${pb.baseURL}/api/files/groups/${item.id}/${item.avatar}?thumb=200x200` }}
                         contentFit="cover"
                         style={styles.feedAvatarImage}
                       />
@@ -1684,8 +1769,13 @@ export default function Social() {
                 data={notifications}
                 keyExtractor={(n) => n.id}
                 contentContainerStyle={{ paddingBottom: 32 }}
-                renderItem={({ item }) => (
-                  <View style={styles.notifItem}>
+                refreshControl={
+                  <RefreshControl refreshing={refreshingNotifs} onRefresh={refreshNotifs} tintColor="#94a3b8" />
+                }
+                renderItem={({ item }) => {
+                  const isUnread = notifSeenBefore ? item.createdAt > notifSeenBefore : false;
+                  return (
+                  <TouchableOpacity style={[styles.notifItem, isUnread && styles.notifItemUnread]} activeOpacity={0.6} onPress={() => handleNotifPress(item)}>
                     <View style={styles.notifAvatar}>
                       {item.actorAvatarUrl ? (
                         <ExpoImage source={{ uri: item.actorAvatarUrl }} style={styles.notifAvatarImg} cachePolicy="memory-disk" />
@@ -1699,15 +1789,19 @@ export default function Social() {
                         <Text style={styles.notifItemName}>{item.actorUsername}</Text>
                         {" "}{notifLabel(item)}
                       </Text>
-                      <Text style={styles.notifItemTime}>
-                        {new Date(item.createdAt).toLocaleDateString(language === "ru" ? "ru-RU" : "en-US", { month: "short", day: "numeric" })}
-                      </Text>
+                      <Text style={styles.notifItemTime}>{notifTimeAgo(item.createdAt)}</Text>
                     </View>
                     {item.catchImageUrl && (
                       <ExpoImage source={{ uri: item.catchImageUrl }} style={styles.notifCatchThumb} cachePolicy="memory-disk" />
                     )}
-                  </View>
-                )}
+                    {isUnread ? (
+                      <View style={styles.notifUnreadDot} />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color="#334155" style={{ marginLeft: 6 }} />
+                    )}
+                  </TouchableOpacity>
+                  );
+                }}
               />
             )}
           </View>
@@ -1751,12 +1845,8 @@ const styles = StyleSheet.create({
   feedList: { paddingTop: 8, paddingBottom: 100 },
   feedCard: {
     backgroundColor: "#071023",
-    marginHorizontal: 12,
     marginBottom: 12,
-    borderRadius: 14,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   feedCardHeader: {
     flexDirection: "row",
@@ -1775,6 +1865,9 @@ const styles = StyleSheet.create({
   feedUsername: { color: "#ffffff", fontWeight: "600", fontSize: 14 },
   feedDate: { color: "#94a3b8", fontSize: 12, marginTop: 1 },
   feedPhoto: { width: "100%", height: 280 },
+  feedDotRow: { position: "absolute", bottom: 8, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 6 },
+  feedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.45)" },
+  feedDotActive: { backgroundColor: "#ffffff", width: 16 },
   feedPhotoEmpty: {
     width: "100%", height: 200,
     backgroundColor: "#0b1a2e", alignItems: "center", justifyContent: "center",
@@ -1844,7 +1937,7 @@ const styles = StyleSheet.create({
   commentInputRow: {
     flexDirection: "row", alignItems: "center",
     backgroundColor: "#071023", borderRadius: 10, paddingHorizontal: 12,
-    marginTop: 12, borderWidth: 1, borderColor: "#1e293b",
+    marginTop: 12,
   },
   commentInput: { flex: 1, color: "#e6eef8", fontSize: 14, paddingVertical: 10 },
 
@@ -1895,7 +1988,6 @@ const styles = StyleSheet.create({
     flex: 1, flexDirection: "row", alignItems: "center",
     backgroundColor: "#071023", borderRadius: 10,
     paddingHorizontal: 12, paddingVertical: 9,
-    borderWidth: 1, borderColor: "#1e293b",
   },
   searchBarInput: { flex: 1, color: "#e6eef8", fontSize: 15 },
   searchCancelBtn: { paddingHorizontal: 6, paddingVertical: 4 },
@@ -1970,7 +2062,6 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 8,
     backgroundColor: "#071023", borderRadius: 10,
     padding: 14, marginBottom: 8,
-    borderWidth: 1, borderColor: "#1e293b",
   },
   createGroupBtnText: { color: "#0284c7", fontSize: 15, fontWeight: "700" },
 
@@ -1989,7 +2080,6 @@ const styles = StyleSheet.create({
   },
   createGroupInput: {
     backgroundColor: "#071023", borderRadius: 10,
-    borderWidth: 1, borderColor: "#1e293b",
     color: "#e6eef8", fontSize: 15,
     paddingHorizontal: 14, paddingVertical: 12,
     marginBottom: 12,
@@ -2011,7 +2101,6 @@ const styles = StyleSheet.create({
   lbScroll: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 100 },
   lbGroup: {
     backgroundColor: "#071023", borderRadius: 14,
-    borderWidth: 1, borderColor: "#1e293b",
     marginBottom: 14, overflow: "hidden",
   },
   lbGroupHeader: {
@@ -2050,7 +2139,7 @@ const styles = StyleSheet.create({
   upName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
   upUsername: { color: "#ffffff", fontSize: 14, textAlign: "center" },
   upBio: { color: "#94a3b8", fontSize: 13, marginTop: 6, lineHeight: 18, textAlign: "center", paddingHorizontal: 24 },
-  upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 16, marginHorizontal: 16, backgroundColor: "#071023", borderRadius: 12, borderWidth: 1, borderColor: "#1e293b", paddingVertical: 14 },
+  upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 16, marginHorizontal: 16, paddingVertical: 14 },
   upStatItem: { flex: 1, alignItems: "center" },
   upStatNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
   upStatLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
@@ -2065,7 +2154,7 @@ const styles = StyleSheet.create({
   socialHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
   socialHeaderTitle: { color: "#e6eef8", fontSize: 22, fontWeight: "700" },
   notifBtn: { padding: 6, position: "relative" },
-  notifBadge: { position: "absolute", top: 2, right: 2, backgroundColor: "#ef4444", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  notifBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#ef4444", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
   notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
   notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
@@ -2075,6 +2164,8 @@ const styles = StyleSheet.create({
   notifEmpty: { alignItems: "center", justifyContent: "center", paddingVertical: 48, gap: 12 },
   notifEmptyText: { color: "#475569", fontSize: 15 },
   notifItem: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, gap: 12, borderBottomWidth: 1, borderBottomColor: "#0f1f35" },
+  notifItemUnread: { backgroundColor: "#15243c" },
+  notifUnreadDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: "#38bdf8", marginLeft: 6 },
   notifAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#1e293b", alignItems: "center", justifyContent: "center", position: "relative" },
   notifAvatarImg: { width: 44, height: 44, borderRadius: 22 },
   notifTypeIcon: { position: "absolute", bottom: -2, right: -2, backgroundColor: "#0f172a", borderRadius: 10, padding: 1 },

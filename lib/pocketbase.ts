@@ -12,11 +12,19 @@ const store = new AsyncAuthStore({
   clear: async () => AsyncStorage.removeItem('@pb_auth'),
 });
 
-export const pb = new PocketBase(process.env.EXPO_PUBLIC_POCKETBASE_URL ?? 'https://strikefeed.tech', store);
+export const pb = new PocketBase(process.env.EXPO_PUBLIC_POCKETBASE_URL || 'https://strikefeed.tech', store);
 
 export function isNetworkError(e: any): boolean {
   if (!e || e.isAbort) return false;
   if (e.status === 0) return true;
   const msg = (e?.message ?? '').toLowerCase();
-  return msg.includes('network request failed') || msg.includes('failed to fetch');
+  return (
+    msg.includes('network request failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('unable to resolve host') ||
+    msg.includes('econnrefused') ||
+    msg.includes('etimedout') ||
+    msg.includes('connection refused') ||
+    msg.includes('network error')
+  );
 }

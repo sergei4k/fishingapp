@@ -13,18 +13,28 @@
     },
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_sblOPSglkJvsCqrbLcrBOcBAjOR"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_POCKETBASE_URL": "https://strikefeed.tech",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "goog_sblOPSglkJvsCqrbLcrBOcBAjOR"
+      },
       "android": {
         "buildType": "app-bundle"
       }
     },
     "rustore": {
       "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_POCKETBASE_URL": "https://strikefeed.tech"
+      },
       "android": {
         "buildType": "apk"
       }

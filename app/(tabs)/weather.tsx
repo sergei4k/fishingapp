@@ -11,7 +11,9 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import Svg, { Path } from "react-native-svg";
 import { useLanguage } from "@/lib/language";
+import { usePurchases } from "@/lib/purchases";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 
 type WeatherData = {
@@ -70,13 +72,13 @@ function pressureTrend(hourly: WeatherData["hourly"], t: (k: any) => string): { 
   const idx = hourly.time.findIndex(t => new Date(t) >= now);
   if (idx < 3) return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
   const delta = hourly.pressure_msl[idx] - hourly.pressure_msl[idx - 3];
-  if (delta >= 1.5) return { icon: "trending-up-outline", label: t("pressureRising"), color: "#22c55e" };
+  if (delta >= 1.5) return { icon: "trending-up-outline", label: t("pressureRising"), color: "#5cab6e" };
   if (delta <= -1.5) return { icon: "trending-down-outline", label: t("pressureFalling"), color: "#ef4444" };
   return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
 }
 
 function pressureFishLabel(hpa: number, t: (k: any) => string): { label: string; color: string } {
-  if (hpa < 1014) return { label: t("fishFeedingActive"), color: "#22c55e" };
+  if (hpa < 1014) return { label: t("fishFeedingActive"), color: "#5cab6e" };
   return { label: t("fishNormalActivity"), color: "#94a3b8" };
 }
 
@@ -87,8 +89,8 @@ function fishingScore(wind: number, precip: number, code: number, pressure: numb
   if (code >= 95) score -= 4; else if (code >= 80) score -= 2;
   if (pressure < 1009) score -= 2; else if (pressure >= 1020) score += 1;
   score = Math.max(1, Math.min(10, score));
-  if (score >= 8) return { score, label: t("fishingExcellent"), color: "#22c55e" };
-  if (score >= 6) return { score, label: t("fishingGood"), color: "#84cc16" };
+  if (score >= 8) return { score, label: t("fishingExcellent"), color: "#5cab6e" };
+  if (score >= 6) return { score, label: t("fishingGood"), color: "#9cbf5e" };
   if (score >= 4) return { score, label: t("fishingFair"), color: "#f59e0b" };
   return { score, label: t("fishingPoor"), color: "#ef4444" };
 }
@@ -100,7 +102,38 @@ const V_PAD = 26;
 const YAXIS_W = 36;
 const TIME_H = 28;
 
-function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; t: (k: any) => string }) {
+// Render a polyline as a smooth Catmull-Rom curve by sampling many short
+// sub-segments through the points (avoids the jagged corners of straight lines).
+// Returns segment descriptors to draw as small rotated Views (no SVG needed).
+// Short "new day" label from an API time string ("YYYY-MM-DDTHH:00").
+// Parsed at UTC noon so the calendar date is stable regardless of device tz.
+function formatDayLabel(timeStr: string, language: string): string {
+  const [y, m, d] = timeStr.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d, 12));
+  return date.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US", { weekday: "short", day: "numeric" });
+}
+
+// Build a smooth SVG path (Catmull-Rom converted to cubic Béziers) through the
+// points. Rendered as a single anti-aliased <Path> — crisp, no pixelation.
+function smoothPath(pts: { x: number; y: number }[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
+  let d = `M ${pts[0].x} ${pts[0].y}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+  }
+  return d;
+}
+
+function HourlyChart({ hourly, utcOffsetSeconds, t, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; t: (k: any) => string; language: string }) {
   // Compute the current local time AT THE LOCATION using the API-supplied UTC offset.
   // This is correct regardless of what timezone the device is set to.
   const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
@@ -135,11 +168,11 @@ function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hou
 
   return (
     <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-      <View style={{ backgroundColor: "#071023", borderRadius: 16, borderWidth: 1, borderColor: "#1e293b", paddingTop: 12, overflow: "hidden" }}>
+      <View style={{ paddingTop: 12, overflow: "hidden" }}>
         {/* Legend */}
         <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 14, marginBottom: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <View style={{ width: 22, height: 3, backgroundColor: "#f97316", borderRadius: 2 }} />
+            <View style={{ width: 22, height: 3, backgroundColor: "#e6915a", borderRadius: 2 }} />
             <Text style={{ color: "#94a3b8", fontSize: 11 }}>°C</Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -192,6 +225,20 @@ function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hou
                 backgroundColor: "rgba(96,165,250,0.04)",
               }} />
 
+              {/* New-day dividers */}
+              {data.map((h, i) => {
+                if (i === 0 || h.time.slice(0, 10) === data[i - 1].time.slice(0, 10)) return null;
+                const x = i * COL_W;
+                return (
+                  <React.Fragment key={`day-${i}`}>
+                    <View style={{ position: "absolute", top: 0, left: x, width: 1, height: CHART_H, backgroundColor: "rgba(148,163,184,0.35)" }} />
+                    <Text style={{ position: "absolute", top: 3, left: x + 4, color: "#94a3b8", fontSize: 10, fontWeight: "700" }}>
+                      {formatDayLabel(h.time, language)}
+                    </Text>
+                  </React.Fragment>
+                );
+              })}
+
               {/* Precipitation bars */}
               {data.map((h, i) => {
                 if (h.pop === 0) return null;
@@ -222,30 +269,17 @@ function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hou
                 );
               })}
 
-              {/* Temperature line segments */}
-              {data.map((h, i) => {
-                if (i >= data.length - 1) return null;
-                const x1 = i * COL_W + COL_W / 2;
-                const x2 = (i + 1) * COL_W + COL_W / 2;
-                const y1 = getY(h.temp);
-                const y2 = getY(data[i + 1].temp);
-                const dx = x2 - x1, dy = y2 - y1;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                const angle = Math.atan2(dy, dx);
-                return (
-                  <View
-                    key={`seg-${i}`}
-                    style={{
-                      position: "absolute",
-                      top: (y1 + y2) / 2 - 1.5,
-                      left: (x1 + x2) / 2 - len / 2,
-                      width: len, height: 3,
-                      backgroundColor: "#f97316", borderRadius: 2,
-                      transform: [{ rotate: `${angle}rad` }],
-                    }}
-                  />
-                );
-              })}
+              {/* Temperature line — smooth anti-aliased SVG curve */}
+              <Svg width={totalW} height={CHART_H} style={{ position: "absolute", top: 0, left: 0 }} pointerEvents="none">
+                <Path
+                  d={smoothPath(data.map((h, i) => ({ x: i * COL_W + COL_W / 2, y: getY(h.temp) })))}
+                  stroke="#e6915a"
+                  strokeWidth={5}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
 
               {/* Temperature dots */}
               {data.map((h, i) => {
@@ -258,7 +292,7 @@ function HourlyChart({ hourly, utcOffsetSeconds, t }: { hourly: WeatherData["hou
                       position: "absolute",
                       top: cy - 4, left: cx - 4,
                       width: 8, height: 8, borderRadius: 4,
-                      backgroundColor: "#f97316",
+                      backgroundColor: "#e6915a",
                       borderWidth: 2, borderColor: "#071023",
                     }}
                   />
@@ -322,7 +356,7 @@ const WIND_YAXIS_W = 36;
 const WIND_DIR_H = 34;
 const WIND_TIME_H = 28;
 
-function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number }) {
+function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; language: string }) {
   const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
@@ -355,7 +389,7 @@ function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]
 
   return (
     <View style={{ marginHorizontal: 16, marginBottom: 24 }}>
-      <View style={{ backgroundColor: "#071023", borderRadius: 16, borderWidth: 1, borderColor: "#1e293b", paddingTop: 12, overflow: "hidden" }}>
+      <View style={{ paddingTop: 12, overflow: "hidden" }}>
         <View style={{ flexDirection: "row", gap: 16, paddingHorizontal: 14, marginBottom: 10 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 22, height: 3, backgroundColor: "#22d3ee", borderRadius: 2 }} />
@@ -402,29 +436,31 @@ function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]
                 backgroundColor: "rgba(96,165,250,0.04)",
               }} />
 
+              {/* New-day dividers */}
               {data.map((h, i) => {
-                if (i >= data.length - 1) return null;
-                const x1 = i * WIND_COL_W + WIND_COL_W / 2;
-                const x2 = (i + 1) * WIND_COL_W + WIND_COL_W / 2;
-                const y1 = getY(h.wind);
-                const y2 = getY(data[i + 1].wind);
-                const dx = x2 - x1, dy = y2 - y1;
-                const len = Math.sqrt(dx * dx + dy * dy);
-                const angle = Math.atan2(dy, dx);
+                if (i === 0 || h.time.slice(0, 10) === data[i - 1].time.slice(0, 10)) return null;
+                const x = i * WIND_COL_W;
                 return (
-                  <View
-                    key={`wseg-${i}`}
-                    style={{
-                      position: "absolute",
-                      top: (y1 + y2) / 2 - 1.5,
-                      left: (x1 + x2) / 2 - len / 2,
-                      width: len, height: 3,
-                      backgroundColor: "#22d3ee", borderRadius: 2,
-                      transform: [{ rotate: `${angle}rad` }],
-                    }}
-                  />
+                  <React.Fragment key={`wday-${i}`}>
+                    <View style={{ position: "absolute", top: 0, left: x, width: 1, height: WIND_CHART_H, backgroundColor: "rgba(148,163,184,0.35)" }} />
+                    <Text style={{ position: "absolute", top: 3, left: x + 4, color: "#94a3b8", fontSize: 10, fontWeight: "700" }}>
+                      {formatDayLabel(h.time, language)}
+                    </Text>
+                  </React.Fragment>
                 );
               })}
+
+              {/* Wind line — smooth anti-aliased SVG curve */}
+              <Svg width={totalW} height={WIND_CHART_H} style={{ position: "absolute", top: 0, left: 0 }} pointerEvents="none">
+                <Path
+                  d={smoothPath(data.map((h, i) => ({ x: i * WIND_COL_W + WIND_COL_W / 2, y: getY(h.wind) })))}
+                  stroke="#22d3ee"
+                  strokeWidth={5}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
 
               {data.map((h, i) => {
                 const cx = i * WIND_COL_W + WIND_COL_W / 2;
@@ -522,8 +558,86 @@ function WindChart({ hourly, utcOffsetSeconds }: { hourly: WeatherData["hourly"]
   );
 }
 
+function BiteFactor({ icon, label, value, valueColor }: { icon: any; label: string; value: string; valueColor?: string }) {
+  return (
+    <View style={styles.biteFactor}>
+      <Ionicons name={icon} size={15} color="#94a3b8" />
+      <Text style={styles.biteFactorLabel}>{label}</Text>
+      <Text style={[styles.biteFactorValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+    </View>
+  );
+}
+
+// Premium "Bite Forecast": a 1-10 fishing-conditions score derived from wind,
+// pressure trend and precipitation. Locked behind Pro (unless purchases are
+// unavailable on this build, e.g. RuStore, where it's shown for free).
+function BiteForecast({
+  current, hourly, unlocked, onUnlock, t, language,
+}: {
+  current: WeatherData["current"];
+  hourly: WeatherData["hourly"];
+  unlocked: boolean;
+  onUnlock: () => void;
+  t: (k: any) => string;
+  language: string;
+}) {
+  const fish = fishingScore(current.wind_speed_10m, current.precipitation, current.weather_code, current.pressure_msl, t);
+  const trend = pressureTrend(hourly, t);
+
+  return (
+    <>
+      <Text style={styles.sectionTitle}>{language === "ru" ? "Прогноз клёва" : "Bite Forecast"}</Text>
+      <View style={styles.biteCard}>
+        {unlocked ? (
+          <>
+            <View style={styles.biteTop}>
+              <View>
+                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
+                  <Text style={[styles.biteScore, { color: fish.color }]}>{fish.score}</Text>
+                  <Text style={styles.biteScoreMax}>/10</Text>
+                </View>
+                <Text style={[styles.biteLabel, { color: fish.color }]}>{fish.label}</Text>
+              </View>
+              <Ionicons name="fish" size={44} color={fish.color} />
+            </View>
+            <View style={styles.scoreBar}>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <View key={i} style={[styles.scoreSegment, { backgroundColor: i < fish.score ? fish.color : "#1e293b" }]} />
+              ))}
+            </View>
+            <View style={styles.biteFactors}>
+              <BiteFactor icon="navigate-outline" label={language === "ru" ? "Ветер" : "Wind"} value={`${Math.round(current.wind_speed_10m)} km/h`} />
+              <BiteFactor icon="speedometer-outline" label={language === "ru" ? "Давление" : "Pressure"} value={trend.label} valueColor={trend.color} />
+              <BiteFactor icon="rainy-outline" label={language === "ru" ? "Осадки" : "Precip"} value={`${current.precipitation} mm`} />
+            </View>
+          </>
+        ) : (
+          <TouchableOpacity activeOpacity={0.85} onPress={onUnlock} style={styles.biteLocked}>
+            <View style={styles.biteLockIcon}>
+              <Ionicons name="lock-closed" size={22} color="#f59e0b" />
+            </View>
+            <Text style={styles.biteLockedTitle}>
+              {language === "ru" ? "Прогноз клёва — Премиум" : "Bite Forecast — Premium"}
+            </Text>
+            <Text style={styles.biteLockedSub}>
+              {language === "ru"
+                ? "Оценка клёва по ветру, давлению и погоде. Откройте с Премиум."
+                : "A bite score from wind, pressure & conditions. Unlock with Premium."}
+            </Text>
+            <View style={styles.biteUnlockBtn}>
+              <Ionicons name="star" size={14} color="#0f172a" />
+              <Text style={styles.biteUnlockText}>{language === "ru" ? "Открыть Премиум" : "Unlock Premium"}</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </View>
+    </>
+  );
+}
+
 export default function Weather() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const { isPro, enabled: purchasesEnabled, presentPaywall } = usePurchases();
   const [weather, setWeather] = useState<WeatherData | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -666,13 +780,23 @@ export default function Weather() {
           </View>
         </View>
 
+        {/* Bite forecast (premium) */}
+        <BiteForecast
+          current={c}
+          hourly={weather.hourly}
+          unlocked={isPro || !purchasesEnabled}
+          onUnlock={presentPaywall}
+          t={t}
+          language={language}
+        />
+
         {/* Hourly chart: temperature + precipitation */}
         <Text style={styles.sectionTitle}>{t("hourlyForecast")}</Text>
-        <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} t={t} />
+        <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} t={t} language={language} />
 
         {/* Hourly wind chart */}
         <Text style={styles.sectionTitle}>{t("windForecast")}</Text>
-        <WindChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} />
+        <WindChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} language={language} />
 
       </ScrollView>
     </SafeAreaView>
@@ -684,8 +808,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   locationText: { color: "#94a3b8", fontSize: 14 },
   currentCard: {
-    backgroundColor: "#071023", borderRadius: 16, padding: 20,
-    marginHorizontal: 16, marginBottom: 12, borderWidth: 1, borderColor: "#1e293b",
+    paddingVertical: 12,
+    marginHorizontal: 16, marginBottom: 12,
   },
   currentTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
   currentTemp: { color: "#e6eef8", fontSize: 72, fontWeight: "200" },
@@ -697,8 +821,7 @@ const styles = StyleSheet.create({
 
   infoRow: { flexDirection: "row", marginHorizontal: 16, gap: 10, marginBottom: 16 },
   infoCard: {
-    backgroundColor: "#071023", borderRadius: 16, padding: 14,
-    borderWidth: 1, borderColor: "#1e293b",
+    paddingVertical: 6,
   },
   infoCardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   infoCardTitle: { color: "#94a3b8", fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 },
@@ -709,8 +832,34 @@ const styles = StyleSheet.create({
 
   fishingBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
   fishingBadgeText: { fontSize: 13, fontWeight: "600" },
-  scoreBar: { flexDirection: "row", gap: 3 },
+  scoreBar: { flexDirection: "row", gap: 3, marginBottom: 16 },
   scoreSegment: { flex: 1, height: 5, borderRadius: 3 },
+
+  biteCard: {
+    paddingVertical: 6,
+    marginHorizontal: 16, marginBottom: 24,
+  },
+  biteTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+  biteScore: { fontSize: 44, fontWeight: "800" },
+  biteScoreMax: { color: "#94a3b8", fontSize: 16, fontWeight: "600" },
+  biteLabel: { fontSize: 15, fontWeight: "700", marginTop: 2 },
+  biteFactors: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+  biteFactor: { flex: 1, alignItems: "center", gap: 3 },
+  biteFactorLabel: { color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
+  biteFactorValue: { color: "#e6eef8", fontSize: 13, fontWeight: "600", textAlign: "center" },
+
+  biteLocked: { alignItems: "center", paddingVertical: 8 },
+  biteLockIcon: {
+    width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center",
+    backgroundColor: "rgba(245,158,11,0.12)", marginBottom: 12,
+  },
+  biteLockedTitle: { color: "#e6eef8", fontSize: 16, fontWeight: "700", marginBottom: 6, textAlign: "center" },
+  biteLockedSub: { color: "#94a3b8", fontSize: 13, textAlign: "center", lineHeight: 19, marginBottom: 16, paddingHorizontal: 8 },
+  biteUnlockBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "#f59e0b", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 20,
+  },
+  biteUnlockText: { color: "#0f172a", fontSize: 14, fontWeight: "700" },
 
   sectionTitle: {
     color: "#94a3b8", fontSize: 13, fontWeight: "600", textTransform: "uppercase",

@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     backgroundColor: "#071023", borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 12,
-    marginTop: 20, borderWidth: 1, borderColor: "#1e293b",
+    marginTop: 20,
     gap: 12,
   },
   toggleLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },

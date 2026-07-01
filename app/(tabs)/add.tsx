@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Blurhash } from 'react-native-blurhash';
 import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
@@ -40,6 +41,30 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import speciesPhotoMap from "@/lib/speciesPhotos";
+
+// Lightly compress a photo before upload: cap the long edge at 2048px (no
+// upscaling) and re-encode JPEG at 0.85 quality. Cuts multi-MB phone photos to
+// ~1MB with no visible difference on a phone screen, so they load fast on a cold
+// cache. Falls back to the original uri if manipulation fails.
+const MAX_DIM = 2048;
+async function compressPhoto(uri: string): Promise<string> {
+  try {
+    const probe = await ImageManipulator.manipulateAsync(uri, [], {});
+    const longest = Math.max(probe.width, probe.height);
+    const actions: ImageManipulator.Action[] =
+      longest > MAX_DIM
+        ? [{ resize: probe.width >= probe.height ? { width: MAX_DIM } : { height: MAX_DIM } }]
+        : [];
+    const out = await ImageManipulator.manipulateAsync(uri, actions, {
+      compress: 0.85,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+    return out.uri;
+  } catch (e) {
+    console.warn("compressPhoto failed, using original:", e);
+    return uri;
+  }
+}
 
 export default function Add() {
   const { language, t } = useLanguage();
@@ -227,6 +252,10 @@ export default function Add() {
       const weightNum = weight ? Number(weight) : null;
       const createdAt = Date.now();
 
+      // Compress once; reuse the result for both the upload and the local copy.
+      const uploadImage = image ? await compressPhoto(image) : null;
+      const uploadExtras = await Promise.all(extraPhotos.map(compressPhoto));
+
       let pbImageUrl: string | undefined;
       let pbRecordId: string | undefined;
       let savedOffline = false;
@@ -246,13 +275,21 @@ export default function Add() {
           formData.append('created_at', String(createdAt));
           formData.append('is_public', effectivelyPublic ? 'true' : 'false');
 
-          if (image) {
+          if (uploadImage) {
             formData.append('image', {
-              uri: image,
+              uri: uploadImage,
               name: 'catch.jpg',
               type: 'image/jpeg',
             } as any);
           }
+
+          uploadExtras.forEach((uri, i) => {
+            formData.append('images', {
+              uri,
+              name: `catch_extra_${i}.jpg`,
+              type: 'image/jpeg',
+            } as any);
+          });
 
           const record = await pb.collection('catches').create(formData);
           pbRecordId = record.id;
@@ -285,11 +322,11 @@ export default function Add() {
       }
 
       // Always copy to permanent local storage so image loads offline
-      let localImageUri = image;
-      if (image) {
+      let localImageUri = uploadImage;
+      if (uploadImage) {
         try {
           const dest = new File(Paths.document, `catch_${createdAt}.jpg`);
-          new File(image).copy(dest);
+          new File(uploadImage).copy(dest);
           localImageUri = dest.uri;
         } catch (e) {
           console.warn('Failed to copy image to permanent storage:', e);
@@ -297,13 +334,13 @@ export default function Add() {
       }
 
       const persistedExtraPhotos: string[] = [];
-      for (let i = 0; i < extraPhotos.length; i++) {
+      for (let i = 0; i < uploadExtras.length; i++) {
         try {
           const dest = new File(Paths.document, `catch_${createdAt}_extra_${i}.jpg`);
-          new File(extraPhotos[i]).copy(dest);
+          new File(uploadExtras[i]).copy(dest);
           persistedExtraPhotos.push(dest.uri);
         } catch (e) {
-          persistedExtraPhotos.push(extraPhotos[i]);
+          persistedExtraPhotos.push(uploadExtras[i]);
         }
       }
 

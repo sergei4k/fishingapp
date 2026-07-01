@@ -233,7 +233,7 @@ export default function Map() {
             author_username: r.expand?.user_id?.username ?? null,
             author_name: r.expand?.user_id?.name ?? null,
             author_avatar: r.expand?.user_id?.avatar
-              ? `${pb.baseURL}/api/files/_pb_users_auth_/${r.user_id}/${r.expand.user_id.avatar}`
+              ? `${pb.baseURL}/api/files/_pb_users_auth_/${r.user_id}/${r.expand.user_id.avatar}?thumb=200x200`
               : null,
           }))
       );
@@ -533,8 +533,8 @@ export default function Map() {
           id="catches"
           shape={catchesGeoJSON}
           cluster
-          clusterRadius={50}
-          clusterMaxZoomLevel={10}
+          clusterRadius={30}
+          clusterMaxZoomLevel={5}
           onPress={handleMarkerPress}
         >
           <MapboxGL.CircleLayer
@@ -638,7 +638,6 @@ export default function Map() {
       {/* Empty state — shown only after catches are confirmed to be empty */}
       {catchesLoaded && markers.length === 0 && !previewCatch && !newSpotCoord && (
         <View style={styles.emptyCard}>
-          <Ionicons name="fish-outline" size={28} color="#38bdf8" style={{ marginBottom: 8 }} />
           <Text style={styles.emptyCardTitle}>{t("noCatchesYet")}</Text>
           <Text style={styles.emptyCardSub}>{t("noCatchesMapSub")}</Text>
           <TouchableOpacity style={styles.emptyCardBtn} onPress={() => router.push("/(tabs)/add")}>
@@ -803,7 +802,7 @@ export default function Map() {
           username: detailCatch.isOwn ? user?.username : (detailCatch.authorUsername ?? undefined),
           name: detailCatch.isOwn ? user?.name : (detailCatch.authorName ?? undefined),
           avatarUrl: detailCatch.isOwn
-            ? (user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` : undefined)
+            ? (user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` : undefined)
             : (detailCatch.authorAvatar ?? undefined),
           lat: detailCatch.lat,
           lon: detailCatch.lon,

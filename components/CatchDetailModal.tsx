@@ -127,6 +127,9 @@ export default function CatchDetailModal({
     return list.map((comment, index) => (index === existingIndex ? nextComment : comment));
   };
 
+  const avatarUrlFromUser = (u: any): string | null =>
+    u?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100` : null;
+
   const formatCommentDate = (value: unknown) => {
     if (!value) return "";
     const date = new Date(typeof value === "number" ? value : String(value));
@@ -175,7 +178,19 @@ export default function CatchDetailModal({
         const myLike = likesResult.find((l: any) => l.user_id === user?.id);
         setIsLiked(!!myLike);
         setLikeId(myLike?.id ?? null);
-        setComments(commentsResult);
+
+        // Fetch commenters' avatars explicitly (works whether user_id is a relation or text)
+        const commenterIds = [...new Set(commentsResult.map((c: any) => c.user_id).filter(Boolean))] as string[];
+        const userMap: Record<string, any> = {};
+        if (commenterIds.length > 0) {
+          const users = await pb.collection("users").getFullList({
+            filter: commenterIds.map((id) => `id = "${id}"`).join(" || "),
+            fields: "id,avatar",
+            requestKey: null,
+          }).catch(() => [] as any[]);
+          for (const u of users) userMap[u.id] = u;
+        }
+        setComments(commentsResult.map((c: any) => ({ ...c, _avatarUrl: avatarUrlFromUser(userMap[c.user_id]) })));
         setCommentsInitialized(true);
       } catch {}
     })();
@@ -184,11 +199,21 @@ export default function CatchDetailModal({
     pb.collection("comments").subscribe("*", (e) => {
       if (e.record?.catch_id !== catchId) return;
       if (e.action === "create") {
-        setComments((prev) => {
-          const next = upsertComment(prev, e.record);
-          return next;
-        });
+        setComments((prev) => upsertComment(prev, e.record));
         setCommentsInitialized(true);
+        // Backfill the commenter's avatar (realtime events have no expand)
+        (async () => {
+          let avatarUrl: string | null = null;
+          try {
+            if (e.record.user_id === user?.id) {
+              avatarUrl = avatarUrlFromUser(user);
+            } else {
+              const u = await pb.collection("users").getOne(e.record.user_id, { fields: "id,avatar", requestKey: null });
+              avatarUrl = avatarUrlFromUser(u);
+            }
+          } catch {}
+          setComments((prev) => prev.map((c) => (c.id === e.record.id ? { ...c, _avatarUrl: avatarUrl } : c)));
+        })();
       } else if (e.action === "delete") {
         setComments((prev) => prev.filter((c) => c.id !== e.record.id));
         setCommentsInitialized(true);
@@ -285,7 +310,7 @@ export default function CatchDetailModal({
         username: user.username || user.name || "",
         text: newComment.trim(),
       });
-      setComments((prev) => upsertComment(prev, record));
+      setComments((prev) => upsertComment(prev, { ...record, _avatarUrl: avatarUrlFromUser(user) }));
       setCommentsInitialized(true);
       setNewComment("");
       onCommentAdded?.(item.id);
@@ -503,6 +528,15 @@ export default function CatchDetailModal({
                   const isOwn = c.user_id === user?.id;
                   return (
                     <View key={c.id || i} style={[styles.commentRow, isOwn && styles.commentRowOwn]}>
+                      {!isOwn && (
+                        <View style={styles.commentAvatar}>
+                          {c._avatarUrl ? (
+                            <ExpoImage source={{ uri: c._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} />
+                          ) : (
+                            <Text style={styles.commentAvatarText}>{(c.username || "?").slice(0, 2).toUpperCase()}</Text>
+                          )}
+                        </View>
+                      )}
                       <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
                         {!isOwn && (
                           <Text style={styles.commentUsername}>{c.username}</Text>
@@ -920,9 +954,19 @@ const styles = StyleSheet.create({
   },
   commentRow: {
     flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 6,
     marginBottom: 8,
     justifyContent: "flex-start",
   },
+  commentAvatar: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: "#0f3460",
+    alignItems: "center", justifyContent: "center",
+    overflow: "hidden",
+  },
+  commentAvatarImg: { width: 28, height: 28, borderRadius: 14 },
+  commentAvatarText: { color: "#ffffff", fontSize: 10, fontWeight: "700" },
   commentRowOwn: {
     justifyContent: "flex-end",
   },
@@ -974,8 +1018,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginTop: 20,
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#94a3b8", fontSize: 12 },
@@ -1036,8 +1078,6 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 10,
     gap: 12,
-    borderWidth: 1,
-    borderColor: "#1e293b",
   },
   editPickerThumb: { width: 44, height: 44 },
   editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },

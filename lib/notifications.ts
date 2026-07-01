@@ -110,6 +110,19 @@ export async function sendPushNotification(token: string, title: string, body: s
   }
 }
 
+export async function clearDeliveredNotifications(): Promise<void> {
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+  try {
+    await Promise.all([
+      Notifications.dismissAllNotificationsAsync(),
+      Notifications.setBadgeCountAsync(0),
+    ]);
+  } catch (e) {
+    console.warn("clearDeliveredNotifications error:", e);
+  }
+}
+
 export async function syncPushTokenForUser(userId: string): Promise<string | null> {
   const token = await registerForPushNotificationsAsync();
   if (!token) {

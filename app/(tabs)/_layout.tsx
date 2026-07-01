@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
-import React from 'react';
-import { Pressable, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { DeviceEventEmitter, Pressable, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -47,6 +47,15 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 }
 
 export default function TabsLayout() {
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("unreadNotifCountChanged", (count: number) => {
+      setUnreadNotifCount(count);
+    });
+    return () => sub.remove();
+  }, []);
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0f172a' }}>
       <Tabs
@@ -64,7 +73,14 @@ export default function TabsLayout() {
           name="social"
           options={{
             title: 'Social',
-            tabBarIcon: ({ color }) => <Ionicons name="people-outline" size={24} color={color} />,
+            tabBarIcon: ({ color }) => (
+              <View>
+                <Ionicons name="people-outline" size={24} color={color} />
+                {unreadNotifCount > 0 && (
+                  <View style={{ position: "absolute", top: -2, right: -4, width: 8, height: 8, borderRadius: 4, backgroundColor: "#ef4444" }} />
+                )}
+              </View>
+            ),
           }}
         />
         <Tabs.Screen
