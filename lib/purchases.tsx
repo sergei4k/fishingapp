@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Platform } from "react-native";
+import { DeviceEventEmitter, Platform } from "react-native";
 import Constants from "expo-constants";
 import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesPackage } from "react-native-purchases";
 import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
@@ -53,11 +53,18 @@ async function grantVerifiedBadge(): Promise<void> {
   const current = parseBadges(rec.badges);
   if (current.includes("verified")) return; // already granted
   const next = [...current, "verified"];
+  // Reflect verified LOCALLY first so the checkmark appears immediately with no
+  // refresh — pb.authStore.save fires authStore.onChange -> user state updates
+  // synchronously, so profile/settings re-render right away.
+  pb.authStore.save(pb.authStore.token, { ...rec, badges: next });
+  // Broadcast so cached feed/profile lists patch this user's badges live too.
+  DeviceEventEmitter.emit("verifiedBadgeGranted", rec.id);
+  // Best-effort server write. The badges field is typically write-protected for
+  // clients, so this may 403 — real persistence is the RevenueCat webhook's job.
   try {
     await pb.collection("users").update(rec.id, { badges: next });
-    pb.authStore.save(pb.authStore.token, { ...rec, badges: next });
   } catch (e) {
-    console.warn("[purchases] verified badge grant failed:", e);
+    console.warn("[purchases] verified badge server write failed (kept locally):", e);
   }
 }
 

@@ -640,6 +640,23 @@ export default function Social() {
     return () => { subCount.remove(); };
   }, [syncCommentCountInLists]);
 
+  // ── Verified badge granted (on subscription) — patch cached lists live ───
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener("verifiedBadgeGranted", (userId: string) => {
+      const patch = (items: CatchItem[]) =>
+        items.map((c) =>
+          c.user_id === userId && !c._badges.includes("verified")
+            ? { ...c, _badges: [...c._badges, "verified" as BadgeId] }
+            : c
+        );
+      setDiscoverItems(patch);
+      setFeedItems(patch);
+      setUserCatches(patch);
+    });
+    return () => { sub.remove(); };
+  }, []);
+
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("catchWithLengthAdded", () => {
       leaderboardLoaded.current = false;
