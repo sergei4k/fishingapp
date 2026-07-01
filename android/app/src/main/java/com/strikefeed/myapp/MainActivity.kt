@@ -1,4 +1,4 @@
-package com.rybolov.app
+package com.strikefeed.myapp
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

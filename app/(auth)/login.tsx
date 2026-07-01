@@ -1,12 +1,17 @@
 import { useAuth } from '@/lib/auth';
 import { useLanguage, type Language } from '@/lib/language';
-import { FontAwesome } from '@expo/vector-icons';
+import { pb } from '@/lib/pocketbase';
+import Constants from 'expo-constants';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  ImageBackground,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -18,7 +23,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
-  const { signIn } = useAuth();
+  const { signIn, signInWithGoogle } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
@@ -26,6 +31,38 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [forgotVisible, setForgotVisible] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetEmail.trim()) return;
+    setResetLoading(true);
+    try {
+      await pb.collection('users').requestPasswordReset(resetEmail.trim());
+      Alert.alert(t('resetPasswordSent'), t('resetPasswordSentMessage'));
+      setForgotVisible(false);
+      setResetEmail('');
+    } catch {
+      Alert.alert(t('error'), t('resetPasswordError'));
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithGoogle();
+    setLoading(false);
+    if (error && error.message === 'GOOGLE_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Google. Попробуйте войти по email и паролю.'
+          : 'Google sign-in failed. Please try email and password instead.',
+      );
+    }
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password) {
@@ -38,158 +75,232 @@ export default function Login() {
     setLoading(false);
 
     if (error) {
-      Alert.alert(t('error'), error.message);
+      const msg = error.message === 'OFFLINE' ? t('offlineError')
+        : error.message === 'WRONG_PASSWORD' ? t('wrongPassword')
+        : t('wrongPassword');
+      Alert.alert(t('error'), msg);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={{ flex: 1 }}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
+    <ImageBackground
+      source={require('../../assets/images/loginscreen.jpg')}
+      style={styles.bg}
+      resizeMode="cover"
+    >
+      <View style={styles.overlay} />
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
         >
-          <View style={styles.langRow}>
-            <TouchableOpacity
-              style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
-              onPress={() => setLanguage('ru' as Language)}
-            >
-              <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
-              onPress={() => setLanguage('en' as Language)}
-            >
-              <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View>
-            <Text style={styles.heading}>{t('welcome')}</Text>
-          </View>
-
-          <View style={styles.form}>
-            <Text style={styles.formTitle}>{t('login')}</Text>
-
-            <View style={styles.inputWrapper}>
-              <FontAwesome name="envelope" size={16} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder={t('emailPlaceholder')}
-                placeholderTextColor="#4b5563"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                keyboardAppearance="dark"
-                returnKeyType="next"
-              />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <FontAwesome name="lock" size={18} color="#94a3b8" style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { flex: 1 }]}
-                placeholder={t('passwordPlaceholder')}
-                placeholderTextColor="#4b5563"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                keyboardAppearance="dark"
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-              />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                <FontAwesome name={showPassword ? 'eye-slash' : 'eye'} size={18} color="#94a3b8" />
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={styles.langRow}>
+              <TouchableOpacity
+                style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
+                onPress={() => setLanguage('ru' as Language)}
+              >
+                <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
+                onPress={() => setLanguage('en' as Language)}
+              >
+                <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
               </TouchableOpacity>
             </View>
 
-            <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.buttonText}>{t('loginButton')}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
+            <View style={styles.heroText}>
+              <Text style={styles.heading}>{t('welcome')}</Text>
+              <Text style={styles.subheading}>{t('welcomeSubtitle')}</Text>
+            </View>
 
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>{t('noAccount')}</Text>
-            <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-              <Text style={styles.footerLink}>{t('registerLink')}</Text>
-            </TouchableOpacity>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+            <View style={styles.form}>
+              <Text style={styles.formTitle}>{t('login')}</Text>
+
+              <View style={styles.inputWrapper}>
+                <Ionicons name="mail-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('emailPlaceholder')}
+                  placeholderTextColor="#4b5563"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  keyboardAppearance="dark"
+                  returnKeyType="next"
+                />
+              </View>
+
+              <View style={styles.inputWrapper}>
+                <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder={t('passwordPlaceholder')}
+                  placeholderTextColor="#4b5563"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  keyboardAppearance="dark"
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={18} color="#94a3b8" />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.button, loading && styles.buttonDisabled]}
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.8}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>{t('loginButton')}</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity onPress={() => { setResetEmail(email); setForgotVisible(true); }} style={styles.forgotBtn}>
+                <Text style={styles.forgotText}>{t('forgotPassword')}</Text>
+              </TouchableOpacity>
+
+              <View style={styles.dividerRow}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>{language === 'ru' ? 'или' : 'or'}</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              <TouchableOpacity style={styles.googleBtn} onPress={handleGoogleLogin} disabled={loading} activeOpacity={0.85}>
+                <Image source={require('../../assets/images/google-logo.png')} style={styles.googleLogo} />
+                <Text style={styles.googleBtnText}>{language === 'ru' ? 'Войти через Google' : 'Continue with Google'}</Text>
+              </TouchableOpacity>
+
+            </View>
+
+            <Modal visible={forgotVisible} transparent animationType="fade" onRequestClose={() => setForgotVisible(false)}>
+              <View style={styles.modalOverlay}>
+                <View style={styles.modalBox}>
+                  <Text style={styles.modalTitle}>{t('resetPassword')}</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="mail-outline" size={16} color="#94a3b8" style={styles.inputIcon} />
+                    <TextInput
+                      style={styles.input}
+                      placeholder={t('resetEmailPlaceholder')}
+                      placeholderTextColor="#4b5563"
+                      value={resetEmail}
+                      onChangeText={setResetEmail}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      keyboardAppearance="dark"
+                    />
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    onPress={handleResetPassword}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>{t('resetPassword')}</Text>}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setForgotVisible(false)} style={styles.forgotBtn}>
+                    <Text style={styles.forgotText}>{t('cancel') ?? 'Cancel'}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Modal>
+
+            <View style={styles.footer}>
+              <Text style={styles.footerText}>{t('noAccount')}</Text>
+              <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
+                <Text style={styles.footerLink}>{t('registerLink')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.versionText}>v{Constants.expoConfig?.version ?? ''}</Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
+  bg: {
+    flex: 1,
+  },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(5, 12, 26, 0.62)',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: 24,
   },
-  heading: {
-    color: '#e6eef8',
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textAlign: 'center',
-    marginBottom: 40,
-  },
-
-
-  
-  header: {
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: '#071023',
-    alignItems: 'center',
-    justifyContent: 'center',
+  langRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
     marginBottom: 16,
+  },
+  langBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    backgroundColor: 'rgba(7, 16, 35, 0.6)',
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
-  iconText: {
-    fontSize: 40,
+  langBtnActive: {
+    borderColor: '#ffffff',
+    backgroundColor: 'rgba(15, 34, 54, 0.8)',
   },
-  appName: {
-    color: '#e6eef8',
-    fontSize: 28,
+  langBtnText: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  langBtnTextActive: {
+    color: '#ffffff',
+  },
+  heroText: {
+    alignItems: 'center',
+    marginBottom: 36,
+  },
+  heading: {
+    color: '#ffffff',
+    fontSize: 32,
     fontWeight: '800',
     letterSpacing: 1,
-  },
-  subtitle: {
-    color: '#94a3b8',
-    fontSize: 14,
-    marginTop: 6,
     textAlign: 'center',
+    marginBottom: 8,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 6,
+  },
+  subheading: {
+    color: 'rgba(255,255,255,0.65)',
+    fontSize: 15,
+    textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.4)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 4,
   },
   form: {
-    backgroundColor: '#071023',
+    backgroundColor: 'rgba(7, 16, 35, 0.82)',
     borderRadius: 16,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
   formTitle: {
     color: '#e6eef8',
@@ -200,7 +311,7 @@ const styles = StyleSheet.create({
   inputWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0f172a',
+    backgroundColor: 'rgba(15, 23, 42, 0.8)',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: '#1f2937',
@@ -222,7 +333,7 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   button: {
-    backgroundColor: '#0ea5e9',
+    backgroundColor: '#0c4a6e',
     borderRadius: 10,
     paddingVertical: 15,
     alignItems: 'center',
@@ -244,38 +355,113 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   footerText: {
-    color: '#94a3b8',
+    color: 'rgba(255,255,255,0.55)',
     fontSize: 14,
   },
   footerLink: {
-    color: '#60a5fa',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
   },
-  langRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 8,
-    marginBottom: 16,
+  versionText: {
+    color: 'rgb(218, 218, 218)',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 16,
   },
-  langBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    backgroundColor: '#071023',
+  forgotBtn: {
+    alignItems: 'center',
+    marginTop: 14,
+  },
+  forgotText: {
+    color: '#94a3b8',
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalBox: {
+    backgroundColor: '#0f1b2d',
+    borderRadius: 16,
+    padding: 24,
     borderWidth: 1,
-    borderColor: '#1e293b',
+    borderColor: 'rgba(255,255,255,0.08)',
   },
-  langBtnActive: {
-    borderColor: '#60a5fa',
-    backgroundColor: '#0f2236',
+  modalTitle: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 20,
   },
-  langBtnText: {
-    color: '#64748b',
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  dividerText: {
+    color: '#94a3b8',
     fontSize: 13,
-    fontWeight: '600',
   },
-  langBtnTextActive: {
-    color: '#60a5fa',
+  vkBtn: {
+    backgroundColor: '#0077FF',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthBtn: {
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  oauthLogo: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  oauthLogoText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
+  },
+  oauthBtnText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  googleBtn: {
+    backgroundColor: '#ffffff',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  googleLogo: {
+    width: 22,
+    height: 22,
+  },
+  googleBtnText: {
+    color: '#111827',
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

@@ -3,43 +3,49 @@ import "react-native-gesture-handler";
 
 import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel } from "@/lib/species";
+import { getGearLabel } from "@/lib/gear";
+import gearPhotos from "@/lib/gearPhotos";
+import CatchDetailModal from "@/components/CatchDetailModal";
+import SpotDetailModal, { type Spot } from "@/components/SpotDetailModal";
 import { getCatches } from "@/lib/storage";
 import { pb } from "@/lib/pocketbase";
 import { useAuth } from "@/lib/auth";
-import { FontAwesome } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import MapboxGL from "@rnmapbox/maps";
 import * as Location from "expo-location";
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
+import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
-  Modal,
+  DeviceEventEmitter,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
-import { SafeAreaView } from "react-native-safe-area-context";
+const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
 
-
-MapboxGL.setAccessToken(process.env.EXPO_PUBLIC_MAPBOX_TOKEN ?? "");
 
 const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
 
 type CatchMarker = {
-  id: number;
+  id: string;
   lat: number;
   lon: number;
   image_uri: string | null;
   species: string | null;
+  gear: string | null;
   description: string | null;
   length_cm: number | null;
   weight_kg: number | null;
@@ -57,10 +63,14 @@ export default function Map() {
 
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const mapboxReady = useMapboxReady();
+  const router = useRouter();
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const mapReadyRef = useRef(false);
+  const pendingLocationRef = useRef<[number, number] | null>(null);
 
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
+  const [catchesLoaded, setCatchesLoaded] = useState(false);
   const [publicMarkers, setPublicMarkers] = useState<any[]>([]);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [centerCoord] = useState<[number, number]>([37.618423, 55.751244]);
@@ -68,95 +78,23 @@ export default function Map() {
 
   const [previewCatch, setPreviewCatch] = useState<any>(null);
   const [detailCatch, setDetailCatch] = useState<any>(null);
-  const [detailPhotoIndex, setDetailPhotoIndex] = useState(0);
-  const [fullscreenPhotos, setFullscreenPhotos] = useState<string[]>([]);
-  const [fullscreenIndex, setFullscreenIndex] = useState(0);
-  const fullscreenScrollRef = useRef<ScrollView>(null);
-  const [highlightedCatchId, setHighlightedCatchId] = useState<string | null>(null);
 
-  const [likeCount, setLikeCount] = useState(0);
-  const [isLiked, setIsLiked] = useState(false);
-  const [likeId, setLikeId] = useState<string | null>(null);
-  const [catchComments, setCatchComments] = useState<any[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [submittingComment, setSubmittingComment] = useState(false);
-  const [showComments, setShowComments] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
 
-  // ─── Likes & Comments ────────────────────────────────────────────────────────
+  const [spots, setSpots] = useState<Spot[]>([]);
+  const [publicSpots, setPublicSpots] = useState<Spot[]>([]);
+  const [spotPreview, setSpotPreview] = useState<Spot | null>(null);
+  const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
+  const [newSpotCoord, setNewSpotCoord] = useState<{ lat: number; lon: number } | null>(null);
+  const [newSpotName, setNewSpotName] = useState("");
+  const [newSpotDesc, setNewSpotDesc] = useState("");
+  const [newSpotPublic, setNewSpotPublic] = useState(false);
+  const [savingSpot, setSavingSpot] = useState(false);
 
-  useEffect(() => {
-    if (!detailCatch) return;
-    const catchId = String(detailCatch.id);
-    setLikeCount(0);
-    setIsLiked(false);
-    setLikeId(null);
-    setCatchComments([]);
-    setNewComment("");
-    setShowComments(false);
-    (async () => {
-      try {
-        const [likesResult, commentsResult] = await Promise.all([
-          pb.collection("likes").getFullList({ filter: `catch_id = "${catchId}"`, requestKey: null }),
-          pb.collection("comments").getFullList({ filter: `catch_id = "${catchId}"`, sort: "created", requestKey: null }),
-        ]);
-        setLikeCount(likesResult.length);
-        const myLike = likesResult.find((l: any) => l.user_id === user?.id);
-        setIsLiked(!!myLike);
-        setLikeId(myLike?.id ?? null);
-        setCatchComments(commentsResult);
-      } catch (e) {
-        console.warn("fetchLikesAndComments error:", e);
-      }
-    })();
-  }, [detailCatch?.id]);
-
-  const toggleLike = async () => {
-    if (!detailCatch || !user) return;
-    const catchId = String(detailCatch.id);
-    if (isLiked && likeId) {
-      const prevId = likeId;
-      setIsLiked(false);
-      setLikeCount((c) => c - 1);
-      setLikeId(null);
-      try {
-        await pb.collection("likes").delete(prevId);
-      } catch (e) {
-        setIsLiked(true);
-        setLikeCount((c) => c + 1);
-        setLikeId(prevId);
-      }
-    } else {
-      setIsLiked(true);
-      setLikeCount((c) => c + 1);
-      try {
-        const record = await pb.collection("likes").create({ catch_id: catchId, user_id: user.id });
-        setLikeId(record.id);
-      } catch (e) {
-        setIsLiked(false);
-        setLikeCount((c) => c - 1);
-      }
-    }
-  };
-
-  const submitComment = async () => {
-    if (!newComment.trim() || !detailCatch || !user) return;
-    const catchId = String(detailCatch.id);
-    setSubmittingComment(true);
-    try {
-      const record = await pb.collection("comments").create({
-        catch_id: catchId,
-        user_id: user.id,
-        username: user.username || user.name || "",
-        text: newComment.trim(),
-      });
-      setCatchComments((prev) => [...prev, record]);
-      setNewComment("");
-    } catch (e) {
-      console.warn("submitComment error:", e);
-    } finally {
-      setSubmittingComment(false);
-    }
-  };
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string; coords: [number, number] }[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ─── Location ────────────────────────────────────────────────────────────────
 
@@ -176,7 +114,11 @@ export default function Map() {
       if (last?.coords) {
         const coord: [number, number] = [last.coords.longitude, last.coords.latitude];
         setUserLocation(coord);
-        cameraRef.current?.setCamera({ centerCoordinate: coord, zoomLevel: 12, animationDuration: 0 });
+        if (mapReadyRef.current) {
+          cameraRef.current?.setCamera({ centerCoordinate: coord, zoomLevel: 12, animationDuration: 0 });
+        } else {
+          pendingLocationRef.current = coord;
+        }
         return;
       }
       const fresh = await Location.getCurrentPositionAsync({
@@ -184,7 +126,11 @@ export default function Map() {
       });
       const coord: [number, number] = [fresh.coords.longitude, fresh.coords.latitude];
       setUserLocation(coord);
-      cameraRef.current?.setCamera({ centerCoordinate: coord, zoomLevel: 12, animationDuration: 0 });
+      if (mapReadyRef.current) {
+        cameraRef.current?.setCamera({ centerCoordinate: coord, zoomLevel: 12, animationDuration: 0 });
+      } else {
+        pendingLocationRef.current = coord;
+      }
     } catch (e) {
       console.error("Location error:", e);
     }
@@ -211,11 +157,12 @@ export default function Map() {
       const parsed: CatchMarker[] = items
         .filter((r) => r.lat != null && r.lon != null)
         .map((r) => ({
-          id: Number(r.id),
+          id: r.id,
           lat: Number(r.lat),
           lon: Number(r.lon),
-          image_uri: r.image ?? null,
+          image_uri: r.imageUrl ?? r.image ?? null,
           species: r.species ?? null,
+          gear: r.gear ?? null,
           description: r.description ?? null,
           length_cm: r.length ? Number(r.length) : null,
           weight_kg: r.weight ? Number(r.weight) : null,
@@ -225,13 +172,54 @@ export default function Map() {
     } catch (err) {
       console.error("refreshMarkers error:", err);
       setMarkers([]);
+    } finally {
+      setCatchesLoaded(true);
     }
   }, []);
+
+  const refreshSpots = useCallback(async () => {
+    if (!user) return;
+    try {
+      const [own, pub] = await Promise.all([
+        pb.collection("spots").getFullList({ filter: `user_id = "${user.id}"`, requestKey: null }),
+        pb.collection("spots").getFullList({ filter: `is_public = true && user_id != "${user.id}"`, requestKey: null }),
+      ]);
+      setSpots(own as unknown as Spot[]);
+      setPublicSpots(pub as unknown as Spot[]);
+    } catch (e) {
+      console.warn("spots error:", e);
+    }
+  }, [user]);
+
+  const handleSaveSpot = async () => {
+    if (!newSpotName.trim() || !newSpotCoord || !user) return;
+    setSavingSpot(true);
+    try {
+      const record = await pb.collection("spots").create({
+        name: newSpotName.trim(),
+        description: newSpotDesc.trim(),
+        lat: newSpotCoord.lat,
+        lon: newSpotCoord.lon,
+        is_public: newSpotPublic,
+        user_id: user.id,
+      });
+      setSpots((prev) => [...prev, record as unknown as Spot]);
+      setNewSpotCoord(null);
+      setNewSpotName("");
+      setNewSpotDesc("");
+      setNewSpotPublic(false);
+    } catch (e) {
+      console.warn("save spot error:", e);
+    } finally {
+      setSavingSpot(false);
+    }
+  };
 
   const refreshPublicMarkers = useCallback(async () => {
     try {
       const records = await pb.collection('catches').getFullList({
         filter: 'is_public = true',
+        expand: 'user_id',
         requestKey: null,
       });
       setPublicMarkers(
@@ -240,8 +228,13 @@ export default function Map() {
           .map((r: any) => ({
             ...r,
             image_uri: r.image
-              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}`
+              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}?thumb=400x400`
               : (r.image_uri || null),
+            author_username: r.expand?.user_id?.username ?? null,
+            author_name: r.expand?.user_id?.name ?? null,
+            author_avatar: r.expand?.user_id?.avatar
+              ? `${pb.baseURL}/api/files/_pb_users_auth_/${r.user_id}/${r.expand.user_id.avatar}?thumb=200x200`
+              : null,
           }))
       );
     } catch (e) {
@@ -253,13 +246,42 @@ export default function Map() {
     useCallback(() => {
       refreshMarkers();
       refreshPublicMarkers();
-    }, [refreshMarkers, refreshPublicMarkers])
+      refreshSpots();
+    }, [refreshMarkers, refreshPublicMarkers, refreshSpots])
   );
 
   useEffect(() => {
     refreshMarkers();
     refreshPublicMarkers();
-  }, [refreshMarkers, refreshPublicMarkers]);
+    refreshSpots();
+  }, [refreshMarkers, refreshPublicMarkers, refreshSpots]);
+
+  const syncCommentCountInMap = useCallback((targetCatchId: string, count: number) => {
+    const patchCatch = (current: any) => {
+      if (!current || String(current.id) !== targetCatchId) return current;
+      if (current._commentCount === count) return current;
+      return { ...current, _commentCount: count };
+    };
+
+    setPreviewCatch(patchCatch);
+    setDetailCatch(patchCatch);
+    setPublicMarkers((prev) => {
+      let changed = false;
+      const next = prev.map((item: any) => {
+        if (String(item.id) !== targetCatchId || item._commentCount === count) return item;
+        changed = true;
+        return { ...item, _commentCount: count };
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    const subCount = DeviceEventEmitter.addListener("commentCountSynced", ({ catchId: targetCatchId, count }: { catchId: string; count: number }) => {
+      syncCommentCountInMap(targetCatchId, count);
+    });
+    return () => { subCount.remove(); };
+  }, [syncCommentCountInMap]);
 
   // ─── Focus on navigated-to catch ─────────────────────────────────────────────
 
@@ -278,7 +300,6 @@ export default function Map() {
           animationMode: "flyTo",
         });
       }, 150);
-      if (catchId) setHighlightedCatchId(catchId);
       return () => clearTimeout(timer);
     }, [focusLat, focusLon, catchId])
   );
@@ -296,14 +317,10 @@ export default function Map() {
             type: "Feature" as const,
             geometry: { type: "Point" as const, coordinates: [m.lon, m.lat] },
             properties: {
-              id: m.id,
-              species: m.species,
-              image_uri: m.image_uri,
-              description: m.description,
-              length_cm: m.length_cm,
-              weight_kg: m.weight_kg,
-              created_at: m.created_at,
-              source: "own",
+              id: m.id, species: m.species, gear: m.gear,
+              image_uri: m.image_uri, description: m.description,
+              length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+              is_own: true,
             },
           })),
         ...publicMarkers
@@ -312,14 +329,13 @@ export default function Map() {
             type: "Feature" as const,
             geometry: { type: "Point" as const, coordinates: [Number(m.lon), Number(m.lat)] },
             properties: {
-              id: m.id,
-              species: m.species,
-              image_uri: m.image_uri,
-              description: m.description,
-              length_cm: m.length_cm,
-              weight_kg: m.weight_kg,
-              created_at: m.created_at,
-              source: "public",
+              id: m.id, species: m.species, gear: m.gear ?? null,
+              image_uri: m.image_uri, description: m.description,
+              length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+              is_own: false,
+              author_username: m.author_username ?? null,
+              author_name: m.author_name ?? null,
+              author_avatar: m.author_avatar ?? null,
             },
           })),
       ],
@@ -327,10 +343,39 @@ export default function Map() {
     [markers, publicMarkers]
   );
 
+  const spotsGeoJSON: GeoJSON.FeatureCollection = useMemo(
+    () => ({
+      type: "FeatureCollection",
+      features: [
+        ...spots.map((s) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [Number(s.lon), Number(s.lat)] },
+          properties: { id: s.id, name: s.name, description: s.description, is_public: s.is_public, user_id: s.user_id, source: "own" },
+        })),
+        ...publicSpots.map((s) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [Number(s.lon), Number(s.lat)] },
+          properties: { id: s.id, name: s.name, description: s.description, is_public: true, user_id: s.user_id, source: "public" },
+        })),
+      ],
+    }),
+    [spots, publicSpots]
+  );
+
+  const handleSpotPress = useCallback((e: any) => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p = feature.properties;
+    const [lon, lat] = feature.geometry.coordinates;
+    setSpotPreview({ id: p.id, name: p.name, description: p.description, is_public: !!p.is_public, user_id: p.user_id, lat, lon });
+    setPreviewCatch(null);
+  }, []);
+
   const handleMarkerPress = useCallback((e: any) => {
     const feature = e.features?.[0];
     if (!feature) return;
     const p = feature.properties;
+    const [lon, lat] = feature.geometry.coordinates;
     if (p.cluster) {
       mapReadyRef.current && cameraRef.current?.setCamera({
         centerCoordinate: feature.geometry.coordinates,
@@ -340,29 +385,99 @@ export default function Map() {
       });
       return;
     }
+    setSpotPreview(null);
+    setSelectedSpot(null);
     setPreviewCatch({
       id: p.id,
       imageUrl: p.image_uri,
       species: p.species,
+      gear: p.gear,
       description: p.description,
       length: p.length_cm,
       weight: p.weight_kg,
       createdAt: p.created_at,
+      lat,
+      lon,
+      isOwn: p.is_own === true || p.is_own === "true",
+      authorUsername: p.author_username ?? null,
+      authorName: p.author_name ?? null,
+      authorAvatar: p.author_avatar ?? null,
+    });
+  }, []);
+
+  // ─── Search ──────────────────────────────────────────────────────────────────
+
+  const handleSearch = useCallback(async (query: string) => {
+    setSearchQuery(query);
+    if (!query.trim()) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json` +
+        `?access_token=${MAPBOX_ACCESS_TOKEN}&language=${language}&limit=5`
+      );
+      const data = await res.json();
+      setSearchResults(
+        (data.features ?? []).map((f: any) => ({
+          id: f.id,
+          name: f.place_name,
+          coords: f.center as [number, number],
+        }))
+      );
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, [language]);
+
+  const handleSelectResult = useCallback((coords: [number, number]) => {
+    if (searchBlurTimer.current) clearTimeout(searchBlurTimer.current);
+    setSearchResults([]);
+    setSearchQuery("");
+    mapReadyRef.current && cameraRef.current?.setCamera({
+      centerCoordinate: coords,
+      zoomLevel: 12,
+      animationDuration: 800,
+      animationMode: "flyTo",
     });
   }, []);
 
   // ─── Render ───────────────────────────────────────────────────────────────────
+
+  if (!mapboxReady) {
+    return (
+      <View style={{ flex: 1, backgroundColor: "#0f172a", alignItems: "center", justifyContent: "center" }}>
+        <ActivityIndicator size="small" color="#94a3b8" />
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
       <MapboxGL.MapView
         style={{ flex: 1 }}
         styleURL={STYLE_URL}
-        localizeLabels={{ locale: "ru" }}
-        logoEnabled={false}
-        attributionEnabled={true}
-        onDidFinishLoadingMap={() => { mapReadyRef.current = true; }}
+        localizeLabels={{ locale: language }}
+        logoEnabled={true}
+        logoPosition={{ bottom: 8, left: 8 }}
+        attributionEnabled={false}
+        scaleBarEnabled={false}
+        onDidFinishLoadingMap={() => {
+          mapReadyRef.current = true;
+          if (pendingLocationRef.current) {
+            cameraRef.current?.setCamera({ centerCoordinate: pendingLocationRef.current, zoomLevel: 12, animationDuration: 0 });
+            pendingLocationRef.current = null;
+          }
+        }}
         onCameraChanged={(state) => { zoomLevelRef.current = state.properties.zoom; }}
+        onPress={() => Keyboard.dismiss()}
+        onLongPress={(e: any) => {
+          const [lon, lat] = e.geometry.coordinates;
+          setNewSpotCoord({ lat, lon });
+          setPreviewCatch(null);
+          setSpotPreview(null);
+        }}
       >
         <MapboxGL.Camera
           ref={cameraRef}
@@ -371,94 +486,165 @@ export default function Map() {
 
         <MapboxGL.UserLocation visible androidRenderMode="compass" />
 
+        <MapboxGL.Images
+          images={{ "catch-pin": { uri: PIN_URI, sdf: true } as any }}
+        />
+
+        {/* Heatmap source — always mounted, visibility toggled */}
+        <MapboxGL.ShapeSource id="heatmap-source" shape={catchesGeoJSON}>
+          <MapboxGL.HeatmapLayer
+            id="heatmapLayer"
+            style={{
+              visibility: showHeatmap ? "visible" : "none",
+              heatmapRadius: 60,
+              heatmapIntensity: 1.5,
+              heatmapOpacity: 0.85,
+              heatmapColor: [
+                "interpolate", ["linear"], ["heatmap-density"],
+                0,   "rgba(0,0,255,0)",
+                0.2, "#0ea5e9",
+                0.5, "#22c55e",
+                0.8, "#f97316",
+                1,   "#ef4444",
+              ],
+            }}
+          />
+        </MapboxGL.ShapeSource>
+
+        {/* Cluster/marker source — always mounted, visibility toggled */}
+        <MapboxGL.ShapeSource
+          id="spots"
+          shape={spotsGeoJSON}
+          onPress={handleSpotPress}
+        >
+          <MapboxGL.CircleLayer
+            id="spot-points"
+            style={{
+              circleRadius: 8,
+              circleColor: ["match", ["get", "source"], "own", "#f59e0b", "#8b5cf6"],
+              circleStrokeWidth: 2.5,
+              circleStrokeColor: "#ffffff",
+              circleOpacity: 0.95,
+            }}
+          />
+        </MapboxGL.ShapeSource>
+
         <MapboxGL.ShapeSource
           id="catches"
           shape={catchesGeoJSON}
           cluster
-          clusterRadius={50}
-          clusterMaxZoomLevel={14}
+          clusterRadius={30}
+          clusterMaxZoomLevel={5}
           onPress={handleMarkerPress}
         >
-          {/* Cluster background circle */}
           <MapboxGL.CircleLayer
             id="clusters"
             filter={["has", "point_count"]}
             style={{
+              visibility: showHeatmap ? "none" : "visible",
               circleRadius: ["step", ["get", "point_count"], 20, 10, 28, 30, 36],
-              circleColor: "#0ea5e9",
+              circleColor: "#0284c7",
               circleOpacity: 0.9,
               circleStrokeWidth: 2,
               circleStrokeColor: "#ffffff",
             }}
           />
-
-          {/* Cluster count label */}
           <MapboxGL.SymbolLayer
             id="cluster-count"
             filter={["has", "point_count"]}
             style={{
+              visibility: showHeatmap ? "none" : "visible",
               textField: ["get", "point_count_abbreviated"],
               textColor: "#ffffff",
               textSize: 14,
               textFont: ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
             }}
           />
-
-          {/* Individual catch marker */}
-          <MapboxGL.CircleLayer
+          <MapboxGL.SymbolLayer
             id="catch-points"
             filter={["!", ["has", "point_count"]]}
             style={{
-              circleRadius: 5,
-              circleColor: [
-                "match",
-                ["get", "source"],
-                "own", "#f97316",
-                "#22c55e",
-              ],
-              circleStrokeWidth: 2.5,
-              circleStrokeColor: "#ffffff",
+              visibility: showHeatmap ? "none" : "visible",
+              iconImage: "catch-pin",
+              iconSize: 0.7,
+              iconColor: "#38bdf8",
+              iconAllowOverlap: true,
+              iconAnchor: "bottom",
             }}
           />
         </MapboxGL.ShapeSource>
       </MapboxGL.MapView>
 
-      {/* Map controls */}
-      <View style={styles.controls}>
+      {/* Search bar */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <Ionicons name="search-outline" size={15} color="#64748b" style={{ marginRight: 8 }} />
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={handleSearch}
+            onFocus={() => {
+              if (searchBlurTimer.current) clearTimeout(searchBlurTimer.current);
+            }}
+            onBlur={() => {
+              searchBlurTimer.current = setTimeout(() => setSearchResults([]), 300);
+            }}
+            placeholder={language === "ru" ? "Поиск места..." : "Search location..."}
+            placeholderTextColor="#475569"
+            returnKeyType="search"
+          />
+          {searchLoading && <ActivityIndicator size="small" color="#ffffff" style={{ marginLeft: 6 }} />}
+          {searchQuery.length > 0 && !searchLoading && (
+            <TouchableOpacity onPress={() => { setSearchQuery(""); setSearchResults([]); }} hitSlop={8}>
+              <Ionicons name="close" size={14} color="#64748b" />
+            </TouchableOpacity>
+          )}
+        </View>
+        {searchResults.length > 0 && (
+          <View style={styles.searchDropdown}>
+            {searchResults.map((r) => (
+              <TouchableOpacity
+                key={r.id}
+                style={styles.searchResultItem}
+                onPress={() => handleSelectResult(r.coords)}
+              >
+                <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 8, marginTop: 1 }} />
+                <Text style={styles.searchResultText} numberOfLines={2}>{r.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+      </View>
+
+      {/* Bottom-left controls: heatmap + location */}
+      <View style={[styles.controls, newSpotCoord ? { bottom: 380 } : null]}>
         <Pressable
-          style={styles.controlBtn}
-          onPress={centerOnUser}
+          style={[styles.controlBtn, showHeatmap && { borderWidth: 4, borderColor: "#0ea5e9" }]}
+          onPress={() => setShowHeatmap(v => !v)}
           android_ripple={{ color: "#00000020", borderless: false, radius: 22 }}
         >
-          <Text style={styles.controlBtnText}>◎</Text>
-        </Pressable>
-        <Pressable
-          style={styles.controlBtn}
-          onPress={() =>
-            mapReadyRef.current && cameraRef.current?.setCamera({
-              zoomLevel: zoomLevelRef.current + 1,
-              animationDuration: 300,
-              animationMode: "easeTo",
-            })
-          }
-          android_ripple={{ color: "#00000020", borderless: false, radius: 22 }}
-        >
-          <Text style={styles.controlBtnText}>＋</Text>
+          <Ionicons name="flame-outline" size={18} color="#333" />
         </Pressable>
         <Pressable
           style={[styles.controlBtn, { marginBottom: 0 }]}
-          onPress={() =>
-            mapReadyRef.current && cameraRef.current?.setCamera({
-              zoomLevel: zoomLevelRef.current - 1,
-              animationDuration: 300,
-              animationMode: "easeTo",
-            })
-          }
+          onPress={centerOnUser}
           android_ripple={{ color: "#00000020", borderless: false, radius: 22 }}
         >
-          <Text style={styles.controlBtnText}>－</Text>
+          <Ionicons name="navigate-outline" size={18} color="#333" />
         </Pressable>
       </View>
+
+
+      {/* Empty state — shown only after catches are confirmed to be empty */}
+      {catchesLoaded && markers.length === 0 && !previewCatch && !newSpotCoord && (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyCardTitle}>{t("noCatchesYet")}</Text>
+          <Text style={styles.emptyCardSub}>{t("noCatchesMapSub")}</Text>
+          <TouchableOpacity style={styles.emptyCardBtn} onPress={() => router.push("/(tabs)/add")}>
+            <Text style={styles.emptyCardBtnText}>{t("addFirstCatch")}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Preview card */}
       {previewCatch && (
@@ -477,6 +663,12 @@ export default function Map() {
             <Text style={styles.previewCardSpecies} numberOfLines={1}>
               {getSpeciesLabel(previewCatch.species, language)}
             </Text>
+            {previewCatch.gear ? (
+              <View style={styles.previewCardGearRow}>
+                {gearPhotos[previewCatch.gear] && <ExpoImage source={gearPhotos[previewCatch.gear]} style={styles.previewCardGearThumb} contentFit="contain" />}
+                <Text style={styles.previewCardGear} numberOfLines={1}>{getGearLabel(previewCatch.gear, language)}</Text>
+              </View>
+            ) : null}
             <Text style={styles.previewCardDate}>
               {(() => {
                 if (!previewCatch.createdAt) return t("recently");
@@ -492,201 +684,136 @@ export default function Map() {
             </View>
           </View>
           <TouchableOpacity style={styles.previewCardClose} onPress={() => setPreviewCatch(null)} hitSlop={8}>
-            <FontAwesome name="times" size={16} color="#94a3b8" />
+            <Ionicons name="close" size={16} color="#94a3b8" />
           </TouchableOpacity>
         </TouchableOpacity>
       )}
 
-      {/* Full screen catch detail modal */}
-      <Modal
-        visible={!!detailCatch}
-        animationType="slide"
-        onRequestClose={() => { setDetailCatch(null); setDetailPhotoIndex(0); }}
-      >
-        <SafeAreaView style={styles.detailScreen}>
-          <View style={styles.detailHeader}>
-            <TouchableOpacity style={styles.detailClose} onPress={() => { setDetailCatch(null); setDetailPhotoIndex(0); }}>
-              <FontAwesome name="arrow-left" size={20} color="#e6eef8" />
-            </TouchableOpacity>
-            <Text style={styles.detailHeaderTitle} numberOfLines={1}>
-              {getSpeciesLabel(detailCatch?.species, language)}
-            </Text>
-            <View style={{ width: 28 }} />
+      {/* Spot preview card */}
+      {spotPreview && !newSpotCoord && (
+        <View style={styles.spotPreviewCard}>
+          <View style={styles.spotPreviewIcon}>
+            <Ionicons name="location-sharp" size={22} color="#f59e0b" />
           </View>
-
-          <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-            {/* User info */}
-            {user && (
-              <View style={styles.detailUserRow}>
-                <View style={styles.detailAvatar}>
-                  {user.avatar ? (
-                    <ExpoImage
-                      source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}` }}
-                      contentFit="cover"
-                      style={styles.detailAvatarImg}
-                    />
-                  ) : (
-                    <Text style={styles.detailAvatarText}>
-                      {(user.name || user.username || "?").slice(0, 2).toUpperCase()}
-                    </Text>
-                  )}
-                </View>
-                <View>
-                  {user.name ? <Text style={styles.detailUserName}>{user.name}</Text> : null}
-                  {user.username ? <Text style={styles.detailUserHandle}>@{user.username}</Text> : null}
-                </View>
-              </View>
-            )}
-
-            {/* Photo carousel */}
-            {(() => {
-              const photos = [detailCatch?.imageUrl].filter(Boolean) as string[];
-              if (photos.length === 0) return null;
-              return (
-                <View>
-                  <ScrollView
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    scrollEventThrottle={16}
-                    style={{ width: SCREEN_WIDTH }}
-                    onMomentumScrollEnd={(e) =>
-                      setDetailPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-                    }
-                  >
-                    {photos.map((uri, i) => (
-                      <TouchableOpacity
-                        key={i}
-                        activeOpacity={0.9}
-                        onPress={() => {
-                          setFullscreenPhotos(photos);
-                          setFullscreenIndex(i);
-                          setTimeout(() => fullscreenScrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: false }), 50);
-                        }}
-                      >
-                        <ExpoImage
-                          source={{ uri }}
-                          placeholder={require("../../assets/placeholder.png")}
-                          contentFit="cover"
-                          style={{ width: SCREEN_WIDTH, height: 280 }}
-                        />
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                  {photos.length > 1 && (
-                    <View style={styles.dotRow}>
-                      {photos.map((_, i) => (
-                        <View key={i} style={[styles.dot, i === detailPhotoIndex && styles.dotActive]} />
-                      ))}
-                    </View>
-                  )}
-                </View>
-              );
-            })()}
-
-            {/* Like and comment row */}
-            <View style={styles.likeCommentRow}>
-              <TouchableOpacity style={styles.likeBtn} onPress={toggleLike}>
-                <FontAwesome
-                  name={isLiked ? "thumbs-up" : "thumbs-o-up"}
-                  size={22}
-                  color={isLiked ? "#60a5fa" : "#64748b"}
-                />
-                <Text style={[styles.likeCount, isLiked && styles.likeCountActive]}>{likeCount}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.commentBtn} onPress={() => setShowComments((s) => !s)}>
-                <FontAwesome name="comment-o" size={22} color="#64748b" />
-                <Text style={styles.commentCount}>{catchComments.length}</Text>
-              </TouchableOpacity>
+          <View style={styles.spotPreviewBody}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Text style={styles.spotPreviewName} numberOfLines={1}>{spotPreview.name}</Text>
+              {!spotPreview.is_public && <Ionicons name="lock-closed-outline" size={11} color="#64748b" />}
             </View>
-
-            {showComments && (
-              <View style={styles.commentsSection}>
-                {catchComments.map((c, i) => (
-                  <View key={c.id || i} style={styles.commentItem}>
-                    <Text style={styles.commentUsername}>@{c.username}</Text>
-                    <Text style={styles.commentText}>{c.text}</Text>
-                  </View>
-                ))}
-                <View style={styles.commentInputRow}>
-                  <TextInput
-                    style={styles.commentInput}
-                    value={newComment}
-                    onChangeText={setNewComment}
-                    placeholder={language === "ru" ? "Добавить комментарий..." : "Add a comment..."}
-                    placeholderTextColor="#475569"
-                    returnKeyType="send"
-                    onSubmitEditing={submitComment}
-                  />
-                  <TouchableOpacity onPress={submitComment} disabled={submittingComment} style={{ padding: 8 }}>
-                    {submittingComment ? (
-                      <ActivityIndicator size="small" color="#60a5fa" />
-                    ) : (
-                      <FontAwesome name="send" size={18} color="#60a5fa" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.detailBody}>
-              <Text style={styles.speciesText}>{getSpeciesLabel(detailCatch?.species, language)}</Text>
-              <Text style={styles.dateText}>
-                {(() => {
-                  if (!detailCatch?.createdAt) return t("recently");
-                  const d = new Date(detailCatch.createdAt);
-                  return isNaN(d.getTime()) ? t("recently") : d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
-                })()}
-              </Text>
-
-              {detailCatch?.description && (
-                <Text style={styles.detailText}>{detailCatch.description}</Text>
-              )}
-
-              {(detailCatch?.length || detailCatch?.weight) && (
-                <Text style={styles.detailText}>
-                  {detailCatch.length ? `${detailCatch.length} ${language === "ru" ? "см" : "cm"}` : ""}
-                  {detailCatch.length && detailCatch.weight ? " • " : ""}
-                  {detailCatch.weight ? `${detailCatch.weight} ${language === "ru" ? "кг" : "kg"}` : ""}
-                </Text>
-              )}
-            </View>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-
-      {/* Fullscreen photo viewer */}
-      <Modal visible={fullscreenPhotos.length > 0} transparent animationType="fade" onRequestClose={() => setFullscreenPhotos([])}>
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <ScrollView
-            ref={fullscreenScrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            style={{ width: SCREEN_WIDTH, flex: 1 }}
-            onMomentumScrollEnd={(e) =>
-              setFullscreenIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-            }
-          >
-            {fullscreenPhotos.map((uri, i) => (
-              <Pressable key={i} style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: "center" }} onPress={() => setFullscreenPhotos([])}>
-                <ExpoImage source={{ uri }} contentFit="contain" style={{ width: SCREEN_WIDTH, height: "100%" }} />
-              </Pressable>
-            ))}
-          </ScrollView>
-          {fullscreenPhotos.length > 1 && (
-            <View style={{ position: "absolute", bottom: 40, width: "100%", flexDirection: "row", justifyContent: "center", gap: 6 }}>
-              {fullscreenPhotos.map((_, i) => (
-                <View key={i} style={{ width: i === fullscreenIndex ? 16 : 6, height: 6, borderRadius: 3, backgroundColor: i === fullscreenIndex ? "#fff" : "rgba(255,255,255,0.35)" }} />
-              ))}
-            </View>
-          )}
-          <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: 52, right: 20, padding: 8 }}>
-            <FontAwesome name="times" size={22} color="#fff" />
-          </Pressable>
+            {spotPreview.description ? (
+              <Text style={styles.spotPreviewDesc} numberOfLines={2}>{spotPreview.description}</Text>
+            ) : null}
+            <TouchableOpacity
+              style={styles.spotPreviewBtn}
+              onPress={() => { setSelectedSpot(spotPreview); setSpotPreview(null); }}
+            >
+              <Text style={styles.spotPreviewBtnText}>{language === "ru" ? "Открыть точку" : "Open spot"}</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.previewCardClose} onPress={() => setSpotPreview(null)} hitSlop={8}>
+            <Ionicons name="close" size={16} color="#94a3b8" />
+          </TouchableOpacity>
         </View>
-      </Modal>
+      )}
+
+      {/* Create spot form */}
+      {newSpotCoord && (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.createSpotSheet}
+        >
+          <View style={styles.createSpotContent}>
+            <View style={styles.createSpotHeader}>
+              <Ionicons name="location-sharp" size={18} color="#f59e0b" />
+              <Text style={styles.createSpotTitle}>{language === "ru" ? "Новое место" : "New spot"}</Text>
+              <TouchableOpacity onPress={() => setNewSpotCoord(null)} style={{ marginLeft: "auto" as any }}>
+                <Ionicons name="close" size={18} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <TextInput
+              style={styles.createSpotInput}
+              value={newSpotName}
+              onChangeText={setNewSpotName}
+              placeholder={language === "ru" ? "Название места" : "Spot name"}
+              placeholderTextColor="#475569"
+              maxLength={60}
+              autoFocus
+            />
+            <TextInput
+              style={[styles.createSpotInput, { minHeight: 56, textAlignVertical: "top" }]}
+              value={newSpotDesc}
+              onChangeText={setNewSpotDesc}
+              placeholder={language === "ru" ? "Описание (необязательно)" : "Description (optional)"}
+              placeholderTextColor="#475569"
+              multiline
+              maxLength={300}
+            />
+            <View style={styles.createSpotToggleRow}>
+              <Text style={styles.createSpotToggleLabel}>{language === "ru" ? "Публичное" : "Public"}</Text>
+              <Switch
+                value={newSpotPublic}
+                onValueChange={setNewSpotPublic}
+                trackColor={{ false: "#1e293b", true: "#0c4a6e" }}
+                thumbColor={newSpotPublic ? "#0284c7" : "#475569"}
+              />
+            </View>
+            <TouchableOpacity
+              style={[styles.createSpotBtn, !newSpotName.trim() && { opacity: 0.4 }]}
+              onPress={handleSaveSpot}
+              disabled={savingSpot || !newSpotName.trim()}
+            >
+              {savingSpot
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <Text style={styles.createSpotBtnText}>{language === "ru" ? "Сохранить место" : "Save spot"}</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      )}
+
+      {selectedSpot && (
+        <SpotDetailModal
+          spot={selectedSpot}
+          currentUserId={user?.id}
+          language={language}
+          onClose={() => setSelectedSpot(null)}
+          onDeleted={(id) => {
+            setSpots((prev) => prev.filter((s) => s.id !== id));
+            setPublicSpots((prev) => prev.filter((s) => s.id !== id));
+            setSelectedSpot(null);
+          }}
+          onUpdated={(updated) => {
+            setSpots((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+            setSelectedSpot(updated);
+          }}
+        />
+      )}
+
+      <CatchDetailModal
+        catch={detailCatch ? {
+          id: String(detailCatch.id),
+          imageUrl: detailCatch.imageUrl ?? null,
+          species: detailCatch.species,
+          description: detailCatch.description,
+          length: detailCatch.length != null ? String(detailCatch.length) : undefined,
+          weight: detailCatch.weight != null ? String(detailCatch.weight) : undefined,
+          date: detailCatch.createdAt,
+          gear: detailCatch.gear,
+          username: detailCatch.isOwn ? user?.username : (detailCatch.authorUsername ?? undefined),
+          name: detailCatch.isOwn ? user?.name : (detailCatch.authorName ?? undefined),
+          avatarUrl: detailCatch.isOwn
+            ? (user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` : undefined)
+            : (detailCatch.authorAvatar ?? undefined),
+          lat: detailCatch.lat,
+          lon: detailCatch.lon,
+        } : null}
+        onClose={() => setDetailCatch(null)}
+        onCommentAdded={() => {}}
+        onCommentCountSynced={(catchId, count) => {
+          syncCommentCountInMap(catchId, count);
+          DeviceEventEmitter.emit("commentCountSynced", { catchId, count });
+        }}
+      />
     </View>
   );
 }
@@ -695,7 +822,14 @@ const styles = StyleSheet.create({
   controls: {
     position: "absolute",
     left: 16,
-    bottom: 196,
+    bottom: 100,
+    alignItems: "center",
+    zIndex: 9999,
+  },
+  zoomControls: {
+    position: "absolute",
+    left: 16,
+    bottom: 100,
     alignItems: "center",
     zIndex: 9999,
   },
@@ -712,6 +846,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
+    opacity: 0.85
   },
   controlBtnText: {
     fontSize: 18,
@@ -759,13 +894,19 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 4,
   },
+  gearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 8, alignSelf: "flex-start" },
+  gearThumb: { width: 56, height: 56 },
+  gearText: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
+  previewCardGearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, alignSelf: "flex-start" },
+  previewCardGearThumb: { width: 36, height: 36 },
+  previewCardGear: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   detailText: {
     color: "#cbd5e1",
     fontSize: 16,
     marginBottom: 4,
   },
   dateText: {
-    color: "#64748b",
+    color: "#94a3b8",
     fontSize: 14,
     marginTop: 4,
   },
@@ -799,9 +940,9 @@ const styles = StyleSheet.create({
   previewCard: {
     position: "absolute",
     bottom: 16,
-    left: 12,
+    left: 72,
     right: 12,
-    height: 160,
+    height: 210,
     backgroundColor: "#0f172a",
     borderRadius: 16,
     flexDirection: "row",
@@ -813,8 +954,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   previewCardImage: {
-    width: 150,
-    height: 160,
+    width: 170,
+    height: 210,
   },
   previewCardBody: {
     flex: 1,
@@ -827,7 +968,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   previewCardDate: {
-    color: "#64748b",
+    color: "#94a3b8",
     fontSize: 13,
     marginTop: 2,
   },
@@ -838,7 +979,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   previewCardBtn: {
-    backgroundColor: "#0ea5e9",
+    backgroundColor: "#0c4a6e",
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: "center",
@@ -889,13 +1030,13 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   detailAvatarImg: { width: 40, height: 40, borderRadius: 20 },
-  detailAvatarText: { color: "#60a5fa", fontWeight: "700", fontSize: 15 },
+  detailAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
   detailUserName: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
-  detailUserHandle: { color: "#64748b", fontSize: 13 },
+  detailUserHandle: { color: "#94a3b8", fontSize: 13 },
   detailBody: { paddingHorizontal: 20, paddingTop: 16 },
   dotRow: { flexDirection: "row", justifyContent: "center", marginTop: 8, gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#334155" },
-  dotActive: { backgroundColor: "#60a5fa", width: 16 },
+  dotActive: { backgroundColor: "#ffffff", width: 16 },
   likeCommentRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -907,9 +1048,9 @@ const styles = StyleSheet.create({
   },
   likeBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
   commentBtn: { flexDirection: "row", alignItems: "center", gap: 7 },
-  likeCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
-  likeCountActive: { color: "#60a5fa" },
-  commentCount: { color: "#64748b", fontSize: 15, fontWeight: "600" },
+  likeCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
+  likeCountActive: { color: "#ffffff" },
+  commentCount: { color: "#94a3b8", fontSize: 15, fontWeight: "600" },
   commentsSection: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -918,7 +1059,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#1e293b",
   },
   commentItem: { marginBottom: 10 },
-  commentUsername: { color: "#60a5fa", fontSize: 13, fontWeight: "600" },
+  commentUsername: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
   commentText: { color: "#cbd5e1", fontSize: 14, marginTop: 2 },
   commentInputRow: {
     flexDirection: "row",
@@ -934,5 +1075,161 @@ const styles = StyleSheet.create({
     color: "#e6eef8",
     fontSize: 14,
     paddingVertical: 10,
+  },
+
+  spotPreviewCard: {
+    position: "absolute",
+    bottom: 16,
+    left: 72,
+    right: 12,
+    backgroundColor: "#0f172a",
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 14,
+    gap: 12,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  spotPreviewIcon: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: "#1c1409",
+    alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#f59e0b44",
+    flexShrink: 0,
+  },
+  spotPreviewBody: { flex: 1 },
+  spotPreviewName: { color: "#e6eef8", fontSize: 15, fontWeight: "700" },
+  spotPreviewDesc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
+  spotPreviewBtn: {
+    backgroundColor: "#0c4a6e", borderRadius: 8,
+    paddingVertical: 7, alignItems: "center", marginTop: 8,
+  },
+  spotPreviewBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+
+  createSpotSheet: {
+    position: "absolute",
+    bottom: 0, left: 0, right: 0,
+    zIndex: 999,
+  },
+  createSpotContent: {
+    backgroundColor: "#0f172a",
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    padding: 20,
+    borderTopWidth: 1, borderColor: "#1e293b",
+  },
+  createSpotHeader: {
+    flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14,
+  },
+  createSpotTitle: { color: "#e6eef8", fontSize: 16, fontWeight: "700" },
+  createSpotInput: {
+    backgroundColor: "#1e293b", color: "#e6eef8", fontSize: 15,
+    borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#334155",
+    marginBottom: 10,
+  },
+  createSpotToggleRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 10, marginBottom: 12,
+  },
+  createSpotToggleLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  createSpotBtn: {
+    backgroundColor: "#0284c7", borderRadius: 12,
+    paddingVertical: 14, alignItems: "center",
+  },
+  createSpotBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
+
+  searchContainer: {
+    position: "absolute",
+    top: 36,
+    left: 12,
+    right: 12,
+    zIndex: 9999,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(15, 23, 42, 0.92)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  searchInput: {
+    flex: 1,
+    color: "#e6eef8",
+    fontSize: 15,
+    paddingVertical: 0,
+  },
+  searchDropdown: {
+    backgroundColor: "rgba(15, 23, 42, 0.97)",
+    borderRadius: 12,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    overflow: "hidden",
+    elevation: 6,
+  },
+  searchResultItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e293b",
+  },
+  searchResultText: {
+    flex: 1,
+    color: "#e6eef8",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  emptyCard: {
+    position: "absolute",
+    top: "70%",
+    alignSelf: "center",
+    width: "60%",
+    backgroundColor: "rgba(15, 23, 42, 0.93)",
+    borderRadius: 16,
+    padding: 20,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  emptyCardTitle: {
+    color: "#e6eef8",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  emptyCardSub: {
+    color: "#94a3b8",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 14,
+  },
+  emptyCardBtn: {
+    backgroundColor: "#0c4a6e",
+    borderRadius: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+  },
+  emptyCardBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
   },
 });

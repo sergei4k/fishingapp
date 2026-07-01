@@ -8,6 +8,7 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
+.gradle-local/
 
 # Native
 .kotlin/
@@ -35,6 +36,12 @@ yarn-error.*
 # local env files
 .env
 
+
+
+# EAS local credentials
+credentials.json
+credentials/
+
 # typescript
 *.tsbuildinfo
 
@@ -43,6 +50,8 @@ yarn-error.*
 *.aab
 android/app/build/
 android/build/
+**/android/build/
+**/android/.cxx/
 ios/build/
 ios/Pods/
 ios/.xcode.env.local
@@ -74,3 +83,4 @@ pocketbase
 pocketbase.exe
 pb_data/
 pb_migrations/
+android/gradle.properties

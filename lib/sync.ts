@@ -1,21 +1,39 @@
 import { pb } from './pocketbase';
-import { getCatches, updateCatch, addCatch, CatchItem } from './storage';
+import { clearCatches, getCatches, updateCatch, addCatch, CatchItem } from './storage';
 
 export async function syncCatchesFromPB(userId: string): Promise<void> {
+  // Read local data before touching anything
+  const localCatches = await getCatches();
+  const localMap = new Map(localCatches.map((c) => [c.id, c]));
+
   const records = await pb.collection('catches').getFullList({
     filter: `user_id = "${userId}"`,
     requestKey: null,
   });
 
-  const localCatches = await getCatches();
-  const localMap = new Map(localCatches.map((c) => [c.id, c]));
+  // Only clear after a successful fetch so a failed request never wipes local data
+  await clearCatches();
 
   for (const record of records) {
     const imageUrl = record.image
       ? pb.files.getURL(record, record.image)
       : undefined;
 
+    const serverExtraPhotos: string[] = Array.isArray(record.images)
+      ? record.images.map((f: string) => pb.files.getURL(record, f))
+      : [];
+
     const existing = localMap.get(record.id);
+    const recordGear = record.gear ?? null;
+    const localGear = existing?.gear ?? null;
+
+    if (existing && localGear && !recordGear) {
+      try {
+        await pb.collection("catches").update(record.id, { gear: localGear });
+      } catch (e) {
+        console.warn("Failed to backfill gear to PocketBase:", e);
+      }
+    }
 
     if (existing) {
       // Keep local image path, sync public status and imageUrl from PocketBase
@@ -23,6 +41,10 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         ...existing,
         isPublic: record.is_public ?? false,
         imageUrl: imageUrl ?? existing.imageUrl,
+        gear: recordGear ?? existing.gear,
+        lat: record.lat ?? existing.lat ?? null,
+        lon: record.lon ?? existing.lon ?? null,
+        extraPhotos: serverExtraPhotos.length ? serverExtraPhotos : existing.extraPhotos,
       });
     } else {
       // Catch exists on server but not locally — add it
@@ -32,13 +54,31 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         description: record.description ?? '',
         length: record.length_cm != null ? String(record.length_cm) : '',
         weight: record.weight_kg != null ? String(record.weight_kg) : '',
+        gear: recordGear ?? undefined,
         lat: record.lat ?? null,
         lon: record.lon ?? null,
-        date: record.created_at
-          ? new Date(record.created_at).toISOString()
-          : new Date().toISOString(),
+        date: (() => {
+          try {
+            const raw = record.created_at;
+            if (!raw) return new Date().toISOString();
+            const num = Number(raw);
+            if (!isNaN(num)) {
+              // Normalize microseconds or nanoseconds down to milliseconds
+              let ms = num;
+              if (ms > 1e13) ms = Math.round(ms / 1000);
+              if (ms > 1e13) ms = Math.round(ms / 1000);
+              const d = new Date(ms);
+              if (!isNaN(d.getTime())) return d.toISOString();
+            }
+            const d = new Date(raw);
+            return isNaN(d.getTime()) ? new Date().toISOString() : d.toISOString();
+          } catch {
+            return new Date().toISOString();
+          }
+        })(),
         isPublic: record.is_public ?? false,
         imageUrl,
+        extraPhotos: serverExtraPhotos,
       };
       await addCatch(item);
     }
