@@ -83,4 +83,3 @@ pocketbase
 pocketbase.exe
 pb_data/
 pb_migrations/
-android/gradle.properties
