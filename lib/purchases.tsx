@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import Purchases, { type CustomerInfo, type PurchasesPackage } from "react-native-purchases";
+import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesPackage } from "react-native-purchases";
 import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
 import { useAuth } from "./auth";
 import { pb } from "./pocketbase";
@@ -26,6 +26,7 @@ type PurchasesContextType = {
   purchase: (pkg: PurchasesPackage) => Promise<boolean>;
   restore: () => Promise<boolean>;
   presentPaywall: () => Promise<boolean>;
+  manageSubscription: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
@@ -34,7 +35,12 @@ const PurchasesContext = createContext<PurchasesContextType | undefined>(undefin
 let configured = false;
 
 function hasProEntitlement(info: CustomerInfo | null): boolean {
-  return !!info?.entitlements.active[PRO_ENTITLEMENT];
+  if (!info) return false;
+  // Prefer the configured "pro" entitlement, but fall back to ANY active
+  // subscription. We only sell Pro, so this keeps premium working even if the
+  // product↔entitlement mapping in the RevenueCat dashboard is missing/lagging.
+  if (info.entitlements.active[PRO_ENTITLEMENT]) return true;
+  return (info.activeSubscriptions?.length ?? 0) > 0;
 }
 
 // The "verified" badge IS the premium marker: purchasing grants it. We only
@@ -76,8 +82,10 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
+      Purchases.setLogLevel(LOG_LEVEL.VERBOSE);
       Purchases.configure({ apiKey: API_KEY });
       configured = true;
+      console.log("[purchases] configured", Platform.OS, "key:", API_KEY.slice(0, 12));
       setReady(true);
     } catch (e) {
       console.warn("[purchases] configure failed:", e);
@@ -96,6 +104,8 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
     try {
       const offerings = await Purchases.getOfferings();
       setPackages(offerings.current?.availablePackages ?? []);
+      console.log("[purchases] offering:", offerings.current?.identifier ?? "(none)",
+        "packages:", offerings.current?.availablePackages?.length ?? 0);
     } catch (e) {
       console.warn("[purchases] getOfferings failed:", e);
     }
@@ -122,6 +132,8 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
       try {
         if (uid) {
           const { customerInfo } = await Purchases.logIn(uid);
+          console.log("[purchases] logIn", uid, "active entitlements:",
+            Object.keys(customerInfo.entitlements.active));
           applyInfo(customerInfo);
         } else {
           await Purchases.logOut().catch(() => {});
@@ -150,7 +162,11 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
     try {
       const { customerInfo } = await Purchases.purchasePackage(pkg);
       applyInfo(customerInfo);
-      return hasProEntitlement(customerInfo);
+      // purchasePackage resolving without throwing == a completed purchase,
+      // so grant premium directly (don't depend on entitlement propagation).
+      setEntitled(true);
+      await grantVerifiedBadge();
+      return true;
     } catch (e: any) {
       if (!e?.userCancelled) console.warn("[purchases] purchase failed:", e);
       return false;
@@ -175,17 +191,36 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
       const result = await RevenueCatUI.presentPaywallIfNeeded({
         requiredEntitlementIdentifier: PRO_ENTITLEMENT,
       });
+      console.log("[purchases] paywall result:", result);
+      const purchased = result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
+      if (purchased) {
+        // Grant immediately on a confirmed purchase, then reconcile with the
+        // server via refresh(). Ensures the verified badge appears right away.
+        setEntitled(true);
+        await grantVerifiedBadge();
+      }
       await refresh();
-      return result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
+      return purchased;
     } catch (e) {
       console.warn("[purchases] presentPaywall failed:", e);
       return false;
     }
   }, [disabled, refresh]);
 
+  // Opens the store's native manage-subscriptions screen (Google Play / App
+  // Store), where the user can cancel. In-app cancellation isn't permitted.
+  const manageSubscription = useCallback(async (): Promise<void> => {
+    if (disabled) return;
+    try {
+      await Purchases.showManageSubscriptions();
+    } catch (e) {
+      console.warn("[purchases] showManageSubscriptions failed:", e);
+    }
+  }, [disabled]);
+
   return (
     <PurchasesContext.Provider
-      value={{ ready, enabled: !disabled, isPro, packages, purchase, restore, presentPaywall, refresh }}
+      value={{ ready, enabled: !disabled, isPro, packages, purchase, restore, presentPaywall, manageSubscription, refresh }}
     >
       {children}
     </PurchasesContext.Provider>

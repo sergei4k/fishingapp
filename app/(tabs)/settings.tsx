@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { signOut, user } = useAuth();
-  const { enabled: purchasesEnabled, isPro, presentPaywall, restore } = usePurchases();
+  const { enabled: purchasesEnabled, isPro, presentPaywall, restore, manageSubscription } = usePurchases();
   const [restoring, setRestoring] = useState(false);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(
@@ -341,15 +341,27 @@ export default function Settings() {
             <Text style={styles.sectionTitle}>{language === "ru" ? "Премиум" : "Premium"}</Text>
 
             {isPro ? (
-              <View style={styles.settingItem}>
-                <View style={styles.settingLeft}>
-                  <Ionicons name="checkmark-circle" size={20} color="#1d9bf0" />
-                  <Text style={styles.settingText}>
-                    {language === "ru" ? "Премиум активен" : "Premium active"}
-                  </Text>
+              <>
+                <View style={styles.settingItem}>
+                  <View style={styles.settingLeft}>
+                    <Ionicons name="checkmark-circle" size={20} color="#1d9bf0" />
+                    <Text style={styles.settingText}>
+                      {language === "ru" ? "Премиум активен" : "Premium active"}
+                    </Text>
+                  </View>
+                  <VerifiedBadge size={20} />
                 </View>
-                <VerifiedBadge size={20} />
-              </View>
+
+                <TouchableOpacity style={styles.settingItem} onPress={manageSubscription}>
+                  <View style={styles.settingLeft}>
+                    <Ionicons name="close-circle-outline" size={20} color="#ffffff" />
+                    <Text style={styles.settingText}>
+                      {language === "ru" ? "Управление подпиской" : "Manage subscription"}
+                    </Text>
+                  </View>
+                  <Ionicons name="open-outline" size={16} color="#94a3b8" />
+                </TouchableOpacity>
+              </>
             ) : (
               <>
                 <TouchableOpacity
