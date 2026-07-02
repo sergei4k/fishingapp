@@ -172,6 +172,29 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "follows");
 
+// Admin alert: email on every new user signup.
+const ADMIN_EMAIL = "serg.ivnv05@gmail.com";
+
+onRecordAfterCreateSuccess((e) => {
+  try {
+    const username = getRecordString(e.record, "username") || getRecordString(e.record, "name") || "(no name)";
+    const email = getRecordString(e.record, "email") || "(no email)";
+    const message = new MailerMessage({
+      from: {
+        address: e.app.settings().meta.senderAddress,
+        name: e.app.settings().meta.senderName,
+      },
+      to: [{ address: ADMIN_EMAIL }],
+      subject: "New StrikeFeed user",
+      html: `<p>New signup:</p><p><b>${username}</b> — ${email}</p>`,
+    });
+    e.app.newMailClient().send(message);
+  } catch (err) {
+    console.log("new-user admin alert error:", err);
+  }
+  e.next();
+}, "users");
+
 const BADGE_LABELS = {
   verified:   { emoji: "✓", ru: "Верифицирован", en: "Verified" },
   early_bird: { emoji: "🐦", ru: "Первопроходец", en: "Early Bird" },
