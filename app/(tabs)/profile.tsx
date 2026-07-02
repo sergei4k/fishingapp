@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
+import SignInPrompt from "@/components/SignInPrompt";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
 import {
@@ -410,6 +411,16 @@ export default function Profile() {
       )}
     </View>
   ) : null;
+
+  if (!user) {
+    return (
+      <SignInPrompt
+        icon="fish-outline"
+        title={language === "ru" ? "Ваш профиль" : "Your profile"}
+        subtitle={language === "ru" ? "Войдите, чтобы видеть свои уловы, значки и статистику." : "Sign in to see your catches, badges, and stats."}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>

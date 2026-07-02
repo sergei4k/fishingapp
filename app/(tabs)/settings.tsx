@@ -1,6 +1,7 @@
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import { usePurchases } from "@/lib/purchases";
+import SignInPrompt from "@/components/SignInPrompt";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
 import { registerForPushNotificationsAsync } from "@/lib/notifications";
@@ -227,6 +228,15 @@ export default function Settings() {
       setRestoring(false);
     }
   };
+
+  if (!user) {
+    return (
+      <SignInPrompt
+        icon="settings-outline"
+        subtitle={language === "ru" ? "Войдите, чтобы управлять профилем и подпиской." : "Sign in to manage your profile and subscription."}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>

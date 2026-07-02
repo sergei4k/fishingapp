@@ -9,7 +9,7 @@ import CatchDetailModal from "@/components/CatchDetailModal";
 import SpotDetailModal, { type Spot } from "@/components/SpotDetailModal";
 import { getCatches } from "@/lib/storage";
 import { pb } from "@/lib/pocketbase";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useRequireAuth } from "@/lib/auth";
 import { Ionicons } from "@expo/vector-icons";
 import MapboxGL from "@rnmapbox/maps";
 import * as Location from "expo-location";
@@ -63,6 +63,7 @@ export default function Map() {
 
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const requireAuth = useRequireAuth();
   const mapboxReady = useMapboxReady();
   const router = useRouter();
   const cameraRef = useRef<MapboxGL.Camera>(null);
@@ -473,6 +474,7 @@ export default function Map() {
         onCameraChanged={(state) => { zoomLevelRef.current = state.properties.zoom; }}
         onPress={() => Keyboard.dismiss()}
         onLongPress={(e: any) => {
+          if (!requireAuth()) return;
           const [lon, lat] = e.geometry.coordinates;
           setNewSpotCoord({ lat, lon });
           setPreviewCatch(null);

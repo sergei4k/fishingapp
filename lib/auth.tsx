@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { pb, isNetworkError } from './pocketbase';
 import { syncCatchesFromPB } from './sync';
@@ -166,4 +167,16 @@ export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
+}
+
+// Guard for actions that require an account. Returns true if signed in;
+// otherwise routes a guest to the login screen and returns false.
+// Usage: if (!requireAuth()) return;
+export function useRequireAuth() {
+  const { user } = useAuth();
+  return useCallback((): boolean => {
+    if (user) return true;
+    router.push('/(auth)/login' as any);
+    return false;
+  }, [user]);
 }

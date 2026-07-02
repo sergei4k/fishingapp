@@ -73,18 +73,16 @@ function useProtectedRoute() {
     const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/login') || pathname.startsWith('/register');
     const onSetupUsername = pathname.includes('setup-username');
 
-    if (!session && !inAuthGroup) {
-      router.replace('/(auth)/login' as const as any);
-    } else if (session && onSetupUsername && !needsUsernameSetup(user)) {
-      router.replace('/(tabs)' as const as any);
-    } else if (session && inAuthGroup && !onSetupUsername) {
+    if (session) {
+      // Signed in: finish username setup, then keep out of the auth screens.
       if (needsUsernameSetup(user)) {
-        router.replace('/(auth)/setup-username' as const as any);
-      } else {
+        if (!onSetupUsername) router.replace('/(auth)/setup-username' as const as any);
+      } else if (inAuthGroup) {
         router.replace('/(tabs)' as const as any);
       }
-    } else if (session && !inAuthGroup && !onSetupUsername && needsUsernameSetup(user)) {
-      router.replace('/(auth)/setup-username' as const as any);
+    } else {
+      // Guest: free to browse the tabs. Only bounce off the setup screen.
+      if (onSetupUsername) router.replace('/(tabs)' as const as any);
     }
   }, [session, loading, pathname, user?.username, navigationState?.key]);
 }

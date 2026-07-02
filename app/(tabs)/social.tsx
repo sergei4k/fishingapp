@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
-import { useAuth } from "@/lib/auth";
+import { useAuth, useRequireAuth } from "@/lib/auth";
 import { sendPushNotification } from "@/lib/notifications";
 import { pb } from "@/lib/pocketbase";
 import { getGearLabel } from "@/lib/gear";
@@ -170,6 +170,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
 
 export default function Social() {
   const { user } = useAuth();
+  const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
   const { userId: navUserId, openSearch: openSearchParam } = useLocalSearchParams<{ userId?: string; openSearch?: string }>();
 
@@ -312,6 +313,7 @@ export default function Social() {
   }, [user]);
 
   const openNotifs = async () => {
+    if (!requireAuth()) return;
     setNotifVisible(true);
     // Capture the prior visit so rows arrived since then render as unread,
     // then stamp this visit as the new baseline.
@@ -741,6 +743,7 @@ export default function Social() {
   // ── Like (direct from card) ───────────────────────────────────────────────
 
   const toggleLike = async (item: CatchItem) => {
+    if (!requireAuth()) return;
     if (!user || likeInFlight.current.has(item.id)) return;
     likeInFlight.current.add(item.id);
 
@@ -963,6 +966,7 @@ export default function Social() {
   const isFollowing = (targetId: string) => myFollows.some((f) => f.following_id === targetId);
 
   const toggleFollow = async (targetUser: any) => {
+    if (!requireAuth()) return;
     if (!user) return;
     if (targetUser.id === user.id) return; // can't follow yourself
     if (followInFlight.current.has(targetUser.id)) return;

@@ -1,4 +1,4 @@
-import { useAuth } from "@/lib/auth";
+import { useAuth, useRequireAuth } from "@/lib/auth";
 import { getGearLabel, getGearOptions, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
@@ -85,6 +85,7 @@ export default function CatchDetailModal({
   onUserPress,
 }: Props) {
   const { user } = useAuth();
+  const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
   const router = useRouter();
 
@@ -255,6 +256,7 @@ export default function CatchDetailModal({
   };
 
   const toggleLike = async () => {
+    if (!requireAuth()) return;
     if (!item || !user) return;
     animateLike();
     const catchId = item.id;
@@ -301,7 +303,8 @@ export default function CatchDetailModal({
   };
 
   const submitComment = async () => {
-    if (!newComment.trim() || !item || !user) return;
+    if (!user) { requireAuth(); return; }
+    if (!newComment.trim() || !item) return;
     setSubmitting(true);
     try {
       const record = await pb.collection("comments").create({

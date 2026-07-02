@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { useLanguage } from "@/lib/language";
+import { useRequireAuth } from "@/lib/auth";
 import { usePurchases } from "@/lib/purchases";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 
@@ -637,6 +638,7 @@ function BiteForecast({
 
 export default function Weather() {
   const { t, language } = useLanguage();
+  const requireAuth = useRequireAuth();
   const { isPro, enabled: purchasesEnabled, presentPaywall } = usePurchases();
   const [weather, setWeather] = useState<WeatherData | null>(null);
 
@@ -785,7 +787,7 @@ export default function Weather() {
           current={c}
           hourly={weather.hourly}
           unlocked={isPro || !purchasesEnabled}
-          onUnlock={presentPaywall}
+          onUnlock={() => { if (requireAuth()) presentPaywall(); }}
           t={t}
           language={language}
         />

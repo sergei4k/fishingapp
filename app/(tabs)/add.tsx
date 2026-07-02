@@ -17,6 +17,7 @@ import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import Toast from "react-native-toast-message";
 import { useLanguage } from "@/lib/language";
+import SignInPrompt from "@/components/SignInPrompt";
 import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
 import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
@@ -381,6 +382,16 @@ export default function Add() {
       setIsUploading(false);
     }
   };
+
+  if (!user) {
+    return (
+      <SignInPrompt
+        icon="add-circle-outline"
+        title={language === "ru" ? "Добавляйте свои уловы" : "Log your catches"}
+        subtitle={language === "ru" ? "Войдите, чтобы добавлять уловы и делиться ими." : "Sign in to add and share your catches."}
+      />
+    );
+  }
 
   return (
     <KeyboardAvoidingView
