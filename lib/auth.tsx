@@ -49,6 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
+    // Drop realtime before the auth token changes to avoid PB 403
+    // "current and previous request authorization don't match".
+    pb.realtime.unsubscribe().catch(() => {});
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('TIMEOUT')), 20000)
     );
@@ -86,6 +89,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    pb.realtime.unsubscribe().catch(() => {});
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('TIMEOUT')), 20000)
     );
@@ -114,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    pb.realtime.unsubscribe().catch(() => {});
     try {
       let cancelFn: ((msg: string) => void) | null = null;
       const cancelPromise = new Promise<never>((_, reject) => {
@@ -142,6 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    pb.realtime.unsubscribe().catch(() => {});
     syncedUserIdRef.current = null;
     syncedPushTokenUserIdRef.current = null;
     await clearCatches();

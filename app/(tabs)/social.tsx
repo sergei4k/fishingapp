@@ -631,7 +631,7 @@ export default function Social() {
       }
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("comments").unsubscribe("*"); };
-  }, []);
+  }, [user?.id]);
 
   // ── Cross-tab comment sync (map → social) ───────────────────────────────
 
@@ -707,7 +707,7 @@ export default function Social() {
       );
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("users").unsubscribe("*"); };
-  }, []);
+  }, [user?.id]);
 
   // ── PocketBase realtime catch sync ───────────────────────────────────────
 
@@ -738,7 +738,7 @@ export default function Social() {
       }
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("catches").unsubscribe("*"); };
-  }, []);
+  }, [user?.id]);
 
   // ── Like (direct from card) ───────────────────────────────────────────────
 
