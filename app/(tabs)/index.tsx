@@ -50,6 +50,7 @@ type CatchMarker = {
   length_cm: number | null;
   weight_kg: number | null;
   created_at: number;
+  is_public: boolean;
 };
 
 
@@ -81,6 +82,8 @@ export default function Map() {
   const [detailCatch, setDetailCatch] = useState<any>(null);
 
   const [showHeatmap, setShowHeatmap] = useState(false);
+  // "public" = all public catches (own public + everyone's); "private" = own private only
+  const [mapView, setMapView] = useState<"public" | "private">("public");
 
   const [spots, setSpots] = useState<Spot[]>([]);
   const [publicSpots, setPublicSpots] = useState<Spot[]>([]);
@@ -168,6 +171,7 @@ export default function Map() {
           length_cm: r.length ? Number(r.length) : null,
           weight_kg: r.weight ? Number(r.weight) : null,
           created_at: r.date ? new Date(r.date).getTime() : Date.now(),
+          is_public: !!((r as any).isPublic ?? (r as any).is_public),
         }));
       setMarkers(parsed);
     } catch (err) {
@@ -309,39 +313,53 @@ export default function Map() {
   // ─── GeoJSON ──────────────────────────────────────────────────────────────────
 
   const catchesGeoJSON: GeoJSON.FeatureCollection = useMemo(
-    () => ({
-      type: "FeatureCollection",
-      features: [
-        ...markers
-          .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lon) && m.lat !== 0 && m.lon !== 0)
-          .map((m) => ({
-            type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: [m.lon, m.lat] },
-            properties: {
-              id: m.id, species: m.species, gear: m.gear,
-              image_uri: m.image_uri, description: m.description,
-              length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
-              is_own: true,
-            },
-          })),
-        ...publicMarkers
-          .filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)) && m.lat !== 0 && m.lon !== 0)
-          .map((m) => ({
-            type: "Feature" as const,
-            geometry: { type: "Point" as const, coordinates: [Number(m.lon), Number(m.lat)] },
-            properties: {
-              id: m.id, species: m.species, gear: m.gear ?? null,
-              image_uri: m.image_uri, description: m.description,
-              length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
-              is_own: false,
-              author_username: m.author_username ?? null,
-              author_name: m.author_name ?? null,
-              author_avatar: m.author_avatar ?? null,
-            },
-          })),
-      ],
-    }),
-    [markers, publicMarkers]
+    () => {
+      const ownValid = markers.filter(
+        (m) => Number.isFinite(m.lat) && Number.isFinite(m.lon) && m.lat !== 0 && m.lon !== 0
+      );
+      const ownFeature = (m: CatchMarker) => ({
+        type: "Feature" as const,
+        geometry: { type: "Point" as const, coordinates: [m.lon, m.lat] },
+        properties: {
+          id: m.id, species: m.species, gear: m.gear,
+          image_uri: m.image_uri, description: m.description,
+          length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+          is_own: true,
+        },
+      });
+
+      // Private view: only the user's own private catches.
+      if (mapView === "private") {
+        return {
+          type: "FeatureCollection" as const,
+          features: ownValid.filter((m) => !m.is_public).map(ownFeature),
+        };
+      }
+
+      // Public view: own public catches + everyone else's public catches.
+      return {
+        type: "FeatureCollection" as const,
+        features: [
+          ...ownValid.filter((m) => m.is_public).map(ownFeature),
+          ...publicMarkers
+            .filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)) && m.lat !== 0 && m.lon !== 0)
+            .map((m) => ({
+              type: "Feature" as const,
+              geometry: { type: "Point" as const, coordinates: [Number(m.lon), Number(m.lat)] },
+              properties: {
+                id: m.id, species: m.species, gear: m.gear ?? null,
+                image_uri: m.image_uri, description: m.description,
+                length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+                is_own: false,
+                author_username: m.author_username ?? null,
+                author_name: m.author_name ?? null,
+                author_avatar: m.author_avatar ?? null,
+              },
+            })),
+        ],
+      };
+    },
+    [markers, publicMarkers, mapView]
   );
 
   const spotsGeoJSON: GeoJSON.FeatureCollection = useMemo(
@@ -618,6 +636,30 @@ export default function Map() {
         )}
       </View>
 
+      {/* Public / private view toggle */}
+      <View style={styles.viewToggleWrap} pointerEvents="box-none">
+        <View style={styles.viewToggle}>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, mapView === "public" && styles.viewToggleBtnActive]}
+            onPress={() => setMapView("public")}
+          >
+            <Ionicons name="earth" size={14} color={mapView === "public" ? "#ffffff" : "#94a3b8"} />
+            <Text style={[styles.viewToggleText, mapView === "public" && styles.viewToggleTextActive]}>
+              {language === "ru" ? "Публичные" : "Public"}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.viewToggleBtn, mapView === "private" && styles.viewToggleBtnActive]}
+            onPress={() => { if (requireAuth()) setMapView("private"); }}
+          >
+            <Ionicons name="lock-closed" size={13} color={mapView === "private" ? "#ffffff" : "#94a3b8"} />
+            <Text style={[styles.viewToggleText, mapView === "private" && styles.viewToggleTextActive]}>
+              {language === "ru" ? "Мои приватные" : "My private"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* Bottom-left controls: heatmap + location */}
       <View style={[styles.controls, newSpotCoord ? { bottom: 380 } : null]}>
         <Pressable
@@ -638,7 +680,7 @@ export default function Map() {
 
 
       {/* Empty state — shown only after catches are confirmed to be empty */}
-      {catchesLoaded && markers.length === 0 && !previewCatch && !newSpotCoord && (
+      {catchesLoaded && catchesGeoJSON.features.length === 0 && !previewCatch && !newSpotCoord && (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyCardTitle}>{t("noCatchesYet")}</Text>
           <Text style={styles.emptyCardSub}>{t("noCatchesMapSub")}</Text>
@@ -827,6 +869,44 @@ const styles = StyleSheet.create({
     bottom: 100,
     alignItems: "center",
     zIndex: 9999,
+  },
+  viewToggleWrap: {
+    position: "absolute",
+    top: 92,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    zIndex: 9998,
+  },
+  viewToggle: {
+    flexDirection: "row",
+    backgroundColor: "rgba(15, 23, 42, 0.94)",
+    borderRadius: 20,
+    padding: 3,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  viewToggleBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 17,
+  },
+  viewToggleBtnActive: {
+    backgroundColor: "#0284c7",
+  },
+  viewToggleText: {
+    color: "#94a3b8",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  viewToggleTextActive: {
+    color: "#ffffff",
   },
   zoomControls: {
     position: "absolute",
