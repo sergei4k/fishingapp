@@ -82,6 +82,12 @@ export default function Login() {
     }
   };
 
+  // Return to guest browsing without logging in.
+  const handleClose = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace('/(tabs)' as any);
+  };
+
   return (
     <ImageBackground
       source={require('../../assets/images/loginscreen.jpg')}
@@ -99,18 +105,24 @@ export default function Login() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.langRow}>
-              <TouchableOpacity
-                style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
-                onPress={() => setLanguage('ru' as Language)}
-              >
-                <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+              <TouchableOpacity style={styles.backBtn} onPress={handleClose} hitSlop={10}>
+                <Ionicons name="arrow-back" size={20} color="#ffffff" />
+                <Text style={styles.backBtnText}>{language === 'ru' ? 'Назад' : 'Back'}</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
-                onPress={() => setLanguage('en' as Language)}
-              >
-                <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
+                  onPress={() => setLanguage('ru' as Language)}
+                >
+                  <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
+                  onPress={() => setLanguage('en' as Language)}
+                >
+                  <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
             <View style={styles.heroText}>
@@ -248,9 +260,22 @@ const styles = StyleSheet.create({
   },
   langRow: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: 8,
     marginBottom: 16,
+  },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 6,
+    paddingRight: 8,
+  },
+  backBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
   },
   langBtn: {
     paddingHorizontal: 14,
