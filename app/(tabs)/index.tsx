@@ -82,8 +82,8 @@ export default function Map() {
   const [detailCatch, setDetailCatch] = useState<any>(null);
 
   const [showHeatmap, setShowHeatmap] = useState(false);
-  // "public" = all public catches (own public + everyone's); "private" = own private only
-  const [mapView, setMapView] = useState<"public" | "private">("public");
+  // "public" = all public catches (own public + everyone's); "mine" = all of the user's own catches
+  const [mapView, setMapView] = useState<"public" | "mine">("public");
 
   const [spots, setSpots] = useState<Spot[]>([]);
   const [publicSpots, setPublicSpots] = useState<Spot[]>([]);
@@ -328,11 +328,11 @@ export default function Map() {
         },
       });
 
-      // Private view: only the user's own private catches.
-      if (mapView === "private") {
+      // "Mine" view: all of the user's own catches (public and private).
+      if (mapView === "mine") {
         return {
           type: "FeatureCollection" as const,
-          features: ownValid.filter((m) => !m.is_public).map(ownFeature),
+          features: ownValid.map(ownFeature),
         };
       }
 
@@ -649,12 +649,12 @@ export default function Map() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.viewToggleBtn, mapView === "private" && styles.viewToggleBtnActive]}
-            onPress={() => { if (requireAuth()) setMapView("private"); }}
+            style={[styles.viewToggleBtn, mapView === "mine" && styles.viewToggleBtnActive]}
+            onPress={() => { if (requireAuth()) setMapView("mine"); }}
           >
-            <Ionicons name="lock-closed" size={13} color={mapView === "private" ? "#ffffff" : "#94a3b8"} />
-            <Text style={[styles.viewToggleText, mapView === "private" && styles.viewToggleTextActive]}>
-              {language === "ru" ? "Мои приватные" : "My private"}
+            <Ionicons name="fish" size={14} color={mapView === "mine" ? "#ffffff" : "#94a3b8"} />
+            <Text style={[styles.viewToggleText, mapView === "mine" && styles.viewToggleTextActive]}>
+              {language === "ru" ? "Мои уловы" : "My catches"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -898,7 +898,7 @@ const styles = StyleSheet.create({
     borderRadius: 17,
   },
   viewToggleBtnActive: {
-    backgroundColor: "#0284c7",
+    backgroundColor: "#0c4a6e",
   },
   viewToggleText: {
     color: "#94a3b8",
