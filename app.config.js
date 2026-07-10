@@ -59,7 +59,8 @@ export default {
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {
-      bundleIdentifier: "com.strikefeed.myapp"
+      bundleIdentifier: "com.strikefeed.myapp",
+      usesAppleSignIn: true
     },
     plugins: [
       "expo-notifications",
@@ -78,6 +79,7 @@ export default {
         }
       ],
       "expo-web-browser",
+      "expo-apple-authentication",
       "expo-secure-store",
       "expo-sqlite",
       "expo-document-picker",

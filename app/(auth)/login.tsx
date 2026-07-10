@@ -23,7 +23,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithGoogle, signInWithApple } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
@@ -60,6 +60,20 @@ export default function Login() {
         language === 'ru'
           ? 'Не удалось войти через Google. Попробуйте войти по email и паролю.'
           : 'Google sign-in failed. Please try email and password instead.',
+      );
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithApple();
+    setLoading(false);
+    if (error && error.message === 'APPLE_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Apple. Попробуйте войти по email и паролю.'
+          : 'Apple sign-in failed. Please try email and password instead.',
       );
     }
   };
@@ -193,6 +207,13 @@ export default function Login() {
                 <Image source={require('../../assets/images/google-logo.png')} style={styles.googleLogo} />
                 <Text style={styles.googleBtnText}>{language === 'ru' ? 'Войти через Google' : 'Continue with Google'}</Text>
               </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
+                <TouchableOpacity style={styles.appleBtn} onPress={handleAppleLogin} disabled={loading} activeOpacity={0.85}>
+                  <Ionicons name="logo-apple" size={19} color="#ffffff" style={styles.appleLogo} />
+                  <Text style={styles.appleBtnText}>{language === 'ru' ? 'Войти через Apple' : 'Continue with Apple'}</Text>
+                </TouchableOpacity>
+              )}
 
             </View>
 
@@ -486,6 +507,24 @@ const styles = StyleSheet.create({
   },
   googleBtnText: {
     color: '#111827',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  appleBtn: {
+    backgroundColor: '#000000',
+    borderRadius: 10,
+    paddingVertical: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  appleLogo: {
+    marginTop: -2,
+  },
+  appleBtnText: {
+    color: '#ffffff',
     fontSize: 15,
     fontWeight: '700',
   },

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { pb, isNetworkError } from './pocketbase';
 import { syncCatchesFromPB } from './sync';
 import { clearCatches } from './storage';
@@ -13,6 +14,7 @@ type AuthContextType = {
   signUp: (email: string, password: string, meta?: { username?: string; name?: string }) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
+  signInWithApple: () => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 };
 
@@ -146,6 +148,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Native "Sign in with Apple". The device returns an authorization code, which
+  // we hand to our pb_hook (POST /apple-signin). The hook verifies it with Apple
+  // server-side and returns a PocketBase { token, record }; saving it into the
+  // authStore updates React state via the onChange subscription above.
+  const signInWithApple = async () => {
+    pb.realtime.unsubscribe().catch(() => {});
+    try {
+      const cred = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!cred.authorizationCode) return { error: { message: 'APPLE_FAILED' } };
+
+      // fullName is only populated on the very first authorization — capture it.
+      const fullName = cred.fullName
+        ? [cred.fullName.givenName, cred.fullName.familyName].filter(Boolean).join(' ').trim()
+        : '';
+
+      const res = await fetch(`${pb.baseURL}/apple-signin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cred.authorizationCode, fullName }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        console.warn('[Apple sign-in] backend rejected', res.status, detail);
+        return { error: { message: 'APPLE_FAILED' } };
+      }
+
+      const data = await res.json();
+      if (!data?.token || !data?.record) return { error: { message: 'APPLE_FAILED' } };
+      pb.authStore.save(data.token, data.record);
+      return { error: null };
+    } catch (e: any) {
+      // expo-apple-authentication throws ERR_REQUEST_CANCELED when the user backs out.
+      if (e?.code === 'ERR_REQUEST_CANCELED' || e?.code === 'ERR_CANCELED') {
+        return { error: { message: 'CANCELLED' } };
+      }
+      if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
+      console.warn('[Apple sign-in error]', e?.code, e?.message);
+      return { error: { message: 'APPLE_FAILED' } };
+    }
+  };
+
   const signOut = async () => {
     pb.realtime.unsubscribe().catch(() => {});
     syncedUserIdRef.current = null;
@@ -162,6 +212,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signIn,
       signInWithGoogle,
+      signInWithApple,
       signOut,
     }}>
       {children}
