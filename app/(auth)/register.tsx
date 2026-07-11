@@ -1,4 +1,5 @@
 import { useAuth } from '@/lib/auth';
+import { theme } from '../../lib/theme';
 import { useLanguage, type Language } from '@/lib/language';
 import { isProfane } from '@/lib/profanity';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,19 +7,8 @@ import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import Toast from 'react-native-toast-message';
 import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput } from '@/components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Register() {
@@ -101,13 +91,13 @@ export default function Register() {
                 style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
                 onPress={() => setLanguage('ru' as Language)}
               >
-                <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+                <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>RU</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
                 onPress={() => setLanguage('en' as Language)}
               >
-                <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
+                <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>EN</Text>
               </TouchableOpacity>
             </View>
 
@@ -348,8 +338,8 @@ const styles = StyleSheet.create({
     marginTop: -6,
   },
   button: {
-    backgroundColor: '#0c4a6e',
-    borderRadius: 10,
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: theme.radius.control,
     paddingVertical: 15,
     alignItems: 'center',
     marginTop: 8,

@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { pb } from "./pocketbase";
+import { pb, isNetworkError } from "./pocketbase";
 
 export type Language = "ru" | "en";
 
@@ -376,7 +376,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       if (remote === language) return;
 
       pb.collection("users").update(userId, { language }, { requestKey: null }).catch((error) => {
-        console.error("Failed to sync language on auth change:", error);
+        // Offline is expected; it'll re-sync when back online. Don't log a scary error.
+        if (isNetworkError(error)) return;
+        console.warn("Failed to sync language on auth change:", error);
       });
     }, true);
 

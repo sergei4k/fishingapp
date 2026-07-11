@@ -1,7 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { theme } from '../lib/theme';
 import { router } from "expo-router";
 import React from "react";
-import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { Text } from "@/components/AppText";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLanguage } from "@/lib/language";
 
@@ -34,10 +36,10 @@ export default function SignInPrompt({
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   inner: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 10 },
   title: { color: "#e6eef8", fontSize: 20, fontWeight: "700", marginTop: 8 },
   sub: { color: "#94a3b8", fontSize: 15, textAlign: "center", lineHeight: 22, marginBottom: 12 },
-  btn: { backgroundColor: "#0284c7", borderRadius: 12, paddingVertical: 14, paddingHorizontal: 28 },
+  btn: { backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 14, paddingHorizontal: 28 },
   btnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
 });

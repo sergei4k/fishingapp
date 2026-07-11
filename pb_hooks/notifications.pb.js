@@ -1,240 +1,63 @@
-function getRecordString(record, key) {
-  try {
-    return (record.getString(key) || "").trim();
-  } catch {
-    return "";
-  }
-}
-
-function sendExpoPush(token, title, body, data) {
-  try {
-    const response = $http.send({
-      method: "POST",
-      url: "https://exp.host/--/api/v2/push/send",
-      headers: {
-        Accept: "application/json",
-        "Accept-Encoding": "gzip, deflate",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        to: token,
-        sound: "default",
-        title: title,
-        body: body,
-        data: data,
-      }),
-    });
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      console.log("Expo push failed", response.statusCode, response.raw);
-    }
-  } catch (error) {
-    console.log("Expo push request failed", error);
-  }
-}
-
-function getNotificationCopy(language, type, actorName) {
-  const isRussian = language === "ru";
-  if (type === "like") {
-    return isRussian
-      ? {
-          title: "Новый лайк",
-          body: `${actorName} поставил лайк вашему улову`,
-        }
-      : {
-          title: "New like",
-          body: `${actorName} liked your catch`,
-        };
-  }
-
-  if (type === "comment") {
-    return isRussian
-      ? {
-          title: "Новый комментарий",
-          body: `${actorName} прокомментировал ваш улов`,
-        }
-      : {
-          title: "New comment",
-          body: `${actorName} commented on your catch`,
-        };
-  }
-
-  return isRussian
-    ? {
-        title: "Новый подписчик",
-        body: `${actorName} подписался на вас`,
-      }
-    : {
-        title: "New follower",
-        body: `${actorName} started following you`,
-      };
-}
-
-function notifyCatchOwner(e, label) {
-  const record = e.record;
-  const catchId = getRecordString(record, "catch_id");
-  const actorId = getRecordString(record, "user_id");
-  if (!catchId || !actorId) {
-    return;
-  }
-
-  let catchRecord;
-  try {
-    catchRecord = e.app.findRecordById("catches", catchId);
-  } catch {
-    return;
-  }
-
-  const ownerId = getRecordString(catchRecord, "user_id");
-  if (!ownerId || ownerId === actorId) {
-    return;
-  }
-
-  let ownerRecord;
-  try {
-    ownerRecord = e.app.findRecordById("users", ownerId);
-  } catch {
-    return;
-  }
-
-  const pushToken = getRecordString(ownerRecord, "pushToken");
-  if (!pushToken) {
-    return;
-  }
-
-  const language = getRecordString(ownerRecord, "language") || "en";
-
-  let actorName = "Someone";
-  try {
-    const actorRecord = e.app.findRecordById("users", actorId);
-    actorName = getRecordString(actorRecord, "username") || getRecordString(actorRecord, "name") || "Someone";
-  } catch {}
-
-  const copy = getNotificationCopy(language, label, actorName);
-
-  sendExpoPush(pushToken, copy.title, copy.body, {
-    catchId: catchId,
-    type: label,
-    language: language,
-  });
-}
-
-function notifyFollowedUser(e) {
-  const record = e.record;
-  const followerId = getRecordString(record, "follower_id");
-  const followingId = getRecordString(record, "following_id");
-  if (!followerId || !followingId || followerId === followingId) {
-    return;
-  }
-
-  let targetRecord;
-  try {
-    targetRecord = e.app.findRecordById("users", followingId);
-  } catch {
-    return;
-  }
-
-  const pushToken = getRecordString(targetRecord, "pushToken");
-  if (!pushToken) {
-    return;
-  }
-
-  const language = getRecordString(targetRecord, "language") || "en";
-
-  let followerName = "Someone";
-  try {
-    const followerRecord = e.app.findRecordById("users", followerId);
-    followerName = getRecordString(followerRecord, "username") || getRecordString(followerRecord, "name") || "Someone";
-  } catch {}
-
-  const copy = getNotificationCopy(language, "follow", followerName);
-
-  sendExpoPush(pushToken, copy.title, copy.body, {
-    followerId: followerId,
-    followingId: followingId,
-    type: "follow",
-    language: language,
-  });
-}
+// Push/email notification hooks.
+//
+// Helper functions live in ./notify_utils.js and are pulled in with require()
+// *inside* each handler. This is required because PocketBase executes every hook
+// handler in an isolated goja runtime that does not share scope with the file
+// top level, so helpers defined here at the top level would be "not defined"
+// inside the handlers (which previously threw ReferenceError and made the
+// triggering request fail with a 400 even though the record was already saved).
+//
+// Every handler wraps its work in try/catch and always calls e.next(), so a
+// notification failure can never break the create/update request itself.
 
 onRecordAfterCreateSuccess((e) => {
-  notifyCatchOwner(e, "like");
+  try {
+    require(`${__hooks}/notify_utils.js`).notifyCatchOwner(e, "like");
+  } catch (err) {
+    console.log("like notification error:", err);
+  }
   e.next();
 }, "likes");
 
 onRecordAfterCreateSuccess((e) => {
-  notifyCatchOwner(e, "comment");
+  try {
+    require(`${__hooks}/notify_utils.js`).notifyCatchOwner(e, "comment");
+  } catch (err) {
+    console.log("comment notification error:", err);
+  }
   e.next();
 }, "comments");
 
 onRecordAfterCreateSuccess((e) => {
-  notifyFollowedUser(e);
+  try {
+    require(`${__hooks}/notify_utils.js`).notifyFollowedUser(e);
+  } catch (err) {
+    console.log("follow notification error:", err);
+  }
   e.next();
 }, "follows");
 
-// Admin alert: email on every new user signup.
-const ADMIN_EMAIL = "serg.ivnv05@gmail.com";
+onRecordAfterCreateSuccess((e) => {
+  try {
+    require(`${__hooks}/notify_utils.js`).notifyGroupMessage(e);
+  } catch (err) {
+    console.log("group message notification error:", err);
+  }
+  e.next();
+}, "group_messages");
 
 onRecordAfterCreateSuccess((e) => {
   try {
-    const username = getRecordString(e.record, "username") || getRecordString(e.record, "name") || "(no name)";
-    const email = getRecordString(e.record, "email") || "(no email)";
-    const message = new MailerMessage({
-      from: {
-        address: e.app.settings().meta.senderAddress,
-        name: e.app.settings().meta.senderName,
-      },
-      to: [{ address: ADMIN_EMAIL }],
-      subject: "New StrikeFeed user",
-      html: `<p>New signup:</p><p><b>${username}</b> — ${email}</p>`,
-    });
-    e.app.newMailClient().send(message);
+    require(`${__hooks}/notify_utils.js`).notifyNewUser(e);
   } catch (err) {
     console.log("new-user admin alert error:", err);
   }
   e.next();
 }, "users");
 
-const BADGE_LABELS = {
-  verified:   { emoji: "✓", ru: "Верифицирован", en: "Verified" },
-  early_bird: { emoji: "🐦", ru: "Первопроходец", en: "Early Bird" },
-  pro:        { emoji: "🏆", ru: "Про",           en: "Pro" },
-  legend:     { emoji: "⭐", ru: "Легенда",        en: "Legend" },
-  pioneer:    { emoji: "🚀", ru: "Пионер",         en: "Pioneer" },
-  rybolov:    { emoji: "🎣", ru: "Рыболов",        en: "Angler" },
-  developer:  { emoji: "👾", ru: "Разработчик",    en: "Developer" },
-};
-
 onRecordAfterUpdateSuccess((e) => {
   try {
-    const newRaw = getRecordString(e.record, "badges") || "[]";
-    let oldRaw = "[]";
-    try { oldRaw = getRecordString(e.record.original(), "badges") || "[]"; } catch {}
-
-    let newBadges = [];
-    let oldBadges = [];
-    try { newBadges = JSON.parse(newRaw); } catch {}
-    try { oldBadges = JSON.parse(oldRaw); } catch {}
-
-    if (!Array.isArray(newBadges) || !Array.isArray(oldBadges)) return;
-
-    const added = newBadges.filter((b) => !oldBadges.includes(b));
-    if (added.length === 0) return;
-
-    const pushToken = getRecordString(e.record, "pushToken");
-    if (!pushToken) return;
-
-    const isRu = (getRecordString(e.record, "language") || "en") === "ru";
-
-    for (const badgeId of added) {
-      const info = BADGE_LABELS[badgeId];
-      if (!info) continue;
-      const title = isRu ? "🏅 Новый значок!" : "🏅 New badge!";
-      const body = isRu
-        ? `Вы получили значок ${info.emoji} ${info.ru}`
-        : `You earned the ${info.emoji} ${info.en} badge`;
-      sendExpoPush(pushToken, title, body, { type: "badge", badgeId });
-    }
+    require(`${__hooks}/notify_utils.js`).notifyBadgeChange(e);
   } catch (err) {
     console.log("badge notification error:", err);
   }

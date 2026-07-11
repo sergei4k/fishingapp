@@ -1,8 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { pb, isNetworkError } from './pocketbase';
-import { syncCatchesFromPB } from './sync';
+import { syncCatchesFromPB, pushPendingCatches } from './sync';
 import { clearCatches } from './storage';
 import { syncPushTokenForUser } from './notifications';
 
@@ -13,6 +15,8 @@ type AuthContextType = {
   signUp: (email: string, password: string, meta?: { username?: string; name?: string }) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
+  signInWithYandex: () => Promise<{ error: any }>;
+  signInWithApple: () => Promise<{ error: any }>;
   signOut: () => Promise<void>;
 };
 
@@ -32,9 +36,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (record?.id && record.id !== syncedUserIdRef.current) {
         syncedUserIdRef.current = record.id;
-        syncCatchesFromPB(record.id).catch((e) =>
-          console.warn('syncCatchesFromPB error:', e)
-        );
+        // Pull server catches, then push anything that was saved locally while
+        // offline / unauthenticated so it actually reaches the backend.
+        syncCatchesFromPB(record.id)
+          .then(() => pushPendingCatches(record.id))
+          .catch((e) => console.warn('catch sync error:', e));
       }
 
       if (record?.id && record.id !== syncedPushTokenUserIdRef.current) {
@@ -46,6 +52,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }, true);
 
     return () => unsub();
+  }, []);
+
+  // Keep the session alive: refresh the token on startup so it doesn't silently
+  // expire and kick the user out (which used to also strand their unsynced
+  // catches). Never log out on a network error — that just means we're offline.
+  useEffect(() => {
+    (async () => {
+      if (pb.authStore.isValid && pb.authStore.record) {
+        try {
+          await pb.collection('users').authRefresh();
+        } catch (e: any) {
+          if (!isNetworkError(e) && (e?.status === 401 || e?.status === 403)) {
+            pb.authStore.clear();
+          }
+        }
+      }
+    })();
+  }, []);
+
+  // When the app returns to the foreground, retry uploading any offline catches.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && pb.authStore.record?.id) {
+        pushPendingCatches(pb.authStore.record.id).catch(() => {});
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
@@ -117,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const signInWithGoogle = async () => {
+  const signInWithOAuthProvider = async (provider: "google" | "yandex") => {
     pb.realtime.unsubscribe().catch(() => {});
     try {
       let cancelFn: ((msg: string) => void) | null = null;
@@ -127,7 +160,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       cancelPromise.catch(() => {});
 
       const authPromise = pb.collection('users').authWithOAuth2({
-        provider: 'google',
+        provider,
         urlCallback: async (url: string) => {
           await WebBrowser.openBrowserAsync(url);
           // Browser closed — give SSE 3s to deliver result, then cancel
@@ -138,16 +171,72 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await Promise.race([authPromise, cancelPromise]);
       return { error: null };
     } catch (e: any) {
-      console.warn('[Google OAuth error]', e?.status, e?.message, JSON.stringify(e?.response));
+      console.warn(`[${provider} OAuth error]`, e?.status, e?.message, JSON.stringify(e?.response));
       if (e?.message === 'BROWSER_CLOSED') return { error: { message: 'CANCELLED' } };
       if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
       if ((e as any)?.isAbort || e?.message?.includes('cancelled') || e?.message?.includes('manually cancelled')) return { error: { message: 'CANCELLED' } };
-      return { error: { message: 'GOOGLE_FAILED' } };
+      return { error: { message: `${provider.toUpperCase()}_FAILED` } };
+    }
+  };
+
+  const signInWithGoogle = () => signInWithOAuthProvider("google");
+  const signInWithYandex = () => signInWithOAuthProvider("yandex");
+
+  // Native "Sign in with Apple". The device returns an authorization code, which
+  // we hand to our pb_hook (POST /apple-signin). The hook verifies it with Apple
+  // server-side and returns a PocketBase { token, record }; saving it into the
+  // authStore updates React state via the onChange subscription above.
+  const signInWithApple = async () => {
+    pb.realtime.unsubscribe().catch(() => {});
+    try {
+      const cred = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!cred.authorizationCode) return { error: { message: 'APPLE_FAILED' } };
+
+      // fullName is only populated on the very first authorization — capture it.
+      const fullName = cred.fullName
+        ? [cred.fullName.givenName, cred.fullName.familyName].filter(Boolean).join(' ').trim()
+        : '';
+
+      const res = await fetch(`${pb.baseURL}/apple-signin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cred.authorizationCode, fullName }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text().catch(() => '');
+        console.warn('[Apple sign-in] backend rejected', res.status, detail);
+        return { error: { message: 'APPLE_FAILED' } };
+      }
+
+      const data = await res.json();
+      if (!data?.token || !data?.record) return { error: { message: 'APPLE_FAILED' } };
+      pb.authStore.save(data.token, data.record);
+      return { error: null };
+    } catch (e: any) {
+      // expo-apple-authentication throws ERR_REQUEST_CANCELED when the user backs out.
+      if (e?.code === 'ERR_REQUEST_CANCELED' || e?.code === 'ERR_CANCELED') {
+        return { error: { message: 'CANCELLED' } };
+      }
+      if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
+      console.warn('[Apple sign-in error]', e?.code, e?.message);
+      return { error: { message: 'APPLE_FAILED' } };
     }
   };
 
   const signOut = async () => {
     pb.realtime.unsubscribe().catch(() => {});
+    // Best-effort: get any offline catches onto the server before we wipe local
+    // data, so a deliberate sign-out doesn't discard unsynced work.
+    try {
+      if (pb.authStore.record?.id) await pushPendingCatches(pb.authStore.record.id);
+    } catch {}
     syncedUserIdRef.current = null;
     syncedPushTokenUserIdRef.current = null;
     await clearCatches();
@@ -162,6 +251,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signIn,
       signInWithGoogle,
+      signInWithYandex,
+      signInWithApple,
       signOut,
     }}>
       {children}

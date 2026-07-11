@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { theme } from '../../lib/theme';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -11,7 +12,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   return (
     <View style={{
       flexDirection: 'row',
-      backgroundColor: '#071023',
+      backgroundColor: theme.colors.surface,
       height: 64 + insets.bottom,
       paddingBottom: insets.bottom,
       borderTopWidth: 0,
@@ -57,10 +58,10 @@ export default function TabsLayout() {
   }, []);
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0f172a' }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: theme.colors.background }}>
       <Tabs
         tabBar={(props) => <CustomTabBar {...props} />}
-        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: '#0f172a' } }}
+        screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: theme.colors.background } }}
       >
         <Tabs.Screen
           name="index"

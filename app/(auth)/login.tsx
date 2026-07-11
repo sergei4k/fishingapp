@@ -1,29 +1,18 @@
 import { useAuth } from '@/lib/auth';
+import { theme } from '../../lib/theme';
 import { useLanguage, type Language } from '@/lib/language';
 import { pb } from '@/lib/pocketbase';
 import Constants from 'expo-constants';
-import { Ionicons } from '@expo/vector-icons';
+import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, Image, ImageBackground, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput } from '@/components/AppText';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Login() {
-  const { signIn, signInWithGoogle } = useAuth();
+  const { signIn, signInWithGoogle, signInWithYandex, signInWithApple } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
@@ -60,6 +49,34 @@ export default function Login() {
         language === 'ru'
           ? 'Не удалось войти через Google. Попробуйте войти по email и паролю.'
           : 'Google sign-in failed. Please try email and password instead.',
+      );
+    }
+  };
+
+  const handleYandexLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithYandex();
+    setLoading(false);
+    if (error && error.message === 'YANDEX_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Яндекс. Попробуйте войти по email и паролю.'
+          : 'Yandex sign-in failed. Please try email and password instead.',
+      );
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithApple();
+    setLoading(false);
+    if (error && error.message === 'APPLE_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Apple. Попробуйте войти по email и паролю.'
+          : 'Apple sign-in failed. Please try email and password instead.',
       );
     }
   };
@@ -114,13 +131,13 @@ export default function Login() {
                   style={[styles.langBtn, language === 'ru' && styles.langBtnActive]}
                   onPress={() => setLanguage('ru' as Language)}
                 >
-                  <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>🇷🇺 RU</Text>
+                  <Text style={[styles.langBtnText, language === 'ru' && styles.langBtnTextActive]}>RU</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.langBtn, language === 'en' && styles.langBtnActive]}
                   onPress={() => setLanguage('en' as Language)}
                 >
-                  <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>🇬🇧 EN</Text>
+                  <Text style={[styles.langBtnText, language === 'en' && styles.langBtnTextActive]}>EN</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -193,6 +210,28 @@ export default function Login() {
                 <Image source={require('../../assets/images/google-logo.png')} style={styles.googleLogo} />
                 <Text style={styles.googleBtnText}>{language === 'ru' ? 'Войти через Google' : 'Continue with Google'}</Text>
               </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.oauthBtn, styles.yandexBtn]}
+                onPress={handleYandexLogin}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <View style={styles.yandexLogo}>
+                  <FontAwesome5 name="yandex" size={18} color="#fc3f1d" />
+                </View>
+                <Text style={styles.oauthBtnText}>{t('signInWithYandex')}</Text>
+              </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                  cornerRadius={10}
+                  style={styles.appleBtn}
+                  onPress={handleAppleLogin}
+                />
+              )}
 
             </View>
 
@@ -358,8 +397,8 @@ const styles = StyleSheet.create({
     padding: 8,
   },
   button: {
-    backgroundColor: '#0c4a6e',
-    borderRadius: 10,
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: theme.radius.control,
     paddingVertical: 15,
     alignItems: 'center',
     marginTop: 8,
@@ -453,6 +492,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
+  yandexBtn: {
+    backgroundColor: '#fc3f1d',
+    marginTop: 10,
+  },
+  yandexLogo: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   oauthLogo: {
     width: 26,
     height: 26,
@@ -488,5 +539,10 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontSize: 15,
     fontWeight: '700',
+  },
+  appleBtn: {
+    height: 46,
+    width: '100%',
+    marginTop: 10,
   },
 });

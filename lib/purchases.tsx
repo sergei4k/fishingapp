@@ -1,8 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { DeviceEventEmitter, Platform } from "react-native";
+import { DeviceEventEmitter, Modal, Platform, StatusBar, StyleSheet, View } from "react-native";
 import Constants from "expo-constants";
+import * as SystemUI from "expo-system-ui";
 import Purchases, { LOG_LEVEL, type CustomerInfo, type PurchasesPackage } from "react-native-purchases";
-import RevenueCatUI, { PAYWALL_RESULT } from "react-native-purchases-ui";
+import RevenueCatUI from "react-native-purchases-ui";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "./auth";
 import { pb } from "./pocketbase";
 import { parseBadges } from "./badges";
@@ -16,7 +18,19 @@ const ANDROID_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY ?? "";
 const IOS_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
 
 const IS_EXPO_GO = Constants.appOwnership === "expo";
+const IOS_PAYMENTS_DISABLED = Platform.OS === "ios";
 const API_KEY = Platform.OS === "ios" ? IOS_KEY : ANDROID_KEY;
+const APP_DARK_BG = "#0f172a";
+
+async function setAndroidPaywallChrome(): Promise<void> {
+  if (Platform.OS !== "android") return;
+  StatusBar.setBarStyle("light-content");
+  StatusBar.setBackgroundColor(APP_DARK_BG, true);
+  StatusBar.setTranslucent(true);
+  try {
+    await SystemUI.setBackgroundColorAsync(APP_DARK_BG);
+  } catch {}
+}
 
 type PurchasesContextType = {
   ready: boolean;
@@ -70,17 +84,21 @@ async function grantVerifiedBadge(): Promise<void> {
 
 export function PurchasesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [ready, setReady] = useState(false);
   const [entitled, setEntitled] = useState(false);
   const [packages, setPackages] = useState<PurchasesPackage[]>([]);
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const paywallResolverRef = useRef<((purchased: boolean) => void) | null>(null);
+  const paywallPurchasedRef = useRef(false);
   const loggedInUserRef = useRef<string | null>(null);
 
   // Premium = an active RevenueCat entitlement OR the "verified" badge
   // (manually granted, e.g. admin/partner accounts). The badge is the marker.
   const hasVerifiedBadge = parseBadges(user?.badges).includes("verified");
-  const isPro = entitled || hasVerifiedBadge;
+  const isPro = IOS_PAYMENTS_DISABLED || entitled || hasVerifiedBadge;
 
-  const disabled = IS_EXPO_GO || !API_KEY;
+  const disabled = IOS_PAYMENTS_DISABLED || IS_EXPO_GO || !API_KEY;
 
   // Configure the SDK once.
   useEffect(() => {
@@ -194,25 +212,26 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
 
   const presentPaywall = useCallback(async (): Promise<boolean> => {
     if (disabled) return false;
-    try {
-      const result = await RevenueCatUI.presentPaywallIfNeeded({
-        requiredEntitlementIdentifier: PRO_ENTITLEMENT,
-      });
-      console.log("[purchases] paywall result:", result);
-      const purchased = result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
-      if (purchased) {
-        // Grant immediately on a confirmed purchase, then reconcile with the
-        // server via refresh(). Ensures the verified badge appears right away.
-        setEntitled(true);
-        await grantVerifiedBadge();
-      }
-      await refresh();
-      return purchased;
-    } catch (e) {
-      console.warn("[purchases] presentPaywall failed:", e);
+    const info = await Purchases.getCustomerInfo().catch(() => null);
+    if (hasProEntitlement(info)) {
+      applyInfo(info);
       return false;
     }
-  }, [disabled, refresh]);
+    if (paywallVisible) return false;
+    paywallPurchasedRef.current = false;
+    await setAndroidPaywallChrome();
+    return new Promise<boolean>((resolve) => {
+      paywallResolverRef.current = resolve;
+      setPaywallVisible(true);
+    });
+  }, [disabled, applyInfo, paywallVisible]);
+
+  const closePaywall = useCallback(async (purchased = paywallPurchasedRef.current) => {
+    setPaywallVisible(false);
+    paywallResolverRef.current?.(purchased);
+    paywallResolverRef.current = null;
+    await refresh();
+  }, [refresh]);
 
   // Opens the store's native manage-subscriptions screen (Google Play / App
   // Store), where the user can cancel. In-app cancellation isn't permitted.
@@ -230,6 +249,36 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
       value={{ ready, enabled: !disabled, isPro, packages, purchase, restore, presentPaywall, manageSubscription, refresh }}
     >
       {children}
+      <Modal
+        visible={paywallVisible}
+        animationType="slide"
+        statusBarTranslucent
+        onRequestClose={() => closePaywall(false)}
+      >
+        <View style={[styles.paywallModal, { paddingTop: Platform.OS === "android" ? insets.top : 0 }]}>
+          <RevenueCatUI.Paywall
+            style={styles.paywall}
+            onPurchaseCompleted={async ({ customerInfo }) => {
+              paywallPurchasedRef.current = true;
+              applyInfo(customerInfo);
+              setEntitled(true);
+              await grantVerifiedBadge();
+              await closePaywall(true);
+            }}
+            onRestoreCompleted={async ({ customerInfo }) => {
+              const restored = hasProEntitlement(customerInfo);
+              paywallPurchasedRef.current = restored;
+              applyInfo(customerInfo);
+              if (restored) {
+                setEntitled(true);
+                await grantVerifiedBadge();
+                await closePaywall(true);
+              }
+            }}
+            onDismiss={() => closePaywall()}
+          />
+        </View>
+      </Modal>
     </PurchasesContext.Provider>
   );
 }
@@ -239,3 +288,14 @@ export function usePurchases() {
   if (!context) throw new Error("usePurchases must be used within PurchasesProvider");
   return context;
 }
+
+const styles = StyleSheet.create({
+  paywallModal: {
+    flex: 1,
+    backgroundColor: APP_DARK_BG,
+  },
+  paywall: {
+    flex: 1,
+    backgroundColor: APP_DARK_BG,
+  },
+});

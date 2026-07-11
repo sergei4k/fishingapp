@@ -1,22 +1,12 @@
 import { useAuth } from '@/lib/auth';
+import { theme } from '../../lib/theme';
 import { pb } from '@/lib/pocketbase';
 import { useLanguage } from '@/lib/language';
 import { isProfane } from '@/lib/profanity';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text, TextInput } from '@/components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function SetupUsername() {
@@ -171,7 +161,7 @@ const styles = StyleSheet.create({
   input: { flex: 1, color: '#e6eef8', fontSize: 16, paddingVertical: 14 },
   hint: { color: '#64748b', fontSize: 12, marginBottom: 20 },
   button: {
-    backgroundColor: '#0c4a6e', borderRadius: 10,
+    backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control,
     paddingVertical: 15, alignItems: 'center', marginTop: 4,
   },
   buttonDisabled: { opacity: 0.6 },

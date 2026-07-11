@@ -1,6 +1,9 @@
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { theme } from '../lib/theme';
 import { PurchasesProvider } from '@/lib/purchases';
 import { LanguageProvider } from '@/lib/language';
+import { NetworkProvider } from '@/lib/network';
+import OfflineBanner from '@/components/OfflineBanner';
 import { pb } from '@/lib/pocketbase';
 import '@/lib/mapbox';
 import { clearDeliveredNotifications } from '@/lib/notifications';
@@ -9,7 +12,24 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter, usePathname, useRootNavigationState, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text } from '@/components/AppText';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  useFonts,
+  Inter_300Light,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from '@expo-google-fonts/inter';
+import {
+  Oswald_400Regular,
+  Oswald_500Medium,
+  Oswald_600SemiBold,
+  Oswald_700Bold,
+} from '@expo-google-fonts/oswald';
 import '../global.css';
 
 const toastConfig = {
@@ -117,7 +137,7 @@ function RootNavigator() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
         <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
         <ActivityIndicator size="small" color="#94a3b8" />
       </View>
@@ -131,23 +151,63 @@ function RootNavigator() {
   return <Slot />;
 }
 
-export default function RootLayout() {
+function SafeToast() {
+  const insets = useSafeAreaInsets();
+  return <Toast config={toastConfig} topOffset={Math.max(insets.top + 8, 32)} />;
+}
+
+function SplashLoading() {
   return (
-    <AuthProvider>
-      <PurchasesProvider>
-        <LanguageProvider>
-            <RootNavigator />
-            <Toast config={toastConfig} />
-        </LanguageProvider>
-      </PurchasesProvider>
-    </AuthProvider>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
+      <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
+      <ActivityIndicator size="small" color={theme.colors.text.secondary} />
+    </View>
+  );
+}
+
+export default function RootLayout() {
+  const [fontsLoaded] = useFonts({
+    Inter_300Light,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Oswald_400Regular,
+    Oswald_500Medium,
+    Oswald_600SemiBold,
+    Oswald_700Bold,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <SafeAreaProvider>
+        <SplashLoading />
+      </SafeAreaProvider>
+    );
+  }
+
+  return (
+    <SafeAreaProvider>
+      <AuthProvider>
+        <PurchasesProvider>
+          <LanguageProvider>
+            <NetworkProvider>
+              <RootNavigator />
+              <OfflineBanner />
+              <SafeToast />
+            </NetworkProvider>
+          </LanguageProvider>
+        </PurchasesProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   updateScreen: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: theme.colors.background,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 36,
@@ -156,7 +216,7 @@ const styles = StyleSheet.create({
   updateTitle: { color: '#e6eef8', fontSize: 22, fontWeight: '800', marginBottom: 12, textAlign: 'center' },
   updateSub: { color: '#64748b', fontSize: 15, textAlign: 'center', lineHeight: 22, marginBottom: 36 },
   updateBtn: {
-    backgroundColor: '#0284c7',
+    backgroundColor: theme.colors.primaryDark,
     borderRadius: 12,
     paddingVertical: 15,
     paddingHorizontal: 32,

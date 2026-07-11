@@ -1,24 +1,44 @@
 import { useAuth } from "@/lib/auth";
+import { theme } from '../../lib/theme';
 import { pb } from "@/lib/pocketbase";
 import { usePurchases } from "@/lib/purchases";
 import SignInPrompt from "@/components/SignInPrompt";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
 import { registerForPushNotificationsAsync } from "@/lib/notifications";
+import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { getUpgradeCopy } from "@/lib/upgradeCopy";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import React, { useEffect, useState } from "react";
-import { Alert, Image, Linking, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+
+type LocationResult = {
+  id: string;
+  label: string;
+  city: string;
+  country: string;
+  subtitle: string;
+};
 
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { signOut, user } = useAuth();
   const { enabled: purchasesEnabled, isPro, presentPaywall, restore, manageSubscription } = usePurchases();
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
   const [restoring, setRestoring] = useState(false);
   const [languageModalVisible, setLanguageModalVisible] = useState(false);
+  const [locationModalVisible, setLocationModalVisible] = useState(false);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<LocationResult[]>([]);
+  const [searchingLocation, setSearchingLocation] = useState(false);
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [locationSaved, setLocationSaved] = useState(false);
   const [avatarUri, setAvatarUri] = useState<string | null>(
     user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` : null
   );
@@ -28,22 +48,72 @@ export default function Settings() {
   const [profileInitialized, setProfileInitialized] = useState(!!user?.id);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [location, setLocation] = useState<string>(user?.city ?? "");
   const [bio, setBio] = useState<string>(user?.bio ?? "");
   const [bioInitialized, setBioInitialized] = useState(!!user?.id);
   const [savingBio, setSavingBio] = useState(false);
   const [bioSaved, setBioSaved] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [sendingFeedback, setSendingFeedback] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [pushTokenStatus, setPushTokenStatus] = useState<string>("checking…");
 
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
+  const showPurchases = Platform.OS !== "ios" && purchasesEnabled;
+  const upgradeCopy = getUpgradeCopy(language);
+  const notificationsEnabled = pushTokenStatus.startsWith("OK:");
+  const notificationsChecking = pushTokenStatus === "checking…";
 
   useEffect(() => {
     if (!profileInitialized && user?.id) {
       setName(user.name ?? "");
       setUsername(user.username ?? "");
+      setLocation(user.city ?? "");
       setProfileInitialized(true);
     }
-  }, [user?.id, profileInitialized]);
+  }, [user?.id, user?.city, user?.name, user?.username, profileInitialized]);
+
+  useEffect(() => {
+    if (!locationModalVisible) return;
+    const q = locationQuery.trim();
+    if (q.length < 2) {
+      setLocationResults([]);
+      setSearchingLocation(false);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      setSearchingLocation(true);
+      try {
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+          `?access_token=${MAPBOX_ACCESS_TOKEN}&types=place,locality&autocomplete=true&limit=8&language=${language}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const results: LocationResult[] = (json.features ?? []).map((feature: any) => {
+          const country = feature.context?.find((c: any) => String(c.id).startsWith("country"))?.text ?? "";
+          const city = feature.text ?? "";
+          const label = [city, country].filter(Boolean).join(", ") || feature.place_name;
+          return {
+            id: feature.id,
+            label,
+            city,
+            country,
+            subtitle: feature.place_name ?? label,
+          };
+        }).filter((item: LocationResult, index: number, arr: LocationResult[]) =>
+          item.label && arr.findIndex((other) => other.label === item.label) === index
+        );
+        setLocationResults(results);
+      } catch (e) {
+        console.warn("Location search error:", e);
+        setLocationResults([]);
+      } finally {
+        setSearchingLocation(false);
+      }
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [language, locationModalVisible, locationQuery]);
 
   useEffect(() => {
     if (!bioInitialized && user?.id) {
@@ -73,16 +143,17 @@ export default function Settings() {
           ?? Constants_.default?.easConfig?.projectId ?? null;
         if (!projectId) { setPushTokenStatus("FAILED — no projectId"); return; }
 
-        let fcmToken: string | null = null;
+        const nativePushName = Platform.OS === "ios" ? "APNs" : "FCM";
+        let nativeToken: string | null = null;
         try {
           const deviceToken = await Notifs.getDevicePushTokenAsync();
-          fcmToken = deviceToken?.data ?? null;
+          nativeToken = deviceToken?.data ?? null;
         } catch (e: any) {
-          setPushTokenStatus(`FAILED — FCM (Firebase) error: ${e?.message ?? "no native token"}`);
+          setPushTokenStatus(`FAILED — ${nativePushName} error: ${e?.message ?? "no native token"}`);
           return;
         }
-        if (!fcmToken) {
-          setPushTokenStatus("FAILED — FCM returned empty token (google-services.json issue)");
+        if (!nativeToken) {
+          setPushTokenStatus(`FAILED — ${nativePushName} returned empty token`);
           return;
         }
 
@@ -90,7 +161,7 @@ export default function Settings() {
           const token = (await Notifs.getExpoPushTokenAsync({ projectId })).data;
           setPushTokenStatus(token ? `OK: ${token.slice(0, 28)}…` : "FAILED — empty Expo token");
         } catch (e: any) {
-          setPushTokenStatus(`FAILED — Expo API error (FCM ok): ${e?.message ?? "getExpoPushToken error"}`);
+          setPushTokenStatus(`FAILED — Expo API error (${nativePushName} ok): ${e?.message ?? "getExpoPushToken error"}`);
         }
       } catch (e: any) {
         setPushTokenStatus(`FAILED — ${e?.message ?? "unknown"}`);
@@ -164,6 +235,26 @@ export default function Settings() {
     }
   };
 
+  const handleSelectLocation = async (result: LocationResult | null) => {
+    if (!user || savingLocation) return;
+    const nextLocation = result?.label ?? "";
+    setSavingLocation(true);
+    try {
+      await pb.collection("users").update(user.id, { city: nextLocation });
+      pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, city: nextLocation });
+      setLocation(nextLocation);
+      setLocationModalVisible(false);
+      setLocationQuery("");
+      setLocationResults([]);
+      setLocationSaved(true);
+      setTimeout(() => setLocationSaved(false), 2500);
+    } catch (e) {
+      Alert.alert(t("error"), t("saveError"));
+    } finally {
+      setSavingLocation(false);
+    }
+  };
+
   const handleDeleteAccount = () => {
     Alert.alert(
       t("deleteAccount"),
@@ -201,6 +292,39 @@ export default function Settings() {
     }
   };
 
+  const handleSendFeedback = async () => {
+    if (!user || sendingFeedback) return;
+    const message = feedback.trim();
+    if (message.length < 3) {
+      Alert.alert(t("error"), language === "ru" ? "Напишите пару слов." : "Write a few words first.");
+      return;
+    }
+    setSendingFeedback(true);
+    try {
+      await pb.collection("feedback").create({
+        user_id: user.id,
+        username: user.username ?? "",
+        name: user.name ?? "",
+        message,
+        platform: Platform.OS,
+        app_version: currentVersion,
+      });
+      setFeedback("");
+      setFeedbackSent(true);
+      setTimeout(() => setFeedbackSent(false), 2500);
+    } catch (e) {
+      console.warn("Feedback submit error:", e);
+      Alert.alert(
+        t("error"),
+        language === "ru"
+          ? "Не удалось отправить отзыв. Проверьте коллекцию feedback в PocketBase."
+          : "Could not send feedback. Check the feedback collection in PocketBase."
+      );
+    } finally {
+      setSendingFeedback(false);
+    }
+  };
+
   const handleLanguageChange = async (newLanguage: Language) => {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
@@ -210,7 +334,7 @@ export default function Settings() {
   const handleBuyPremium = async () => {
     const ok = await presentPaywall();
     if (ok) {
-      Alert.alert(language === "ru" ? "Премиум активирован" : "Premium activated");
+      Alert.alert(upgradeCopy.activated);
     }
   };
 
@@ -221,8 +345,8 @@ export default function Settings() {
       const ok = await restore();
       Alert.alert(
         ok
-          ? (language === "ru" ? "Покупки восстановлены" : "Purchases restored")
-          : (language === "ru" ? "Покупки не найдены" : "No purchases found")
+          ? upgradeCopy.restored
+          : upgradeCopy.noneFound
       );
     } finally {
       setRestoring(false);
@@ -233,25 +357,33 @@ export default function Settings() {
     return (
       <SignInPrompt
         icon="settings-outline"
-        subtitle={language === "ru" ? "Войдите, чтобы управлять профилем и подпиской." : "Sign in to manage your profile and subscription."}
+        subtitle={language === "ru" ? "Войдите, чтобы управлять профилем и настройками." : "Sign in to manage your profile and settings."}
       />
     );
   }
 
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>{t("settings")}</Text>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoider}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
+      >
+        <Text style={styles.title}>{t("settings")}</Text>
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="interactive"
+      >
         {user && (
           <View style={styles.userCard}>
             <TouchableOpacity onPress={handlePickAvatar} disabled={uploadingAvatar} style={styles.userAvatar}>
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
               ) : (
-                <Text style={styles.userAvatarText}>
-                  {(user.name || user.username || "?").slice(0, 2).toUpperCase()}
-                </Text>
+                <Ionicons name="person" size={34} color="#94a3b8" />
               )}
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
@@ -293,8 +425,24 @@ export default function Settings() {
               autoCapitalize="none"
               autoCorrect={false}
             />
+            <View style={styles.profileDivider} />
+            <Text style={styles.profileFieldLabel}>{language === "ru" ? "Город и страна" : "City and country"}</Text>
+            <TouchableOpacity style={styles.locationPickerBtn} onPress={() => {
+              setLocationQuery(location);
+              setLocationModalVisible(true);
+            }}>
+              <View style={styles.locationPickerLeft}>
+                <Ionicons name="location-outline" size={18} color="#94a3b8" />
+                <Text style={[styles.locationPickerText, !location && styles.locationPickerPlaceholder]} numberOfLines={1}>
+                  {location || (language === "ru" ? "Выбрать город" : "Select city")}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={16} color="#475569" />
+            </TouchableOpacity>
             <View style={styles.bioFooter}>
-              <Text style={styles.bioCount}>@{username || "…"}</Text>
+              <Text style={styles.bioCount}>
+                {locationSaved ? (language === "ru" ? "Место сохранено" : "Location saved") : `@${username || "…"}`}
+              </Text>
               <TouchableOpacity
                 style={[styles.bioSaveBtn, savingProfile && { opacity: 0.5 }, profileSaved && styles.bioSaveBtnSaved]}
                 onPress={handleSaveProfile}
@@ -346,9 +494,9 @@ export default function Settings() {
           </View>
         )}
 
-        {purchasesEnabled && (
+        {showPurchases && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>{language === "ru" ? "Премиум" : "Premium"}</Text>
+            <Text style={styles.sectionTitle}>{upgradeCopy.sectionTitle}</Text>
 
             {isPro ? (
               <>
@@ -356,7 +504,7 @@ export default function Settings() {
                   <View style={styles.settingLeft}>
                     <Ionicons name="checkmark-circle" size={20} color="#1d9bf0" />
                     <Text style={styles.settingText}>
-                      {language === "ru" ? "Премиум активен" : "Premium active"}
+                      {upgradeCopy.active}
                     </Text>
                   </View>
                   <VerifiedBadge size={20} />
@@ -366,7 +514,7 @@ export default function Settings() {
                   <View style={styles.settingLeft}>
                     <Ionicons name="close-circle-outline" size={20} color="#ffffff" />
                     <Text style={styles.settingText}>
-                      {language === "ru" ? "Управление подпиской" : "Manage subscription"}
+                      {upgradeCopy.manage}
                     </Text>
                   </View>
                   <Ionicons name="open-outline" size={16} color="#94a3b8" />
@@ -382,12 +530,10 @@ export default function Settings() {
                     <Ionicons name="star" size={20} color="#f59e0b" />
                     <View style={styles.premiumTextWrap}>
                       <Text style={styles.premiumTitle}>
-                        {language === "ru" ? "Купить Премиум" : "Buy Premium"}
+                        {upgradeCopy.buy}
                       </Text>
                       <Text style={styles.premiumSub}>
-                        {language === "ru"
-                          ? "Значок верификации и премиум-функции"
-                          : "Verified badge & premium features"}
+                        {upgradeCopy.benefit}
                       </Text>
                     </View>
                   </View>
@@ -399,8 +545,8 @@ export default function Settings() {
                     <Ionicons name="refresh-outline" size={20} color="#ffffff" />
                     <Text style={styles.settingText}>
                       {restoring
-                        ? (language === "ru" ? "Восстановление…" : "Restoring…")
-                        : (language === "ru" ? "Восстановить покупки" : "Restore purchases")}
+                        ? upgradeCopy.restoring
+                        : upgradeCopy.restore}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -435,9 +581,30 @@ export default function Settings() {
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Ionicons name="notifications-outline" size={20} color="#ffffff" />
-              <Text style={styles.settingText}>Push token</Text>
+              <Text style={styles.settingText}>{language === "ru" ? "Уведомления" : "Notifications"}</Text>
             </View>
-            <Text style={[styles.settingValue, { fontSize: 11, maxWidth: 200 }]} numberOfLines={1}>{pushTokenStatus}</Text>
+            <View style={[
+              styles.notificationStatus,
+              notificationsEnabled ? styles.notificationStatusOn : styles.notificationStatusOff,
+              notificationsChecking && styles.notificationStatusChecking,
+            ]}>
+              <View style={[
+                styles.notificationDot,
+                notificationsEnabled ? styles.notificationDotOn : styles.notificationDotOff,
+                notificationsChecking && styles.notificationDotChecking,
+              ]} />
+              <Text style={[
+                styles.notificationStatusText,
+                notificationsEnabled ? styles.notificationStatusTextOn : styles.notificationStatusTextOff,
+                notificationsChecking && styles.notificationStatusTextChecking,
+              ]}>
+                {notificationsChecking
+                  ? (language === "ru" ? "Проверка" : "Checking")
+                  : notificationsEnabled
+                    ? (language === "ru" ? "Включены" : "Enabled")
+                    : (language === "ru" ? "Выключены" : "Disabled")}
+              </Text>
+            </View>
           </View>
 
           <View style={styles.settingItem}>
@@ -550,7 +717,118 @@ export default function Settings() {
             </TouchableOpacity>
           )}
         </View>
+
+        {user && (
+          <View style={styles.bioCard}>
+            <View style={styles.feedbackHeader}>
+              <View style={styles.feedbackTitleRow}>
+                <Ionicons name="chatbubble-ellipses-outline" size={18} color="#38bdf8" />
+                <Text style={styles.feedbackTitle}>{language === "ru" ? "Обратная связь" : "Give feedback"}</Text>
+              </View>
+              {feedbackSent ? (
+                <View style={styles.feedbackSentBadge}>
+                  <Ionicons name="checkmark" size={13} color="#22c55e" />
+                  <Text style={styles.feedbackSentText}>{language === "ru" ? "Отправлено" : "Sent"}</Text>
+                </View>
+              ) : null}
+            </View>
+            <TextInput
+              style={[styles.bioInput, styles.feedbackInput]}
+              value={feedback}
+              onChangeText={setFeedback}
+              placeholder={language === "ru" ? "Что улучшить? Ошибка, идея, неудобство..." : "What should improve? Bug, idea, rough spot..."}
+              placeholderTextColor="#475569"
+              multiline
+              maxLength={800}
+              keyboardAppearance="dark"
+            />
+            <View style={styles.bioFooter}>
+              <Text style={styles.bioCount}>{feedback.length}/800</Text>
+              <TouchableOpacity
+                style={[styles.bioSaveBtn, (!feedback.trim() || sendingFeedback) && { opacity: 0.5 }, feedbackSent && styles.bioSaveBtnSaved]}
+                onPress={handleSendFeedback}
+                disabled={!feedback.trim() || sendingFeedback}
+              >
+                {sendingFeedback ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.bioSaveBtnText}>{language === "ru" ? "Отправить" : "Send"}</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </ScrollView>
+      </KeyboardAvoidingView>
+
+      <Modal
+        visible={locationModalVisible}
+        animationType="slide"
+        transparent={false}
+        statusBarTranslucent
+        onRequestClose={() => setLocationModalVisible(false)}
+      >
+        <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.locationModalContainer, { paddingTop: safeTop }]}>
+          <View style={styles.locationModalHeader}>
+            <Text style={styles.locationModalTitle}>{language === "ru" ? "Город и страна" : "City and country"}</Text>
+            <TouchableOpacity onPress={() => setLocationModalVisible(false)} style={styles.modalCloseBtn} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.locationSearchBox}>
+            <Ionicons name="search-outline" size={15} color="#64748b" />
+            <TextInput
+              style={styles.locationSearchInput}
+              value={locationQuery}
+              onChangeText={setLocationQuery}
+              placeholder={language === "ru" ? "Поиск города..." : "Search city..."}
+              placeholderTextColor="#475569"
+              autoCapitalize="words"
+              autoCorrect={false}
+              keyboardAppearance="dark"
+              autoFocus
+              returnKeyType="search"
+            />
+            {searchingLocation ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+          </View>
+          {location ? (
+            <TouchableOpacity style={styles.clearLocationBtn} onPress={() => handleSelectLocation(null)} disabled={savingLocation}>
+              <Ionicons name="close-circle-outline" size={17} color="#f87171" />
+              <Text style={styles.clearLocationText}>{language === "ru" ? "Убрать место из профиля" : "Remove location from profile"}</Text>
+            </TouchableOpacity>
+          ) : null}
+          <FlatList
+            data={locationResults}
+            keyExtractor={(item) => item.id}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 40 }}
+            ListEmptyComponent={
+              !searchingLocation && locationQuery.trim().length >= 2 ? (
+                <Text style={styles.locationEmptyText}>{language === "ru" ? "Город не найден" : "No cities found"}</Text>
+              ) : (
+                <Text style={styles.locationEmptyText}>{language === "ru" ? "Введите город" : "Type a city"}</Text>
+              )
+            }
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.locationResultRow}
+                activeOpacity={0.75}
+                onPress={() => handleSelectLocation(item)}
+                disabled={savingLocation}
+              >
+                <View style={styles.locationResultIcon}>
+                  <Ionicons name="location-sharp" size={17} color="#38bdf8" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.locationResultTitle}>{item.label}</Text>
+                  <Text style={styles.locationResultSub} numberOfLines={1}>{item.subtitle}</Text>
+                </View>
+                {savingLocation ? <ActivityIndicator size="small" color="#ffffff" /> : <Ionicons name="chevron-forward" size={16} color="#475569" />}
+              </TouchableOpacity>
+            )}
+          />
+        </SafeAreaView>
+      </Modal>
 
       {/* Language Selection Modal */}
       <Modal
@@ -601,7 +879,7 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
     padding: 16,
   },
   title: {
@@ -610,13 +888,19 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 24,
   },
+  keyboardAvoider: {
+    flex: 1,
+  },
   content: {
     flex: 1,
+  },
+  contentContainer: {
+    paddingBottom: 96,
   },
   userCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
@@ -666,7 +950,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     padding: 16,
     borderRadius: 8,
     marginBottom: 8,
@@ -705,6 +989,50 @@ const styles = StyleSheet.create({
     color: "#94a3b8",
     fontSize: 14,
   },
+  notificationStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 6,
+  },
+  notificationStatusOn: {
+    backgroundColor: "rgba(34,197,94,0.12)",
+  },
+  notificationStatusOff: {
+    backgroundColor: "rgba(148,163,184,0.12)",
+  },
+  notificationStatusChecking: {
+    backgroundColor: "rgba(56,189,248,0.12)",
+  },
+  notificationDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  notificationDotOn: {
+    backgroundColor: "#22c55e",
+  },
+  notificationDotOff: {
+    backgroundColor: "#94a3b8",
+  },
+  notificationDotChecking: {
+    backgroundColor: "#38bdf8",
+  },
+  notificationStatusText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  notificationStatusTextOn: {
+    color: "#86efac",
+  },
+  notificationStatusTextOff: {
+    color: "#cbd5e1",
+  },
+  notificationStatusTextChecking: {
+    color: "#7dd3fc",
+  },
   settingRight: {
     flexDirection: "row",
     alignItems: "center",
@@ -716,7 +1044,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalContent: {
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
     borderRadius: 20,
     padding: 20,
     paddingBottom: 40,
@@ -738,7 +1066,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     padding: 16,
     borderRadius: 8,
     marginBottom: 12,
@@ -757,7 +1085,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   bioCard: {
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
@@ -776,6 +1104,12 @@ const styles = StyleSheet.create({
     minHeight: 72,
     textAlignVertical: "top",
   },
+  feedbackHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 12 },
+  feedbackTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  feedbackTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700" },
+  feedbackSentBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#052e16", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  feedbackSentText: { color: "#22c55e", fontSize: 11, fontWeight: "700" },
+  feedbackInput: { minHeight: 96, lineHeight: 21 },
   profileInput: {
     minHeight: 0,
     paddingVertical: 6,
@@ -794,6 +1128,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#1e293b",
     marginVertical: 4,
   },
+  locationPickerBtn: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    gap: 12,
+  },
+  locationPickerLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8 },
+  locationPickerText: { flex: 1, color: "#e6eef8", fontSize: 15 },
+  locationPickerPlaceholder: { color: "#64748b" },
   bioFooter: {
     flexDirection: "row",
     alignItems: "center",
@@ -805,10 +1150,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   bioSaveBtn: {
-    backgroundColor: "#0c4a6e",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 16,
     paddingVertical: 7,
-    borderRadius: 8,
+    borderRadius: theme.radius.control,
   },
   bioSaveBtnSaved: { backgroundColor: "#16a34a" },
   updateBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#451a03", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
@@ -820,4 +1165,61 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 13,
   },
+  locationModalContainer: { flex: 1, backgroundColor: theme.colors.background },
+  locationModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e293b",
+  },
+  locationModalTitle: { color: "#e6eef8", fontSize: 18, fontWeight: "700" },
+  modalCloseBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  locationSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#0f2236",
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    minHeight: 44,
+  },
+  locationSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  clearLocationBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: "#1e293b",
+  },
+  clearLocationText: { color: "#f87171", fontSize: 13, fontWeight: "600" },
+  locationResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  locationResultIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#0f2236",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  locationResultTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  locationResultSub: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
+  locationEmptyText: { color: "#64748b", textAlign: "center", marginTop: 40, fontSize: 14 },
 });

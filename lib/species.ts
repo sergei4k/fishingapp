@@ -53,6 +53,8 @@ const speciesOptions: SpeciesOption[] = [
   { id: "lake_sturgeon", labelRu: "Озёрный осётр",     labelEn: "Lake Sturgeon",      scientificName: "Acipenser fulvescens" },
   { id: "pagr",          labelRu: "Пагр",              labelEn: "Porgy",              scientificName: "Pagrus pagrus" },
   { id: "bluefish",      labelRu: "Луфарь",            labelEn: "Bluefish",           scientificName: "Pomatomus saltatrix" },
+  { id: "atlantic_mackerel", labelRu: "Атлантическая скумбрия", labelEn: "Atlantic Mackerel", scientificName: "Scomber scombrus" },
+  { id: "dogfish",       labelRu: "Катран",            labelEn: "Dogfish",            scientificName: "Squalus acanthias" },
 ];
 
 export function getSpeciesOptions(language: "ru" | "en" = "ru"): Array<{ id: string; label: string; labelRu: string; labelEn: string; scientificName: string }> {
@@ -65,9 +67,23 @@ export function getSpeciesOptions(language: "ru" | "en" = "ru"): Array<{ id: str
   }));
 }
 
+function normalizeSpeciesKey(value: string): string {
+  return value
+    .trim()
+    .replace(/\.[a-z0-9]+$/i, "")
+    .toLowerCase()
+    .replace(/[^a-zа-яё0-9]+/gi, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
 export function getSpeciesLabel(id?: string | null, language: "ru" | "en" = "ru"): string {
   if (!id) return language === "ru" ? "Неизвестно" : "Unknown";
-  const f = speciesOptions.find((s) => s.id === id);
-  if (!f) return id;
+  const normalizedId = normalizeSpeciesKey(id);
+  const f = speciesOptions.find((s) =>
+    normalizeSpeciesKey(s.id) === normalizedId ||
+    normalizeSpeciesKey(s.labelEn) === normalizedId ||
+    normalizeSpeciesKey(s.labelRu) === normalizedId
+  );
+  if (!f) return id.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   return language === "ru" ? f.labelRu : f.labelEn;
 }

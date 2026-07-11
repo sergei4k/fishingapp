@@ -59,7 +59,15 @@ export default {
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {
-      bundleIdentifier: "com.strikefeed.myapp"
+      bundleIdentifier: "com.strikefeed.myapp",
+      buildNumber: "2",
+      usesAppleSignIn: true,
+      infoPlist: {
+        NSLocationWhenInUseUsageDescription: "StrikeFeed uses your location to show your current position on the fishing map. For example, this helps you see where you are relative to catches and fishing spots while viewing the map. Your location is private and never shared.",
+        NSCameraUsageDescription: "StrikeFeed uses the camera so you can take a photo of a fish and attach it to a catch.",
+        NSPhotoLibraryUsageDescription: "StrikeFeed uses your photo library so you can choose fish photos to attach to catches and chat messages.",
+        NSPhotoLibraryAddUsageDescription: "StrikeFeed can save photos from chat messages to your photo library when you choose Save to phone."
+      }
     },
     plugins: [
       "expo-notifications",
@@ -78,6 +86,7 @@ export default {
         }
       ],
       "expo-web-browser",
+      "expo-apple-authentication",
       "expo-secure-store",
       "expo-sqlite",
       "expo-document-picker",

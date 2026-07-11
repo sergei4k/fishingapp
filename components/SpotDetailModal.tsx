@@ -1,16 +1,8 @@
 import React, { useState } from "react";
-import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { theme } from '../lib/theme';
+import { Alert, Modal, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { pb } from "@/lib/pocketbase";
 
@@ -34,6 +26,8 @@ type Props = {
 };
 
 export default function SpotDetailModal({ spot, currentUserId, language, onClose, onDeleted, onUpdated }: Props) {
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
@@ -96,9 +90,9 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.container}>
+      <View style={[styles.container, { paddingTop: safeTop }]}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+          <TouchableOpacity onPress={onClose} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="arrow-back" size={20} color="#e6eef8" />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
@@ -175,7 +169,7 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
                 <Switch
                   value={editPublic}
                   onValueChange={setEditPublic}
-                  trackColor={{ false: "#1e293b", true: "#0c4a6e" }}
+                  trackColor={{ false: theme.colors.surfaceRaised, true: theme.colors.primaryMuted }}
                   thumbColor={editPublic ? "#0284c7" : "#475569"}
                 />
               </View>
@@ -190,20 +184,20 @@ export default function SpotDetailModal({ spot, currentUserId, language, onClose
             </>
           )}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 16, paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: "#1e293b",
     gap: 10,
   },
-  backBtn: { padding: 4 },
+  backBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, color: "#e6eef8", fontSize: 17, fontWeight: "700" },
   headerActions: { flexDirection: "row", gap: 4 },
   headerBtn: { padding: 8 },
@@ -234,11 +228,11 @@ const styles = StyleSheet.create({
   label: { color: "#94a3b8", fontSize: 13, fontWeight: "600", marginBottom: 6, marginTop: 16 },
   input: {
     backgroundColor: "#1e293b", color: "#e6eef8", fontSize: 15,
-    borderRadius: 10, padding: 12, borderWidth: 1, borderColor: "#334155",
+    borderRadius: theme.radius.control, padding: 12, borderWidth: 1, borderColor: "#334155",
   },
   toggleRow: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    backgroundColor: "#071023", borderRadius: 10,
+    backgroundColor: theme.colors.surface, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 12,
     marginTop: 20,
     gap: 12,

@@ -22,6 +22,8 @@ const speciesPhotos: Record<string, any> = {
   lake_sturgeon: require("../assets/fishicons/Lake_Sturgeon.png"),
   pagr:          require("../assets/fishicons/porgy.png"),
   bluefish:      require("../assets/fishicons/bluefish.png"),
+  atlantic_mackerel: require("../assets/fishicons/Atlantic_Mackerel.png"),
+  dogfish:       require("../assets/fishicons/Dogfish.png"),
 };
 
 export default speciesPhotos;

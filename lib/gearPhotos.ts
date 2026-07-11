@@ -9,8 +9,12 @@ const gearPhotos: Record<string, any> = {
   jerkbait:    require("../assets/gear/jerk.png"),
   popper:      require("../assets/gear/popper.png"),
   pilker:      require("../assets/gear/pilker.png"),
+  crawsoft:    require("../assets/gear/crawsoft.png"),
+  senko:       require("../assets/gear/senko.png"),
+  bucktail:    require("../assets/gear/bucktail.png"),
   // Bait
   chervyak:    require("../assets/gear/worm.png"),
+  motyl:       require("../assets/gear/bloodworm.png"),
   oparysh:     require("../assets/gear/maggot.png"),
   zhivec:      require("../assets/gear/minnow.png"),
   kukuruza:    require("../assets/gear/corn.png"),

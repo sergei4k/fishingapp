@@ -1,4 +1,5 @@
 import { useAuth, useRequireAuth } from "@/lib/auth";
+import { theme } from '../lib/theme';
 import { getGearLabel, getGearOptions, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
@@ -11,24 +12,9 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import {
-  Animated,
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Modal,
-  Pressable,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Animated, ActivityIndicator, Alert, Dimensions, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -88,6 +74,9 @@ export default function CatchDetailModal({
   const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
+  const safeBottom = insets.bottom;
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [fullscreenPhotos, setFullscreenPhotos] = useState<string[]>([]);
@@ -151,6 +140,14 @@ export default function CatchDetailModal({
     if (!currentCatchId || !commentsInitialized) return;
     commentCountSyncRef.current?.(currentCatchId, comments.length);
   }, [comments.length, commentsInitialized, currentCatchId]);
+
+  useEffect(() => {
+    if (fullscreenPhotos.length === 0) return;
+    const frame = requestAnimationFrame(() => {
+      fullscreenScrollRef.current?.scrollTo({ x: fullscreenIndex * SCREEN_WIDTH, animated: false });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [fullscreenPhotos.length, fullscreenIndex]);
 
   useEffect(() => {
     if (!currentCatchId) return;
@@ -303,16 +300,39 @@ export default function CatchDetailModal({
   };
 
   const submitComment = async () => {
+    if (submitting) return;
     if (!user) { requireAuth(); return; }
     if (!newComment.trim() || !item) return;
     setSubmitting(true);
     try {
+      if (pb.authStore.record?.id !== user.id) {
+        console.warn("[comments] auth user mismatch", {
+          contextUserId: user.id,
+          authStoreUserId: pb.authStore.record?.id ?? null,
+        });
+        pb.authStore.clear();
+        router.push("/(auth)/login" as any);
+        return;
+      }
+
+      if (!pb.authStore.isValid) {
+        try {
+          await pb.collection("users").authRefresh({ requestKey: null });
+        } catch (authError: any) {
+          console.warn("[comments] auth refresh failed", authError?.status, authError?.message, JSON.stringify(authError?.response));
+          pb.authStore.clear();
+          router.push("/(auth)/login" as any);
+          return;
+        }
+      }
+
+      const text = newComment.trim();
       const record = await pb.collection("comments").create({
         catch_id: item.id,
         user_id: user.id,
         username: user.username || user.name || "",
-        text: newComment.trim(),
-      });
+        text,
+      }, { requestKey: null });
       setComments((prev) => upsertComment(prev, { ...record, _avatarUrl: avatarUrlFromUser(user) }));
       setCommentsInitialized(true);
       setNewComment("");
@@ -327,7 +347,8 @@ export default function CatchDetailModal({
           })
           .catch(() => {});
       }
-    } catch {
+    } catch (error: any) {
+      console.warn("[comments] create failed", error?.status, error?.message, JSON.stringify(error?.response));
       Alert.alert(t("error"), t("saveError"));
     } finally { setSubmitting(false); }
   };
@@ -385,6 +406,11 @@ export default function CatchDetailModal({
     ...(item?.extraPhotos || []),
   ];
 
+  const openFullscreenPhoto = (index: number) => {
+    setFullscreenIndex(index);
+    setFullscreenPhotos(photos);
+  };
+
   const formatDate = (val?: string) => {
     if (!val) return t("recently");
     const num = Number(val);
@@ -397,10 +423,14 @@ export default function CatchDetailModal({
   return (
     <>
       <Modal visible={!!item} animationType="slide" onRequestClose={onClose}>
-        <SafeAreaView style={styles.screen}>
+        <KeyboardAvoidingView
+          style={[styles.screen, { paddingTop: safeTop }]}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
+        >
           {/* Header */}
           <View style={styles.header}>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+            <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={8}>
               <Ionicons name="arrow-back" size={20} color="#e6eef8" />
             </TouchableOpacity>
             <Text style={styles.headerTitle} numberOfLines={1}>
@@ -437,7 +467,12 @@ export default function CatchDetailModal({
             )}
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={[styles.content, { paddingBottom: safeBottom + 40 }]}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
+          >
             {/* User row */}
             {(item?.username || item?.name || item?.avatarUrl) && (
               <TouchableOpacity
@@ -449,9 +484,7 @@ export default function CatchDetailModal({
                   {item.avatarUrl ? (
                     <ExpoImage source={{ uri: item.avatarUrl }} contentFit="cover" style={styles.avatarImg} />
                   ) : (
-                    <Text style={styles.avatarText}>
-                      {(item.name || item.username || "?").slice(0, 2).toUpperCase()}
-                    </Text>
+                    <Ionicons name="person" size={20} color="#94a3b8" />
                   )}
                 </View>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
@@ -475,22 +508,20 @@ export default function CatchDetailModal({
                   }
                 >
                   {photos.map((uri, i) => (
-                    <TouchableOpacity
+                    <Pressable
                       key={i}
-                      activeOpacity={0.9}
-                      onPress={() => {
-                        setFullscreenPhotos(photos);
-                        setFullscreenIndex(i);
-                        setTimeout(() => fullscreenScrollRef.current?.scrollTo({ x: i * SCREEN_WIDTH, animated: false }), 50);
-                      }}
+                      onPress={() => openFullscreenPhoto(i)}
+                      style={{ width: SCREEN_WIDTH, height: 280 }}
                     >
                       <ExpoImage
                         source={{ uri }}
                         placeholder={require("../assets/placeholder.png")}
+                        cachePolicy="memory-disk"
+                        transition={120}
                         contentFit="cover"
                         style={{ width: SCREEN_WIDTH, height: 280 }}
                       />
-                    </TouchableOpacity>
+                    </Pressable>
                   ))}
                 </ScrollView>
                 {photos.length > 1 && (
@@ -536,7 +567,7 @@ export default function CatchDetailModal({
                           {c._avatarUrl ? (
                             <ExpoImage source={{ uri: c._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} />
                           ) : (
-                            <Text style={styles.commentAvatarText}>{(c.username || "?").slice(0, 2).toUpperCase()}</Text>
+                            <Ionicons name="person" size={15} color="#94a3b8" />
                           )}
                         </View>
                       )}
@@ -681,8 +712,8 @@ export default function CatchDetailModal({
                     onValueChange={(v) => {
                       if (item) onTogglePublic(item.id, v);
                     }}
-                    trackColor={{ false: "#1e293b", true: "#166534" }}
-                    thumbColor={item?.isPublic ? "#22c55e" : "#475569"}
+                    trackColor={{ false: theme.colors.surfaceRaised, true: theme.colors.primaryMuted }}
+                    thumbColor="#ffffff"
                   />
                 </View>
               )}
@@ -722,191 +753,193 @@ export default function CatchDetailModal({
               </View>
             </View>
           </ScrollView>
-        </SafeAreaView>
-      </Modal>
+        </KeyboardAvoidingView>
 
-      {/* Fullscreen photo viewer */}
-      <Modal visible={fullscreenPhotos.length > 0} transparent animationType="fade" onRequestClose={() => setFullscreenPhotos([])}>
-        <View style={{ flex: 1, backgroundColor: "#000" }}>
-          <ScrollView
-            ref={fullscreenScrollRef}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            scrollEventThrottle={16}
-            style={{ width: SCREEN_WIDTH, flex: 1 }}
-            onMomentumScrollEnd={(e) =>
-              setFullscreenIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-            }
-          >
-            {fullscreenPhotos.map((uri, i) => (
-              <Pressable
-                key={i}
-                style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: "center" }}
-                onPress={() => setFullscreenPhotos([])}
-              >
-                <ExpoImage source={{ uri }} contentFit="contain" style={{ width: SCREEN_WIDTH, height: "100%" }} />
-              </Pressable>
-            ))}
-          </ScrollView>
-          {fullscreenPhotos.length > 1 && (
-            <View style={{ position: "absolute", bottom: 40, width: "100%", flexDirection: "row", justifyContent: "center", gap: 6 }}>
-              {fullscreenPhotos.map((_, i) => (
-                <View
-                  key={i}
-                  style={{
-                    width: i === fullscreenIndex ? 16 : 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: i === fullscreenIndex ? "#fff" : "rgba(255,255,255,0.35)",
-                  }}
-                />
-              ))}
+        {/* Species picker */}
+        <Modal
+          visible={editSpeciesModal}
+          animationType="slide"
+          transparent={false}
+          statusBarTranslucent
+          onRequestClose={() => { setEditSpeciesModal(false); setEditSpeciesSearch(""); }}
+        >
+          <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.pickerModal, { paddingTop: safeTop }]}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>{t("selectSpecies")}</Text>
+              <TouchableOpacity onPress={() => { setEditSpeciesModal(false); setEditSpeciesSearch(""); }} style={styles.closeBtn} hitSlop={8}>
+                <Ionicons name="close" size={18} color="#64748b" />
+              </TouchableOpacity>
             </View>
-          )}
-          <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: 52, right: 20, padding: 8 }}>
-            <Ionicons name="close" size={22} color="#fff" />
-          </Pressable>
-        </View>
+            <View style={styles.pickerSearch}>
+              <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.pickerSearchInput}
+                placeholder={language === "ru" ? "Поиск..." : "Search..."}
+                placeholderTextColor="#475569"
+                value={editSpeciesSearch}
+                onChangeText={setEditSpeciesSearch}
+                autoCorrect={false}
+                keyboardAppearance="dark"
+                clearButtonMode="while-editing"
+              />
+            </View>
+            <FlatList
+              data={getSpeciesOptions(language).filter(s => {
+                if (!editSpeciesSearch.trim()) return true;
+                const q = editSpeciesSearch.toLowerCase();
+                return s.labelRu.toLowerCase().includes(q) || s.labelEn.toLowerCase().includes(q) || s.scientificName.toLowerCase().includes(q);
+              })}
+              keyExtractor={s => s.id}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item: s }) => (
+                <Pressable
+                  onPress={() => { setEditSpecies(s.id); setEditSpeciesModal(false); setEditSpeciesSearch(""); }}
+                  style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
+                >
+                  <View style={styles.pickerItem}>
+                    {speciesPhotos[s.id] ? (
+                      <ExpoImage source={speciesPhotos[s.id]} style={styles.pickerItemImg} contentFit="contain" />
+                    ) : (
+                      <View style={styles.pickerItemImgPlaceholder}>
+                        <Ionicons name="help-circle-outline" size={20} color="#334155" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.pickerItemText}>{s.label}</Text>
+                      <Text style={styles.pickerItemSub}>{s.scientificName}</Text>
+                    </View>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </SafeAreaView>
+        </Modal>
+
+        {/* Gear picker */}
+        <Modal
+          visible={editGearModal}
+          animationType="slide"
+          transparent={false}
+          statusBarTranslucent
+          onRequestClose={() => { setEditGearModal(false); setEditGearSearch(""); }}
+        >
+          <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.pickerModal, { paddingTop: safeTop }]}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>{t("selectGear")}</Text>
+              <TouchableOpacity onPress={() => { setEditGearModal(false); setEditGearSearch(""); }} style={styles.closeBtn} hitSlop={8}>
+                <Ionicons name="close" size={18} color="#64748b" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.pickerSearch}>
+              <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
+              <TextInput
+                style={styles.pickerSearchInput}
+                placeholder={language === "ru" ? "Поиск..." : "Search..."}
+                placeholderTextColor="#475569"
+                value={editGearSearch}
+                onChangeText={setEditGearSearch}
+                autoCorrect={false}
+                keyboardAppearance="dark"
+                clearButtonMode="while-editing"
+              />
+            </View>
+            <FlatList
+              data={getGearOptions(language).filter(g => {
+                if (!editGearSearch.trim()) return true;
+                const q = editGearSearch.toLowerCase();
+                return g.labelRu.toLowerCase().includes(q) || g.labelEn.toLowerCase().includes(q);
+              })}
+              keyExtractor={g => g.id}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item: g }) => (
+                <Pressable
+                  onPress={() => { setEditGear(g.id); setEditGearModal(false); setEditGearSearch(""); }}
+                  style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
+                >
+                  <View style={styles.pickerItem}>
+                    {gearPhotos[g.id] ? (
+                      <ExpoImage source={gearPhotos[g.id]} style={styles.pickerItemImg} contentFit="contain" />
+                    ) : (
+                      <View style={[styles.pickerItemImgPlaceholder, { borderWidth: 1.5, borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
+                        <Ionicons name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.pickerItemText}>{g.label}</Text>
+                      <Text style={[styles.pickerItemSub, { color: GEAR_CATEGORY_COLOR[g.category] }]}>
+                        {t(g.category === "lure" ? "gearCategoryLure" : g.category === "bait" ? "gearCategoryBait" : "gearCategoryRig")}
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+              )}
+            />
+          </SafeAreaView>
+        </Modal>
+
+        {/* Fullscreen photo viewer */}
+        <Modal visible={fullscreenPhotos.length > 0} transparent animationType="none" onRequestClose={() => setFullscreenPhotos([])}>
+          <View style={{ flex: 1, backgroundColor: "#000" }}>
+            <ScrollView
+              ref={fullscreenScrollRef}
+              horizontal
+              pagingEnabled
+              contentOffset={{ x: fullscreenIndex * SCREEN_WIDTH, y: 0 }}
+              showsHorizontalScrollIndicator={false}
+              scrollEventThrottle={16}
+              style={{ width: SCREEN_WIDTH, flex: 1 }}
+              onMomentumScrollEnd={(e) =>
+                setFullscreenIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
+              }
+            >
+              {fullscreenPhotos.map((uri, i) => (
+                <Pressable
+                  key={i}
+                  style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: "center" }}
+                  onPress={() => setFullscreenPhotos([])}
+                >
+                  <ExpoImage source={{ uri }} contentFit="contain" style={{ width: SCREEN_WIDTH, height: "100%" }} />
+                </Pressable>
+              ))}
+            </ScrollView>
+            {fullscreenPhotos.length > 1 && (
+              <View style={{ position: "absolute", bottom: safeBottom + 24, width: "100%", flexDirection: "row", justifyContent: "center", gap: 6 }}>
+                {fullscreenPhotos.map((_, i) => (
+                  <View
+                    key={i}
+                    style={{
+                      width: i === fullscreenIndex ? 16 : 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: i === fullscreenIndex ? "#fff" : "rgba(255,255,255,0.35)",
+                    }}
+                  />
+                ))}
+              </View>
+            )}
+            <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: safeTop + 12, right: 16, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
+              <Ionicons name="close" size={22} color="#fff" />
+            </Pressable>
+          </View>
+        </Modal>
       </Modal>
 
-      {/* Species picker */}
-      <Modal
-        visible={editSpeciesModal}
-        animationType="slide"
-        transparent={false}
-        statusBarTranslucent
-        onRequestClose={() => { setEditSpeciesModal(false); setEditSpeciesSearch(""); }}
-      >
-        <SafeAreaView style={styles.pickerModal}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>{t("selectSpecies")}</Text>
-            <TouchableOpacity onPress={() => { setEditSpeciesModal(false); setEditSpeciesSearch(""); }} hitSlop={8}>
-              <Ionicons name="close" size={18} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.pickerSearch}>
-            <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.pickerSearchInput}
-              placeholder={language === "ru" ? "Поиск..." : "Search..."}
-              placeholderTextColor="#475569"
-              value={editSpeciesSearch}
-              onChangeText={setEditSpeciesSearch}
-              autoCorrect={false}
-              keyboardAppearance="dark"
-              clearButtonMode="while-editing"
-            />
-          </View>
-          <FlatList
-            data={getSpeciesOptions(language).filter(s => {
-              if (!editSpeciesSearch.trim()) return true;
-              const q = editSpeciesSearch.toLowerCase();
-              return s.labelRu.toLowerCase().includes(q) || s.labelEn.toLowerCase().includes(q) || s.scientificName.toLowerCase().includes(q);
-            })}
-            keyExtractor={s => s.id}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item: s }) => (
-              <Pressable
-                onPress={() => { setEditSpecies(s.id); setEditSpeciesModal(false); setEditSpeciesSearch(""); }}
-                style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
-              >
-                <View style={styles.pickerItem}>
-                  {speciesPhotos[s.id] ? (
-                    <ExpoImage source={speciesPhotos[s.id]} style={styles.pickerItemImg} contentFit="contain" />
-                  ) : (
-                    <View style={styles.pickerItemImgPlaceholder}>
-                      <Ionicons name="help-circle-outline" size={20} color="#334155" />
-                    </View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pickerItemText}>{s.label}</Text>
-                    <Text style={styles.pickerItemSub}>{s.scientificName}</Text>
-                  </View>
-                </View>
-              </Pressable>
-            )}
-          />
-        </SafeAreaView>
-      </Modal>
-
-      {/* Gear picker */}
-      <Modal
-        visible={editGearModal}
-        animationType="slide"
-        transparent={false}
-        statusBarTranslucent
-        onRequestClose={() => { setEditGearModal(false); setEditGearSearch(""); }}
-      >
-        <SafeAreaView style={styles.pickerModal}>
-          <View style={styles.pickerHeader}>
-            <Text style={styles.pickerTitle}>{t("selectGear")}</Text>
-            <TouchableOpacity onPress={() => { setEditGearModal(false); setEditGearSearch(""); }} hitSlop={8}>
-              <Ionicons name="close" size={18} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-          <View style={styles.pickerSearch}>
-            <Ionicons name="search-outline" size={14} color="#64748b" style={{ marginRight: 8 }} />
-            <TextInput
-              style={styles.pickerSearchInput}
-              placeholder={language === "ru" ? "Поиск..." : "Search..."}
-              placeholderTextColor="#475569"
-              value={editGearSearch}
-              onChangeText={setEditGearSearch}
-              autoCorrect={false}
-              keyboardAppearance="dark"
-              clearButtonMode="while-editing"
-            />
-          </View>
-          <FlatList
-            data={getGearOptions(language).filter(g => {
-              if (!editGearSearch.trim()) return true;
-              const q = editGearSearch.toLowerCase();
-              return g.labelRu.toLowerCase().includes(q) || g.labelEn.toLowerCase().includes(q);
-            })}
-            keyExtractor={g => g.id}
-            keyboardShouldPersistTaps="handled"
-            renderItem={({ item: g }) => (
-              <Pressable
-                onPress={() => { setEditGear(g.id); setEditGearModal(false); setEditGearSearch(""); }}
-                style={({ pressed }) => pressed ? { backgroundColor: "#061420" } : undefined}
-              >
-                <View style={styles.pickerItem}>
-                  {gearPhotos[g.id] ? (
-                    <ExpoImage source={gearPhotos[g.id]} style={styles.pickerItemImg} contentFit="contain" />
-                  ) : (
-                    <View style={[styles.pickerItemImgPlaceholder, { borderWidth: 1.5, borderColor: GEAR_CATEGORY_COLOR[g.category] }]}>
-                      <Ionicons name={GEAR_CATEGORY_ICON[g.category] as any} size={22} color={GEAR_CATEGORY_COLOR[g.category]} />
-                    </View>
-                  )}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.pickerItemText}>{g.label}</Text>
-                    <Text style={[styles.pickerItemSub, { color: GEAR_CATEGORY_COLOR[g.category] }]}>
-                      {t(g.category === "lure" ? "gearCategoryLure" : g.category === "bait" ? "gearCategoryBait" : "gearCategoryRig")}
-                    </Text>
-                  </View>
-                </View>
-              </Pressable>
-            )}
-          />
-        </SafeAreaView>
-      </Modal>
     </>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: "#0f172a" },
+  screen: { flex: 1, backgroundColor: theme.colors.background },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#1e293b",
   },
-  closeBtn: { padding: 4 },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: {
     color: "#e6eef8",
     fontSize: 17,
@@ -984,7 +1017,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 4,
   },
   commentBubbleOwn: {
-    backgroundColor: "#0c4a6e",
+    backgroundColor: theme.colors.primaryDark,
     borderBottomRightRadius: 4,
   },
   commentUsername: { color: "#cbd5e1", fontSize: 11, fontWeight: "600", marginBottom: 2 },
@@ -1011,12 +1044,12 @@ const styles = StyleSheet.create({
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   metricsRow: { flexDirection: "row", gap: 12 },
   metricItem: { flex: 1 },
-  input: { backgroundColor: "#1e293b", color: "#fff", padding: 8, borderRadius: 8, marginTop: 4, minHeight: 40 },
+  input: { backgroundColor: "#1e293b", color: "#fff", padding: 8, borderRadius: theme.radius.control, marginTop: 4, minHeight: 40 },
   publicRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1026,10 +1059,10 @@ const styles = StyleSheet.create({
   publicSub: { color: "#94a3b8", fontSize: 12 },
   modalActions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btnSave: {
-    backgroundColor: "#1e3a5f",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.radius.control,
     alignItems: "center",
     justifyContent: "center",
     flex: 1,
@@ -1044,10 +1077,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   btnMap: {
-    backgroundColor: "#0c4a6e",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.radius.control,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1056,9 +1089,9 @@ const styles = StyleSheet.create({
   btnText: { color: "#cbd5e1", fontWeight: "700", fontSize: 15 },
   dropdownMenu: {
     position: "absolute",
-    top: 32,
+    top: 46,
     right: 0,
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#1e293b",
@@ -1076,7 +1109,7 @@ const styles = StyleSheet.create({
   editPickerRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
@@ -1085,12 +1118,12 @@ const styles = StyleSheet.create({
   editPickerThumb: { width: 44, height: 44 },
   editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },
   editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
-  pickerModal: { flex: 1, backgroundColor: "#071023" },
+  pickerModal: { flex: 1, backgroundColor: theme.colors.background },
   pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   pickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   pickerSearch: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   pickerSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
-  pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },
+  pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   pickerItemImg: { width: 52, height: 52, flexShrink: 0 },
   pickerItemImgPlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   pickerItemText: { color: "#e6eef8", fontSize: 16 },

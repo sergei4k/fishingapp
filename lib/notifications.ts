@@ -1,6 +1,6 @@
 import Constants from "expo-constants";
 import { AppState, Platform } from "react-native";
-import { pb } from "./pocketbase";
+import { pb, isNetworkError } from "./pocketbase";
 
 type NotificationsModule = typeof import("expo-notifications");
 let notificationsModule: NotificationsModule | null = null;
@@ -126,15 +126,31 @@ export async function clearDeliveredNotifications(): Promise<void> {
 export async function syncPushTokenForUser(userId: string): Promise<string | null> {
   const token = await registerForPushNotificationsAsync();
   if (!token) {
-    console.warn("[syncPushTokenForUser] no token obtained — permissions denied or FCM not configured");
+    console.warn("[syncPushTokenForUser] no token obtained — permissions denied or native push is not configured");
     return null;
   }
 
   try {
+    const platform = Platform.OS;
+    try {
+      const existing = await pb.collection("user_push_tokens").getFirstListItem(
+        `user_id = "${userId}" && token = "${token.replace(/"/g, '\\"')}"`,
+        { requestKey: null },
+      );
+      await pb.collection("user_push_tokens").update(existing.id, { platform }, { requestKey: null });
+    } catch (e: any) {
+      if (e?.status === 404) {
+        await pb.collection("user_push_tokens").create({ user_id: userId, token, platform }, { requestKey: null });
+      } else {
+        throw e;
+      }
+    }
+
+    // Legacy fallback for existing hooks/older builds. Multi-device delivery uses user_push_tokens.
     await pb.collection("users").update(userId, { pushToken: token });
     console.log("[syncPushTokenForUser] saved token for", userId);
   } catch (e: any) {
-    console.warn("[syncPushTokenForUser] failed to save token:", e?.status, e?.message);
+    if (!isNetworkError(e)) console.warn("[syncPushTokenForUser] failed to save token:", e?.status, e?.message);
   }
 
   return token;

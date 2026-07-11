@@ -1,21 +1,16 @@
 import { Ionicons } from "@expo/vector-icons";
+import { theme } from '../../lib/theme';
 import * as Location from "expo-location";
 import React, { useEffect, useState } from "react";
-import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Platform, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Text } from "@/components/AppText";
 import { SafeAreaView } from "react-native-safe-area-context";
-import Svg, { Path } from "react-native-svg";
+import Svg, { Path, Line } from "react-native-svg";
 import { useLanguage } from "@/lib/language";
 import { useRequireAuth } from "@/lib/auth";
 import { usePurchases } from "@/lib/purchases";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
+import { getUpgradeCopy } from "@/lib/upgradeCopy";
 
 type WeatherData = {
   utc_offset_seconds: number;
@@ -38,6 +33,18 @@ type WeatherData = {
     wind_direction_10m: number[];
   };
 };
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 
 function wmoIcon(code: number): string {
@@ -94,6 +101,41 @@ function fishingScore(wind: number, precip: number, code: number, pressure: numb
   if (score >= 6) return { score, label: t("fishingGood"), color: "#9cbf5e" };
   if (score >= 4) return { score, label: t("fishingFair"), color: "#f59e0b" };
   return { score, label: t("fishingPoor"), color: "#ef4444" };
+}
+
+// Per-hour version of the score, using the hourly fields the API returns
+// (precipitation probability instead of amount).
+function hourlyBiteScore(wind: number, pop: number, code: number, pressure: number): number {
+  let s = 10;
+  if (wind > 20) s -= 4; else if (wind > 10) s -= 2;
+  if (pop > 60) s -= 3; else if (pop > 30) s -= 1;
+  if (code >= 95) s -= 4; else if (code >= 80) s -= 2;
+  if (pressure < 1009) s -= 2; else if (pressure >= 1020) s += 1;
+  return Math.max(1, Math.min(10, s));
+}
+
+// The best contiguous stretch of hours to fish over the next ~18h, scored on
+// the API's local hourly times. Returns local start/end hours, or null if the
+// forecast is too short to say anything useful.
+function bestBiteWindow(hourly: WeatherData["hourly"], utcOffsetSeconds: number): { start: number; end: number } | null {
+  const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
+  const rows = hourly.time
+    .map((time, i) => ({
+      hour: Number(time.slice(11, 13)),
+      time,
+      score: hourlyBiteScore(hourly.wind_speed_10m[i], hourly.precipitation_probability[i], hourly.weather_code[i], hourly.pressure_msl[i]),
+    }))
+    .filter((r) => r.time >= nowStr)
+    .slice(0, 18);
+  if (rows.length < 3) return null;
+  const max = Math.max(...rows.map((r) => r.score));
+  const peak = rows.findIndex((r) => r.score === max);
+  let lo = peak, hi = peak;
+  while (lo - 1 >= 0 && rows[lo - 1].score >= max - 1) lo--;
+  while (hi + 1 < rows.length && rows[hi + 1].score >= max - 1) hi++;
+  return { start: rows[lo].hour, end: (rows[hi].hour + 1) % 24 };
 }
 
 
@@ -294,7 +336,7 @@ function HourlyChart({ hourly, utcOffsetSeconds, t, language }: { hourly: Weathe
                       top: cy - 4, left: cx - 4,
                       width: 8, height: 8, borderRadius: 4,
                       backgroundColor: "#e6915a",
-                      borderWidth: 2, borderColor: "#071023",
+                      borderWidth: 2, borderColor: theme.colors.border,
                     }}
                   />
                 );
@@ -474,7 +516,7 @@ function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData
                       top: cy - 4, left: cx - 4,
                       width: 8, height: 8, borderRadius: 4,
                       backgroundColor: "#22d3ee",
-                      borderWidth: 2, borderColor: "#071023",
+                      borderWidth: 2, borderColor: theme.colors.border,
                     }}
                   />
                 );
@@ -559,75 +601,98 @@ function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData
   );
 }
 
-function BiteFactor({ icon, label, value, valueColor }: { icon: any; label: string; value: string; valueColor?: string }) {
+function FactorRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
   return (
-    <View style={styles.biteFactor}>
-      <Ionicons name={icon} size={15} color="#94a3b8" />
-      <Text style={styles.biteFactorLabel}>{label}</Text>
-      <Text style={[styles.biteFactorValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+    <View style={styles.factorRow}>
+      <Text style={styles.factorLabel}>{label}</Text>
+      <Text style={[styles.factorValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
     </View>
   );
 }
 
-// Premium "Bite Forecast": a 1-10 fishing-conditions score derived from wind,
-// pressure trend and precipitation. Locked behind Pro (unless purchases are
-// unavailable on this build, e.g. RuStore, where it's shown for free).
+// The bite score as a fishfinder-style dial: ten ticks around a 270° arc, lit up
+// to the score, with the number seated in the middle.
+function SonarDial({ score, color }: { score: number; color: string }) {
+  const SIZE = 128, c = SIZE / 2;
+  const rOuter = c - 3, rInner = rOuter - 13;
+  const START = 135, SWEEP = 270, N = 10, step = SWEEP / N;
+  const ticks = Array.from({ length: N }, (_, i) => {
+    const rad = ((START + i * step + step / 2) * Math.PI) / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    return {
+      x1: c + rInner * cos, y1: c + rInner * sin,
+      x2: c + rOuter * cos, y2: c + rOuter * sin,
+      on: i < score,
+    };
+  });
+  return (
+    <View style={{ width: SIZE, height: SIZE, alignItems: "center", justifyContent: "center" }}>
+      <Svg width={SIZE} height={SIZE} style={{ position: "absolute", top: 0, left: 0 }}>
+        {ticks.map((tk, i) => (
+          <Line key={i} x1={tk.x1} y1={tk.y1} x2={tk.x2} y2={tk.y2}
+            stroke={tk.on ? color : theme.colors.surfaceRaised} strokeWidth={5} strokeLinecap="round" />
+        ))}
+      </Svg>
+      <View style={{ alignItems: "center" }}>
+        <Text style={[styles.biteScore, { color }]}>{score}</Text>
+        <Text style={styles.biteDialMax}>/ 10</Text>
+      </View>
+    </View>
+  );
+}
+
+// A 1-10 fishing-conditions score derived from wind, pressure trend, and precipitation.
 function BiteForecast({
-  current, hourly, unlocked, onUnlock, t, language,
+  current, hourly, utcOffsetSeconds, unlocked, onUnlock, t, language, upgradeCopy,
 }: {
   current: WeatherData["current"];
   hourly: WeatherData["hourly"];
+  utcOffsetSeconds: number;
   unlocked: boolean;
   onUnlock: () => void;
   t: (k: any) => string;
   language: string;
+  upgradeCopy: ReturnType<typeof getUpgradeCopy>;
 }) {
   const fish = fishingScore(current.wind_speed_10m, current.precipitation, current.weather_code, current.pressure_msl, t);
   const trend = pressureTrend(hourly, t);
+  const win = bestBiteWindow(hourly, utcOffsetSeconds);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const windowLabel = win
+    ? `${language === "ru" ? "Лучшее окно" : "Best window"} ${pad(win.start)}:00-${pad(win.end)}:00`
+    : null;
 
   return (
     <>
       <Text style={styles.sectionTitle}>{language === "ru" ? "Прогноз клёва" : "Bite Forecast"}</Text>
       <View style={styles.biteCard}>
         {unlocked ? (
-          <>
-            <View style={styles.biteTop}>
-              <View>
-                <View style={{ flexDirection: "row", alignItems: "baseline", gap: 4 }}>
-                  <Text style={[styles.biteScore, { color: fish.color }]}>{fish.score}</Text>
-                  <Text style={styles.biteScoreMax}>/10</Text>
-                </View>
-                <Text style={[styles.biteLabel, { color: fish.color }]}>{fish.label}</Text>
+          <View style={styles.biteRow}>
+            <SonarDial score={fish.score} color={fish.color} />
+            <View style={styles.biteInfo}>
+              <Text style={[styles.biteVerdict, { color: fish.color }]}>{fish.label}</Text>
+              {windowLabel ? <Text style={styles.biteWindow}>{windowLabel}</Text> : null}
+              <View style={styles.factorList}>
+                <FactorRow label={language === "ru" ? "Ветер" : "Wind"} value={`${Math.round(current.wind_speed_10m)} km/h`} />
+                <FactorRow label={language === "ru" ? "Давление" : "Pressure"} value={trend.label} valueColor={trend.color} />
+                <FactorRow label={language === "ru" ? "Осадки" : "Precip"} value={`${current.precipitation} mm`} />
               </View>
-              <Ionicons name="fish" size={44} color={fish.color} />
             </View>
-            <View style={styles.scoreBar}>
-              {Array.from({ length: 10 }).map((_, i) => (
-                <View key={i} style={[styles.scoreSegment, { backgroundColor: i < fish.score ? fish.color : "#1e293b" }]} />
-              ))}
-            </View>
-            <View style={styles.biteFactors}>
-              <BiteFactor icon="navigate-outline" label={language === "ru" ? "Ветер" : "Wind"} value={`${Math.round(current.wind_speed_10m)} km/h`} />
-              <BiteFactor icon="speedometer-outline" label={language === "ru" ? "Давление" : "Pressure"} value={trend.label} valueColor={trend.color} />
-              <BiteFactor icon="rainy-outline" label={language === "ru" ? "Осадки" : "Precip"} value={`${current.precipitation} mm`} />
-            </View>
-          </>
+          </View>
         ) : (
           <TouchableOpacity activeOpacity={0.85} onPress={onUnlock} style={styles.biteLocked}>
             <View style={styles.biteLockIcon}>
               <Ionicons name="lock-closed" size={22} color="#f59e0b" />
             </View>
             <Text style={styles.biteLockedTitle}>
-              {language === "ru" ? "Прогноз клёва — Премиум" : "Bite Forecast — Premium"}
+              {upgradeCopy.biteTitle}
             </Text>
             <Text style={styles.biteLockedSub}>
-              {language === "ru"
-                ? "Оценка клёва по ветру, давлению и погоде. Откройте с Премиум."
-                : "A bite score from wind, pressure & conditions. Unlock with Premium."}
+              {upgradeCopy.biteSub}
             </Text>
             <View style={styles.biteUnlockBtn}>
               <Ionicons name="star" size={14} color="#0f172a" />
-              <Text style={styles.biteUnlockText}>{language === "ru" ? "Открыть Премиум" : "Unlock Premium"}</Text>
+              <Text style={styles.biteUnlockText}>{upgradeCopy.biteButton}</Text>
             </View>
           </TouchableOpacity>
         )}
@@ -640,6 +705,8 @@ export default function Weather() {
   const { t, language } = useLanguage();
   const requireAuth = useRequireAuth();
   const { isPro, enabled: purchasesEnabled, presentPaywall } = usePurchases();
+  const showPurchases = Platform.OS !== "ios" && purchasesEnabled;
+  const upgradeCopy = getUpgradeCopy(language);
   const [weather, setWeather] = useState<WeatherData | null>(null);
 
   const [loading, setLoading] = useState(true);
@@ -650,43 +717,56 @@ export default function Weather() {
   const fetchWeather = async () => {
     try {
       setError(null);
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const { status } = await withTimeout(
+        Location.requestForegroundPermissionsAsync(),
+        10000,
+        t("locationPermission")
+      );
       if (status !== "granted") { setError(t("locationPermission")); return; }
 
       // Use last known position if fresh enough (avoids hanging on GPS cold-start)
-      let loc = await Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 });
+      let loc = await withTimeout(
+        Location.getLastKnownPositionAsync({ maxAge: 5 * 60 * 1000 }),
+        5000,
+        t("locationPermission")
+      );
       if (!loc) {
-        loc = await Promise.race([
+        loc = await withTimeout(
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error(t("locationPermission"))), 15000)
-          ),
-        ]) as Location.LocationObject;
+          15000,
+          t("locationPermission")
+        );
       }
       const { latitude, longitude } = loc.coords;
 
-      const [weatherRes, geoRes] = await Promise.all([
+      const weatherRes = await withTimeout(
         fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
           `&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,precipitation,relative_humidity_2m,pressure_msl` +
           `&hourly=temperature_2m,precipitation_probability,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m` +
           `&timezone=auto&forecast_days=2`
         ),
-        fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality&access_token=${MAPBOX_ACCESS_TOKEN}`
-        ).catch(() => null),
-      ]);
+        12000,
+        t("error")
+      );
 
       if (!weatherRes.ok) throw new Error(`${weatherRes.status}`);
       const data = await weatherRes.json();
       if (!data?.current) throw new Error(t("error"));
       setWeather(data);
 
-      if (geoRes) {
-        const geo = await geoRes.json();
+      try {
+        const geoRes = await withTimeout(
+          fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality&access_token=${MAPBOX_ACCESS_TOKEN}`
+          ),
+          5000,
+          t("error")
+        );
+        const geo = geoRes.ok ? await geoRes.json() : null;
         const place = geo?.features?.[0]?.text;
         if (place) setLocationName(place);
-      }
+      } catch {}
 
     } catch (e: any) {
       setError(e?.message ?? t("error"));
@@ -782,14 +862,16 @@ export default function Weather() {
           </View>
         </View>
 
-        {/* Bite forecast (premium) */}
+        {/* Bite forecast */}
         <BiteForecast
           current={c}
           hourly={weather.hourly}
-          unlocked={isPro || !purchasesEnabled}
-          onUnlock={() => { if (requireAuth()) presentPaywall(); }}
+          utcOffsetSeconds={weather.utc_offset_seconds}
+          unlocked={isPro || !showPurchases}
+          onUnlock={() => { if (showPurchases && requireAuth()) presentPaywall(); }}
           t={t}
           language={language}
+          upgradeCopy={upgradeCopy}
         />
 
         {/* Hourly chart: temperature + precipitation */}
@@ -806,7 +888,7 @@ export default function Weather() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
+  container: { flex: 1, backgroundColor: theme.colors.background },
   header: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   locationText: { color: "#94a3b8", fontSize: 14 },
   currentCard: {
@@ -814,7 +896,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16, marginBottom: 12,
   },
   currentTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 16 },
-  currentTemp: { color: "#e6eef8", fontSize: 72, fontWeight: "200" },
+  currentTemp: { color: "#e6eef8", fontSize: 72, fontFamily: theme.fonts.display },
   currentDesc: { color: "#94a3b8", fontSize: 16, marginTop: 4 },
   currentStats: { flexDirection: "row", gap: 20, flexWrap: "wrap" },
   statItem: { flexDirection: "row", alignItems: "center", gap: 6 },
@@ -828,27 +910,34 @@ const styles = StyleSheet.create({
   infoCardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
   infoCardTitle: { color: "#94a3b8", fontSize: 12, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 },
   pressureRow: { flexDirection: "row", alignItems: "baseline", gap: 2, marginBottom: 6 },
-  pressureValue: { color: "#e6eef8", fontSize: 28, fontWeight: "300" },
+  pressureValue: { color: "#e6eef8", fontSize: 28, fontFamily: theme.fonts.display },
   pressureUnit: { color: "#94a3b8", fontSize: 13 },
   pressureTrendLabel: { color: "#94a3b8", fontSize: 12 },
 
   fishingBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
   fishingBadgeText: { fontSize: 13, fontWeight: "600" },
-  scoreBar: { flexDirection: "row", gap: 3, marginBottom: 16 },
-  scoreSegment: { flex: 1, height: 5, borderRadius: 3 },
-
   biteCard: {
-    paddingVertical: 6,
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.radius.card,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    paddingVertical: 18,
+    paddingHorizontal: 18,
     marginHorizontal: 16, marginBottom: 24,
   },
-  biteTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  biteScore: { fontSize: 44, fontWeight: "800" },
-  biteScoreMax: { color: "#94a3b8", fontSize: 16, fontWeight: "600" },
-  biteLabel: { fontSize: 15, fontWeight: "700", marginTop: 2 },
-  biteFactors: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
-  biteFactor: { flex: 1, alignItems: "center", gap: 3 },
-  biteFactorLabel: { color: "#94a3b8", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
-  biteFactorValue: { color: "#e6eef8", fontSize: 13, fontWeight: "600", textAlign: "center" },
+  biteRow: { flexDirection: "row", alignItems: "center", gap: 18 },
+  biteInfo: { flex: 1 },
+  biteScore: { fontSize: 46, fontFamily: theme.fonts.displayBold },
+  biteDialMax: { color: "#94a3b8", fontSize: 12, fontWeight: "600", marginTop: -4 },
+  biteVerdict: { fontSize: 21, fontFamily: theme.fonts.displaySemibold, marginBottom: 2 },
+  biteWindow: { color: "#94a3b8", fontSize: 13, marginBottom: 12 },
+  factorList: {},
+  factorRow: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    paddingVertical: 7, borderTopWidth: 1, borderTopColor: theme.colors.border,
+  },
+  factorLabel: { color: "#94a3b8", fontSize: 13 },
+  factorValue: { color: "#e6eef8", fontSize: 13, fontWeight: "600" },
 
   biteLocked: { alignItems: "center", paddingVertical: 8 },
   biteLockIcon: {

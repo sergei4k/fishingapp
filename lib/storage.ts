@@ -74,10 +74,24 @@ export async function updateCatch(id: string, item: CatchItem): Promise<void> {
 export async function addCatch(item: CatchItem): Promise<void> {
   try {
     const list = await getCatches();
-    list.unshift(item);
+    const idx = list.findIndex((c) => c.id === item.id);
+    if (idx !== -1) list[idx] = item;
+    else list.unshift(item);
     await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(list));
   } catch (err) {
     console.error("addCatch error:", err);
+    throw err;
+  }
+}
+
+/**
+ * Replace local catches atomically.
+ */
+export async function replaceCatches(items: CatchItem[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(LOCAL_KEY, JSON.stringify(items));
+  } catch (err) {
+    console.error("replaceCatches error:", err);
     throw err;
   }
 }

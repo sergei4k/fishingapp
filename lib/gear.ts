@@ -35,8 +35,12 @@ const gearOptions: GearOption[] = [
   { id: "rattleback",  labelRu: "Ратлбэк",          labelEn: "Rattlebait",    category: "lure" },
   { id: "frog",        labelRu: "Лягушка",          labelEn: "Frog Lure",     category: "lure" },
   { id: "jerkbait",    labelRu: "Джеркбейт",        labelEn: "Jerkbait",      category: "lure" },
+  { id: "crawsoft",    labelRu: "Силиконовый рак",  labelEn: "Soft Craw",     category: "lure" },
+  { id: "senko",       labelRu: "Сенко",            labelEn: "Senko",         category: "lure" },
+  { id: "bucktail",    labelRu: "Бактейл",          labelEn: "Bucktail Jig",  category: "lure" },
   // ── Bait ───────────────────────────────────────────────────────────
   { id: "chervyak",    labelRu: "Червь",            labelEn: "Worm",          category: "bait" },
+  { id: "motyl",       labelRu: "Мотыль",           labelEn: "Bloodworm",     category: "bait" },
   { id: "oparysh",     labelRu: "Опарыш",           labelEn: "Maggot",        category: "bait" },
   { id: "zhivec",      labelRu: "Живец",            labelEn: "Live Bait",     category: "bait" },
   { id: "kukuruza",    labelRu: "Кукуруза",         labelEn: "Corn",          category: "bait" },

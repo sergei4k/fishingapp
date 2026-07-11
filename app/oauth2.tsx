@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { theme } from '../lib/theme';
 import { View, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -17,7 +18,7 @@ export default function OAuth2Redirect() {
   }, []);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
       <ActivityIndicator color="#ffffff" />
     </View>
   );

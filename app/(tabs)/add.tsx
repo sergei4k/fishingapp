@@ -1,9 +1,12 @@
-import { pb, isNetworkError } from "@/lib/pocketbase";
+import { pb } from "@/lib/pocketbase";
+import { theme } from '../../lib/theme';
 import { useAuth } from "@/lib/auth";
 import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as MediaLibrary from 'expo-media-library';
 import { Blurhash } from 'react-native-blurhash';
 import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
@@ -17,37 +20,28 @@ import { useRouter } from "expo-router";
 import React, { useState } from "react";
 import Toast from "react-native-toast-message";
 import { useLanguage } from "@/lib/language";
+import { useNetwork } from "@/lib/network";
 import SignInPrompt from "@/components/SignInPrompt";
 import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
 import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
-import {
-    ActivityIndicator,
-    Alert,
-    DeviceEventEmitter,
-    FlatList,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ActivityIndicator, Alert, DeviceEventEmitter, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 import speciesPhotoMap from "@/lib/speciesPhotos";
 
-// Lightly compress a photo before upload: cap the long edge at 2048px (no
-// upscaling) and re-encode JPEG at 0.85 quality. Cuts multi-MB phone photos to
+type PickedPhoto = {
+  uri: string;
+  assetId?: string | null;
+  exif?: Record<string, any> | null;
+};
+
+// Lightly compress a photo before upload: cap the long edge at 1600px (no
+// upscaling) and re-encode JPEG at 0.82 quality. Cuts multi-MB phone photos to
 // ~1MB with no visible difference on a phone screen, so they load fast on a cold
 // cache. Falls back to the original uri if manipulation fails.
-const MAX_DIM = 2048;
+const MAX_DIM = 1600;
 async function compressPhoto(uri: string): Promise<string> {
   try {
     const probe = await ImageManipulator.manipulateAsync(uri, [], {});
@@ -57,7 +51,7 @@ async function compressPhoto(uri: string): Promise<string> {
         ? [{ resize: probe.width >= probe.height ? { width: MAX_DIM } : { height: MAX_DIM } }]
         : [];
     const out = await ImageManipulator.manipulateAsync(uri, actions, {
-      compress: 0.85,
+      compress: 0.82,
       format: ImageManipulator.SaveFormat.JPEG,
     });
     return out.uri;
@@ -70,7 +64,10 @@ async function compressPhoto(uri: string): Promise<string> {
 export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const { isOnline } = useNetwork();
   const mapboxReady = useMapboxReady();
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
 
   const [image, setImage] = useState<string | null>(null);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
@@ -131,38 +128,110 @@ export default function Add() {
     }
   };
 
-  const pickImageAndGetGps = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'image/*',
-        copyToCacheDirectory: true,
+  const decimalFromGps = (value: any): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (Array.isArray(value) && value.length >= 3) {
+      const parts = value.slice(0, 3).map((part) => {
+        if (typeof part === "number") return part;
+        if (Array.isArray(part) && part.length >= 2) return Number(part[0]) / Number(part[1]);
+        if (part && typeof part === "object" && "numerator" in part && "denominator" in part) {
+          return Number(part.numerator) / Number(part.denominator);
+        }
+        return Number(part);
       });
+      if (parts.every(Number.isFinite)) return Math.abs(parts[0]) + parts[1] / 60 + parts[2] / 3600;
+    }
+    return null;
+  };
 
-      if (result.canceled) return;
+  const coordsFromExif = (exif?: Record<string, any> | null) => {
+    if (!exif) return null;
+    const gps = exif["{GPS}"] ?? exif.GPS ?? exif;
+    const latRaw = gps.GPSLatitude ?? gps.Latitude ?? exif.GPSLatitude ?? exif.Latitude;
+    const lonRaw = gps.GPSLongitude ?? gps.Longitude ?? exif.GPSLongitude ?? exif.Longitude;
+    let lat = decimalFromGps(latRaw);
+    let lon = decimalFromGps(lonRaw);
+    if (lat == null || lon == null) return null;
 
-      const pickedFile = result.assets?.[0];
-      if (!pickedFile) return;
+    const latRef = String(gps.GPSLatitudeRef ?? gps.LatitudeRef ?? exif.GPSLatitudeRef ?? exif.LatitudeRef ?? "").toUpperCase();
+    const lonRef = String(gps.GPSLongitudeRef ?? gps.LongitudeRef ?? exif.GPSLongitudeRef ?? exif.LongitudeRef ?? "").toUpperCase();
+    if (latRef === "S") lat = -Math.abs(lat);
+    if (lonRef === "W") lon = -Math.abs(lon);
 
-      setImage(pickedFile.uri);
+    if ((lat !== 0 || lon !== 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      return { lat, lon };
+    }
+    return null;
+  };
 
-      let coords: { lat: number; lon: number } | null = null;
+  const pickPhoto = async (): Promise<PickedPhoto | null> => {
+    if (Platform.OS === "ios") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("error"), t("photoError"));
+        return null;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+        exif: true,
+      });
+      if (result.canceled) return null;
+      const asset = result.assets?.[0];
+      return asset ? { uri: asset.uri, assetId: asset.assetId, exif: asset.exif } : null;
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'image/*',
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return null;
+    const asset = result.assets?.[0];
+    return asset ? { uri: asset.uri } : null;
+  };
+
+  const coordsFromPhoto = async (photo: PickedPhoto) => {
+    const fromPickerExif = coordsFromExif(photo.exif);
+    if (fromPickerExif) return fromPickerExif;
+
+    if (Platform.OS === "ios" && photo.assetId) {
       try {
-        const res = await fetch(pickedFile.uri);
-        const ab = await res.arrayBuffer();
-        const buf = Buffer.from(new Uint8Array(ab));
-        const tags = ExifParser.create(buf).parse().tags;
-        if (tags?.GPSLatitude && tags?.GPSLongitude) {
-          let lat = tags.GPSLatitude;
-          let lon = tags.GPSLongitude;
-          if (tags.GPSLatitudeRef === 'S') lat = -Math.abs(lat);
-          if (tags.GPSLongitudeRef === 'W') lon = -Math.abs(lon);
+        const info = await MediaLibrary.getAssetInfoAsync(photo.assetId);
+        if (info.location?.latitude != null && info.location?.longitude != null) {
+          const lat = Number(info.location.latitude);
+          const lon = Number(info.location.longitude);
           if ((lat !== 0 || lon !== 0) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
-            coords = { lat, lon };
+            return { lat, lon };
           }
         }
+        const fromMediaExif = coordsFromExif(info.exif as Record<string, any> | undefined);
+        if (fromMediaExif) return fromMediaExif;
       } catch (e) {
-        console.warn('EXIF parse failed:', e);
+        console.warn("MediaLibrary GPS lookup failed:", e);
       }
+    }
+
+    try {
+      const res = await fetch(photo.uri);
+      const ab = await res.arrayBuffer();
+      const buf = Buffer.from(new Uint8Array(ab));
+      const tags = ExifParser.create(buf).parse().tags;
+      return coordsFromExif(tags);
+    } catch (e) {
+      console.warn('EXIF parse failed:', e);
+      return null;
+    }
+  };
+
+  const pickImageAndGetGps = async () => {
+    try {
+      const pickedPhoto = await pickPhoto();
+      if (!pickedPhoto) return;
+
+      setImage(pickedPhoto.uri);
+
+      const coords = await coordsFromPhoto(pickedPhoto);
 
       if (coords) {
         setImageCoords(coords);
@@ -179,14 +248,9 @@ export default function Add() {
 
   const pickExtraPhoto = async () => {
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'image/*',
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      const asset = result.assets?.[0];
-      if (!asset) return;
-      setExtraPhotos(prev => [...prev, asset.uri]);
+      const pickedPhoto = await pickPhoto();
+      if (!pickedPhoto) return;
+      setExtraPhotos(prev => [...prev, pickedPhoto.uri]);
     } catch (e) {
       console.error('Extra photo error:', e);
     }
@@ -261,8 +325,14 @@ export default function Add() {
       let pbRecordId: string | undefined;
       let savedOffline = false;
 
+      // Offline: skip the network round-trip entirely and queue it locally.
+      // pushPendingCatches (on reconnect / next launch) will upload it.
+      if (user && !isOnline) {
+        savedOffline = true;
+      }
+
       // Always upload to PocketBase for backup (public or private)
-      if (user) {
+      if (user && isOnline) {
         try {
           const formData = new FormData();
           formData.append('user_id', user.id);
@@ -317,7 +387,7 @@ export default function Add() {
             }
           }
         } catch (e) {
-          if (isNetworkError(e)) savedOffline = true;
+          savedOffline = true;
           console.warn('PocketBase sync failed:', e);
         }
       }
@@ -359,6 +429,7 @@ export default function Add() {
         lat,
         lon,
         isPublic: effectivelyPublic,
+        pendingSync: savedOffline,
       });
 
       Toast.show({ type: "success", text1: savedOffline ? t("catchSavedOffline") : t("catchSaved"), position: "top", visibilityTime: 3000 });
@@ -396,12 +467,12 @@ export default function Add() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flex: 1, backgroundColor: "#0f172a" }}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}
       keyboardVerticalOffset={0}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: "#0f172a" }}>
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <ScrollView
-          style={{ flex: 1, backgroundColor: "#0f172a" }}
+          style={{ flex: 1, backgroundColor: theme.colors.background }}
           contentContainerStyle={styles.container}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="never"
@@ -435,7 +506,7 @@ export default function Add() {
             </View>
           </View>
 
-          {image && !imageCoords && (
+          {!imageCoords && (
             <View style={styles.noCoordsRow}>
               <Ionicons name="location-outline" size={16} color="#ef4444" style={{ marginRight: 8 }} />
               <Text style={styles.noCoordsText}>{t("noCoordsLabel")}</Text>
@@ -446,10 +517,10 @@ export default function Add() {
           )}
 
           <Modal visible={locationPickerVisible} animationType="slide" onRequestClose={() => setLocationPickerVisible(false)}>
-            <View style={{ flex: 1, backgroundColor: "#0f172a" }}>
-              <View style={{ paddingTop: 56, paddingBottom: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+              <View style={{ paddingTop: safeTop + 12, paddingBottom: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>{t("locationPickerTitle")}</Text>
-                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); }}>
+                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); }} style={styles.closeBtn} hitSlop={8}>
                   <Ionicons name="close" size={22} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
@@ -616,18 +687,18 @@ export default function Add() {
             </Text>
           </View>
 
-          <View style={[styles.publicRow, image && !imageCoords && styles.publicRowDisabled]}>
+          <View style={[styles.publicRow, !imageCoords && styles.publicRowDisabled]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.publicLabel}>{t("makePublic")}</Text>
               <Text style={styles.publicSub}>
-                {image && !imageCoords ? t("noCoordsPrivateNote") : t("makePublicSub")}
+                {!imageCoords ? t("noCoordsPrivateNote") : t("makePublicSub")}
               </Text>
             </View>
             <Switch
-              value={isPublic}
+              value={!!imageCoords && isPublic}
               onValueChange={setIsPublic}
-              disabled={image != null && imageCoords == null}
-              trackColor={{ false: "#1f2937", true: "#0ea5e9" }}
+              disabled={!imageCoords}
+              trackColor={{ false: theme.colors.surfaceRaised, true: theme.colors.primaryMuted }}
               thumbColor="#ffffff"
             />
           </View>
@@ -643,11 +714,11 @@ export default function Add() {
             statusBarTranslucent
             onRequestClose={() => { setMoreModalVisible(false); setSpeciesSearch(""); }}
           >
-            <SafeAreaView style={styles.modalOverlay}>
+            <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.modalOverlay, { paddingTop: safeTop }]}>
               <View style={styles.modalContent}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.speciesTitle}>{t("selectSpecies")}</Text>
-                  <TouchableOpacity onPress={() => { setMoreModalVisible(false); setSpeciesSearch(""); }} hitSlop={8}>
+                  <TouchableOpacity onPress={() => { setMoreModalVisible(false); setSpeciesSearch(""); }} style={styles.closeBtn} hitSlop={8}>
                     <Ionicons name="close" size={18} color="#64748b" />
                   </TouchableOpacity>
                 </View>
@@ -707,11 +778,11 @@ export default function Add() {
             statusBarTranslucent
             onRequestClose={() => { setGearModalVisible(false); setGearSearch(""); }}
           >
-            <SafeAreaView style={styles.modalOverlay}>
+            <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.modalOverlay, { paddingTop: safeTop }]}>
               <View style={styles.modalContent}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.speciesTitle}>{t("selectGear")}</Text>
-                  <TouchableOpacity onPress={() => { setGearModalVisible(false); setGearSearch(""); }} hitSlop={8}>
+                  <TouchableOpacity onPress={() => { setGearModalVisible(false); setGearSearch(""); }} style={styles.closeBtn} hitSlop={8}>
                     <Ionicons name="close" size={18} color="#64748b" />
                   </TouchableOpacity>
                 </View>
@@ -770,24 +841,24 @@ export default function Add() {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, backgroundColor: "#0f172a", padding: 16, alignItems: "center" },
+  container: { flexGrow: 1, backgroundColor: theme.colors.background, padding: 16, alignItems: "center" },
   imageRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
-  photoBox: { width: 200, height: 160, backgroundColor: "#0b1220", alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
+  photoBox: { width: 200, height: 160, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160 },
   rightColumn: { marginLeft: 10, flexDirection: "column", gap: 6 },
   extraThumbWrapper: { position: "relative" },
   extraThumb: { width: 56, height: 56, borderRadius: 6 },
   removeThumbBtn: { position: "absolute", top: 2, right: 2, width: 16, height: 16, borderRadius: 8, backgroundColor: "rgba(0,0,0,0.65)", alignItems: "center", justifyContent: "center" },
-  addExtraBtn: { width: 56, height: 56, borderRadius: 6, backgroundColor: "#071023", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#1f2937" },
+  addExtraBtn: { width: 56, height: 56, borderRadius: 6, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#1f2937" },
   coordsText: { color: "#94a3b8", fontSize: 13 },
   inputs: { width: "100%", marginBottom: 12 },
-  descriptionInput: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
-  input: { backgroundColor: "#071023", color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
+  descriptionInput: { backgroundColor: theme.colors.surface, color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: theme.radius.control, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 10, minHeight: 70, textAlignVertical: "top" },
+  input: { backgroundColor: theme.colors.surface, color: "#ffffff", borderColor: "#1f2937", borderWidth: 1, borderRadius: theme.radius.control, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
   speciesWrapper: { width: "100%", marginBottom: 16 },
   speciesTitle: { color: "#ffffff", marginBottom: 8, marginLeft: 4 },
   speciesContainer: { paddingHorizontal: 4, alignItems: "center" },
-  speciesItem: { width: 90, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: "#071023" },
+  speciesItem: { width: 90, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: theme.colors.surface },
   speciesItemSelected: { borderWidth: 2, borderColor: "#ffffff", backgroundColor: "#092032" },
   speciesImage: { width: 64, height: 64, marginBottom: 6, resizeMode: "contain" },
   gearIconBox: { width: 64, height: 64, marginBottom: 6, borderRadius: 12, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
@@ -795,17 +866,17 @@ const styles = StyleSheet.create({
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
   moreText: { color: "#ffffff", fontWeight: "700" },
   selectedSpeciesText: { color: "#ffffff", marginTop: 8, marginLeft: 6 },
-  publicRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#071023", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
+  publicRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.colors.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#94a3b8", fontSize: 13 },
-  uploadBtn: { backgroundColor: "#0077b6", paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
+  uploadBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 20, paddingVertical: 10, borderRadius: theme.radius.control },
   uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "#071023" },
+  modalOverlay: { flex: 1, backgroundColor: theme.colors.background },
   modalContent: { flex: 1, paddingTop: 8, paddingBottom: 16 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },
   searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   searchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
-  modalItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },
+  modalItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   modalItemLeft: { flex: 1 },
   modalItemText: { color: "#e6eef8", fontSize: 16 },
   modalItemScientific: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
@@ -815,9 +886,9 @@ const styles = StyleSheet.create({
   locationRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", width: "100%", marginBottom: 14, paddingHorizontal: 4, gap: 8 },
   noCoordsRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14, paddingHorizontal: 4 },
   noCoordsText: { color: "#ef4444", fontSize: 15, fontWeight: "600", flex: 1 },
-  addLocationBtn: { backgroundColor: "#0c4a6e", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, marginLeft: 8 },
+  addLocationBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
   addLocationBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
-  confirmLocationBtn: { backgroundColor: "#0c4a6e", borderRadius: 12, paddingVertical: 15, alignItems: "center" },
+  confirmLocationBtn: { backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 15, alignItems: "center" },
   publicRowDisabled: { opacity: 0.5 },
   waterBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#0c2d48", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   waterBadgeText: { color: "#38bdf8", fontSize: 13 },
@@ -833,5 +904,5 @@ const styles = StyleSheet.create({
   selectedPreviewImg: { width: 64, height: 64 },
   previewDivider: { width: 1.5, height: 72, backgroundColor: "#2d6a99", marginRight: 10 },
   addScreenHeader: { width: "100%", alignItems: "flex-end", marginBottom: 4 },
-  closeBtn: { padding: 4 },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
 });

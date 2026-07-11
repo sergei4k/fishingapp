@@ -1,14 +1,17 @@
 // MUST be the first import
 import "react-native-gesture-handler";
+import { theme } from '../../lib/theme';
 
 import { useLanguage } from "@/lib/language";
 import { getSpeciesLabel } from "@/lib/species";
 import { getGearLabel } from "@/lib/gear";
+import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import gearPhotos from "@/lib/gearPhotos";
 import CatchDetailModal from "@/components/CatchDetailModal";
+import ImageWithLoader from "@/components/ImageWithLoader";
 import SpotDetailModal, { type Spot } from "@/components/SpotDetailModal";
 import { getCatches } from "@/lib/storage";
-import { pb } from "@/lib/pocketbase";
+import { pb, isNetworkError } from "@/lib/pocketbase";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { Ionicons } from "@expo/vector-icons";
 import MapboxGL from "@rnmapbox/maps";
@@ -17,24 +20,12 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
-import {
-  ActivityIndicator,
-  Alert,
-  DeviceEventEmitter,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { Text, TextInput } from "@/components/AppText";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
+const PREVIEW_THUMB_SIZE = "300x300";
 
 
 const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
@@ -67,6 +58,8 @@ export default function Map() {
   const requireAuth = useRequireAuth();
   const mapboxReady = useMapboxReady();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const mapReadyRef = useRef(false);
   const pendingLocationRef = useRef<[number, number] | null>(null);
@@ -164,7 +157,7 @@ export default function Map() {
           id: r.id,
           lat: Number(r.lat),
           lon: Number(r.lon),
-          image_uri: r.imageUrl ?? r.image ?? null,
+          image_uri: pocketbaseThumbUrl(r.imageUrl ?? r.image ?? null, PREVIEW_THUMB_SIZE),
           species: r.species ?? null,
           gear: r.gear ?? null,
           description: r.description ?? null,
@@ -192,7 +185,7 @@ export default function Map() {
       setSpots(own as unknown as Spot[]);
       setPublicSpots(pub as unknown as Spot[]);
     } catch (e) {
-      console.warn("spots error:", e);
+      if (!isNetworkError(e)) console.warn("spots error:", e);
     }
   }, [user]);
 
@@ -233,7 +226,7 @@ export default function Map() {
           .map((r: any) => ({
             ...r,
             image_uri: r.image
-              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}?thumb=400x400`
+              ? `${pb.baseURL}/api/files/${r.collectionId}/${r.id}/${r.image}?thumb=${PREVIEW_THUMB_SIZE}`
               : (r.image_uri || null),
             author_username: r.expand?.user_id?.username ?? null,
             author_name: r.expand?.user_id?.name ?? null,
@@ -243,7 +236,7 @@ export default function Map() {
           }))
       );
     } catch (e) {
-      console.warn('Failed to fetch public markers:', e);
+      if (!isNetworkError(e)) console.warn('Failed to fetch public markers:', e);
     }
   }, [user]);
 
@@ -362,6 +355,16 @@ export default function Map() {
     [markers, publicMarkers, mapView]
   );
 
+  useEffect(() => {
+    const previewUrls = [...markers, ...publicMarkers]
+      .map((m: any) => pocketbaseThumbUrl(m.image_uri, PREVIEW_THUMB_SIZE))
+      .filter(Boolean)
+      .slice(0, 40) as string[];
+    if (previewUrls.length) {
+      void (ExpoImage as any).prefetch?.(previewUrls, "disk");
+    }
+  }, [markers, publicMarkers]);
+
   const spotsGeoJSON: GeoJSON.FeatureCollection = useMemo(
     () => ({
       type: "FeatureCollection",
@@ -466,7 +469,7 @@ export default function Map() {
 
   if (!mapboxReady) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#0f172a", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator size="small" color="#94a3b8" />
       </View>
     );
@@ -587,7 +590,7 @@ export default function Map() {
               visibility: showHeatmap ? "none" : "visible",
               iconImage: "catch-pin",
               iconSize: 0.7,
-              iconColor: "#38bdf8",
+              iconColor: ["case", ["==", ["get", "is_own"], true], "#f59e0b", "#38bdf8"],
               iconAllowOverlap: true,
               iconAnchor: "bottom",
             }}
@@ -596,7 +599,7 @@ export default function Map() {
       </MapboxGL.MapView>
 
       {/* Search bar */}
-      <View style={styles.searchContainer}>
+      <View style={[styles.searchContainer, { top: safeTop + 8 }]}>
         <View style={styles.searchBar}>
           <Ionicons name="search-outline" size={15} color="#64748b" style={{ marginRight: 8 }} />
           <TextInput
@@ -637,22 +640,20 @@ export default function Map() {
       </View>
 
       {/* Public / private view toggle */}
-      <View style={styles.viewToggleWrap} pointerEvents="box-none">
+      <View style={[styles.viewToggleWrap, { top: safeTop + 64 }]} pointerEvents="box-none">
         <View style={styles.viewToggle}>
           <TouchableOpacity
             style={[styles.viewToggleBtn, mapView === "public" && styles.viewToggleBtnActive]}
             onPress={() => setMapView("public")}
           >
-            <Ionicons name="earth" size={14} color={mapView === "public" ? "#ffffff" : "#94a3b8"} />
             <Text style={[styles.viewToggleText, mapView === "public" && styles.viewToggleTextActive]}>
-              {language === "ru" ? "Публичные" : "Public"}
+              {language === "ru" ? "Все" : "Public"}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.viewToggleBtn, mapView === "mine" && styles.viewToggleBtnActive]}
             onPress={() => { if (requireAuth()) setMapView("mine"); }}
           >
-            <Ionicons name="fish" size={14} color={mapView === "mine" ? "#ffffff" : "#94a3b8"} />
             <Text style={[styles.viewToggleText, mapView === "mine" && styles.viewToggleTextActive]}>
               {language === "ru" ? "Мои уловы" : "My catches"}
             </Text>
@@ -697,9 +698,11 @@ export default function Map() {
           activeOpacity={0.97}
           onPress={() => { setDetailCatch(previewCatch); setPreviewCatch(null); }}
         >
-          <ExpoImage
+          <ImageWithLoader
             source={previewCatch.imageUrl ? { uri: previewCatch.imageUrl } : require("../../assets/placeholder.png")}
             placeholder={require("../../assets/placeholder.png")}
+            cachePolicy="memory-disk"
+            transition={120}
             contentFit="cover"
             style={styles.previewCardImage}
           />
@@ -797,7 +800,7 @@ export default function Map() {
               <Switch
                 value={newSpotPublic}
                 onValueChange={setNewSpotPublic}
-                trackColor={{ false: "#1e293b", true: "#0c4a6e" }}
+                trackColor={{ false: theme.colors.surfaceRaised, true: theme.colors.primaryMuted }}
                 thumbColor={newSpotPublic ? "#0284c7" : "#475569"}
               />
             </View>
@@ -892,13 +895,12 @@ const styles = StyleSheet.create({
   viewToggleBtn: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: 17,
   },
   viewToggleBtnActive: {
-    backgroundColor: "#0c4a6e",
+    backgroundColor: theme.colors.primaryMuted,
   },
   viewToggleText: {
     color: "#94a3b8",
@@ -1004,7 +1006,7 @@ const styles = StyleSheet.create({
   },
   detailScreen: {
     flex: 1,
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
   },
   detailClose: {
     padding: 16,
@@ -1025,7 +1027,7 @@ const styles = StyleSheet.create({
     left: 72,
     right: 12,
     height: 210,
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
     borderRadius: 16,
     flexDirection: "row",
     overflow: "hidden",
@@ -1061,8 +1063,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   previewCardBtn: {
-    backgroundColor: "#0c4a6e",
-    borderRadius: 8,
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: theme.radius.control,
     paddingVertical: 10,
     alignItems: "center",
     marginTop: 8,
@@ -1164,7 +1166,7 @@ const styles = StyleSheet.create({
     bottom: 16,
     left: 72,
     right: 12,
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
     borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
@@ -1187,7 +1189,7 @@ const styles = StyleSheet.create({
   spotPreviewName: { color: "#e6eef8", fontSize: 15, fontWeight: "700" },
   spotPreviewDesc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
   spotPreviewBtn: {
-    backgroundColor: "#0c4a6e", borderRadius: 8,
+    backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control,
     paddingVertical: 7, alignItems: "center", marginTop: 8,
   },
   spotPreviewBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
@@ -1198,7 +1200,7 @@ const styles = StyleSheet.create({
     zIndex: 999,
   },
   createSpotContent: {
-    backgroundColor: "#0f172a",
+    backgroundColor: theme.colors.background,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20,
     borderTopWidth: 1, borderColor: "#1e293b",
@@ -1218,7 +1220,7 @@ const styles = StyleSheet.create({
   },
   createSpotToggleLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
   createSpotBtn: {
-    backgroundColor: "#0284c7", borderRadius: 12,
+    backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control,
     paddingVertical: 14, alignItems: "center",
   },
   createSpotBtnText: { color: "#fff", fontWeight: "700", fontSize: 15 },
@@ -1304,8 +1306,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   emptyCardBtn: {
-    backgroundColor: "#0c4a6e",
-    borderRadius: 10,
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: theme.radius.control,
     paddingHorizontal: 24,
     paddingVertical: 10,
   },

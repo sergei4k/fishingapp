@@ -1,7 +1,9 @@
 import { getSpeciesLabel } from "@/lib/species";
-import { getGearLabel } from "@/lib/gear";
+import { theme } from '../../lib/theme';
+import { getGearLabel, getGearOptions } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
+import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges } from "@/lib/badges";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -16,22 +18,10 @@ import ImageWithLoader from "@/components/ImageWithLoader";
 import SignInPrompt from "@/components/SignInPrompt";
 import { useRouter } from "expo-router";
 import React, { useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  Keyboard,
-  Modal,
-  RefreshControl,
-  ScrollView,
-  Share,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, RefreshControl, ScrollView, Share, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Text } from "@/components/AppText";
 import Swipeable from "react-native-gesture-handler/Swipeable";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 
@@ -39,6 +29,8 @@ export default function Profile() {
   const router = useRouter();
   const { language, t } = useLanguage();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
+  const safeTop = insets.top;
 
   const catchCountLabel = (n: number) => {
     if (language === "ru") {
@@ -59,6 +51,15 @@ export default function Profile() {
     return full ? d.toLocaleString(locale) : d.toLocaleDateString(locale);
   };
 
+  const formatJoinedDate = (val: any) => {
+    if (!val) return "";
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return "";
+    const locale = language === "ru" ? "ru-RU" : "en-US";
+    const date = d.toLocaleDateString(locale, { month: "long", year: "numeric" });
+    return language === "ru" ? `С ${date}` : `Joined ${date}`;
+  };
+
   const [catches, setCatches] = useState<CatchWithExtras[]>([]);
   const [loadingCatches, setLoadingCatches] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,6 +70,7 @@ export default function Profile() {
   const [followListData, setFollowListData] = useState<any[]>([]);
   const [followListLoading, setFollowListLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [statsVisible, setStatsVisible] = useState(false);
   const [filterSpecies, setFilterSpecies] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
 
@@ -85,6 +87,98 @@ export default function Profile() {
       return sortOrder === "newest" ? db - da : da - db;
     });
   }, [catches, filterSpecies, sortOrder]);
+
+  const gearCategoryById = useMemo(() => {
+    const map: Record<string, string> = {};
+    getGearOptions(language).forEach((g) => { map[g.id] = g.category; });
+    return map;
+  }, [language]);
+
+  const profileStats = useMemo(() => {
+    const total = catches.length;
+    const countMap = (values: string[]) => values.reduce<Record<string, number>>((acc, value) => {
+      acc[value] = (acc[value] ?? 0) + 1;
+      return acc;
+    }, {});
+    const rowsFromMap = (map: Record<string, number>, labelFor: (key: string) => string, limit = 5) =>
+      Object.entries(map)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, limit)
+        .map(([key, count]) => ({
+          key,
+          label: labelFor(key),
+          count,
+          pct: total > 0 ? count / total : 0,
+        }));
+    const numberValues = (field: "length" | "weight") => catches
+      .map((c) => Number(c[field]))
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const lengths = numberValues("length");
+    const weights = numberValues("weight");
+    const avg = (values: number[]) => values.length ? values.reduce((sum, n) => sum + n, 0) / values.length : 0;
+    const monthFormatter = new Intl.DateTimeFormat(language === "ru" ? "ru-RU" : "en-US", { month: "short" });
+    const monthCounts = catches.reduce<Record<string, { label: string; count: number; order: number }>>((acc, item) => {
+      const date = new Date(item.date ?? 0);
+      if (isNaN(date.getTime())) return acc;
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      acc[key] = acc[key] ?? { label: `${monthFormatter.format(date)} ${String(date.getFullYear()).slice(2)}`, count: 0, order: date.getFullYear() * 12 + date.getMonth() };
+      acc[key].count += 1;
+      return acc;
+    }, {});
+    const monthRows = Object.entries(monthCounts)
+      .sort((a, b) => a[1].order - b[1].order)
+      .slice(-6)
+      .map(([key, value]) => ({
+        key,
+        label: value.label,
+        count: value.count,
+        pct: total > 0 ? value.count / Math.max(...Object.values(monthCounts).map((m) => m.count), 1) : 0,
+      }));
+    const locationMap = catches.reduce<Record<string, number>>((acc, item) => {
+      const lat = Number(item.lat);
+      const lon = Number(item.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return acc;
+      const key = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+      acc[key] = (acc[key] ?? 0) + 1;
+      return acc;
+    }, {});
+    const categoryLabel = (key: string) => {
+      if (key === "lure") return language === "ru" ? "Приманки" : "Lures";
+      if (key === "bait") return language === "ru" ? "Наживка" : "Bait";
+      if (key === "rig") return language === "ru" ? "Оснастка" : "Rigs";
+      return language === "ru" ? "Не указано" : "Unknown";
+    };
+
+    return {
+      total,
+      publicCount: catches.filter((c) => c.isPublic).length,
+      mappedCount: catches.filter((c) => Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lon))).length,
+      avgLength: avg(lengths),
+      bestLength: lengths.length ? Math.max(...lengths) : 0,
+      avgWeight: avg(weights),
+      bestWeight: weights.length ? Math.max(...weights) : 0,
+      speciesRows: rowsFromMap(countMap(catches.map((c) => c.species).filter(Boolean) as string[]), (key) => getSpeciesLabel(key, language)),
+      gearRows: rowsFromMap(countMap(catches.map((c) => c.gear).filter(Boolean) as string[]), (key) => getGearLabel(key, language)),
+      categoryRows: rowsFromMap(countMap(catches.map((c) => c.gear ? gearCategoryById[c.gear] ?? "unknown" : "unknown")), categoryLabel, 4),
+      locationRows: rowsFromMap(locationMap, (key) => key),
+      monthRows,
+    };
+  }, [catches, gearCategoryById, language]);
+
+  const renderBarRows = (rows: { key: string; label: string; count: number; pct: number }[], emptyText: string) => {
+    if (rows.length === 0) return <Text style={styles.statsEmptyText}>{emptyText}</Text>;
+    return rows.map((row) => (
+      <View key={row.key} style={styles.statsBarRow}>
+        <View style={styles.statsBarTop}>
+          <Text style={styles.statsBarLabel} numberOfLines={1}>{row.label}</Text>
+          <Text style={styles.statsBarCount}>{row.count}</Text>
+        </View>
+        <View style={styles.statsBarTrack}>
+          <View style={[styles.statsBarFill, { width: `${Math.max(6, Math.round(row.pct * 100))}%` }]} />
+        </View>
+      </View>
+    ));
+  };
 
   const load = async (_opts: { force?: boolean } = {}) => {
     try {
@@ -225,8 +319,9 @@ export default function Profile() {
     >
       <TouchableOpacity style={styles.item} onPress={() => openCatch(item)}>
         <ExpoImage
-          source={(item.image ?? item.imageUrl) ? { uri: (item.image ?? item.imageUrl) } : require("../../assets/placeholder.png")}
+          source={(item.image ?? item.imageUrl) ? { uri: pocketbaseThumbUrl(item.image ?? item.imageUrl, "200x200")! } : require("../../assets/placeholder.png")}
           placeholder={require("../../assets/placeholder.png")}
+          cachePolicy="memory-disk"
           contentFit="cover"
           style={styles.thumb}
         />
@@ -280,9 +375,7 @@ export default function Profile() {
               style={styles.profileAvatarImage}
             />
           ) : (
-            <Text style={styles.profileAvatarText}>
-              {(user.name || user.username || "?").slice(0, 2).toUpperCase()}
-            </Text>
+            <Ionicons name="person" size={42} color="#94a3b8" />
           )}
         </View>
       </View>
@@ -291,13 +384,19 @@ export default function Profile() {
       {user.name ? <Text style={styles.profileName}>{user.name}</Text> : null}
       {user.username ? (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 }}>
-          <Text style={styles.profileUsername}>
-            {user.username}
-            {user.location ? `  ${user.location}` : ""}
-          </Text>
+          <Text style={styles.profileUsername}>{user.username}</Text>
           {parseBadges(user.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
         </View>
       ) : null}
+      {user.city ? (
+        <View style={styles.profileLocationRow}>
+          <Ionicons name="location-outline" size={13} color="#64748b" />
+          <Text style={styles.profileLocationText}>{user.city}</Text>
+        </View>
+      ) : null}
+      {!!formatJoinedDate(user.created) && (
+        <Text style={styles.profileJoined}>{formatJoinedDate(user.created)}</Text>
+      )}
       <BadgeChip badges={parseBadges(user.badges)} language={language} />
       {user.bio ? (
         <View style={styles.profileBioCard}>
@@ -325,8 +424,9 @@ export default function Profile() {
 
       {/* Action buttons */}
       <View style={styles.actionRow}>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/settings')}>
-          <Text style={styles.actionBtnText}>{language === "ru" ? "Редактировать" : "Edit"}</Text>
+        <TouchableOpacity style={styles.actionBtn} onPress={() => setStatsVisible(true)}>
+          <Ionicons name="analytics-outline" size={15} color="#e6eef8" />
+          <Text style={styles.actionBtnText}>{language === "ru" ? "Статистика" : "View statistics"}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/social?openSearch=1')}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Найти друзей" : "Find friends"}</Text>
@@ -447,20 +547,93 @@ export default function Profile() {
       />
 
       <Modal
+        visible={statsVisible}
+        animationType="slide"
+        transparent={false}
+        statusBarTranslucent
+        onRequestClose={() => setStatsVisible(false)}
+      >
+        <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.statsModalContainer, { paddingTop: safeTop }]}>
+          <View style={styles.statsModalHeader}>
+            <Text style={styles.statsModalTitle}>{language === "ru" ? "Статистика" : "Statistics"}</Text>
+            <TouchableOpacity onPress={() => setStatsVisible(false)} style={styles.closeBtn} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.statsModalContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.statsSummaryGrid}>
+              <View style={styles.statsSummaryItem}>
+                <Text style={styles.statsSummaryValue}>{profileStats.total}</Text>
+                <Text style={styles.statsSummaryLabel}>{language === "ru" ? "уловов" : "catches"}</Text>
+              </View>
+              <View style={styles.statsSummaryItem}>
+                <Text style={styles.statsSummaryValue}>{profileStats.mappedCount}</Text>
+                <Text style={styles.statsSummaryLabel}>{language === "ru" ? "с координатами" : "mapped"}</Text>
+              </View>
+              <View style={styles.statsSummaryItem}>
+                <Text style={styles.statsSummaryValue}>{profileStats.publicCount}</Text>
+                <Text style={styles.statsSummaryLabel}>{language === "ru" ? "публичных" : "public"}</Text>
+              </View>
+              <View style={styles.statsSummaryItem}>
+                <Text style={styles.statsSummaryValue}>{profileStats.bestLength ? `${profileStats.bestLength.toFixed(1)}` : "--"}</Text>
+                <Text style={styles.statsSummaryLabel}>{language === "ru" ? "лучший см" : "best cm"}</Text>
+              </View>
+            </View>
+
+            <View style={styles.statsMetricRow}>
+              <View style={styles.statsMetricBox}>
+                <Text style={styles.statsMetricLabel}>{language === "ru" ? "Средняя длина" : "Average length"}</Text>
+                <Text style={styles.statsMetricValue}>{profileStats.avgLength ? `${profileStats.avgLength.toFixed(1)} cm` : "--"}</Text>
+              </View>
+              <View style={styles.statsMetricBox}>
+                <Text style={styles.statsMetricLabel}>{language === "ru" ? "Лучший вес" : "Best weight"}</Text>
+                <Text style={styles.statsMetricValue}>{profileStats.bestWeight ? `${profileStats.bestWeight.toFixed(2)} kg` : "--"}</Text>
+              </View>
+            </View>
+
+            <View style={styles.statsSection}>
+              <Text style={styles.statsSectionTitle}>{language === "ru" ? "Виды рыб" : "Species"}</Text>
+              {renderBarRows(profileStats.speciesRows, language === "ru" ? "Пока нет видов" : "No species yet")}
+            </View>
+
+            <View style={styles.statsSection}>
+              <Text style={styles.statsSectionTitle}>{language === "ru" ? "Тип снасти" : "Gear type"}</Text>
+              {renderBarRows(profileStats.categoryRows, language === "ru" ? "Пока нет снастей" : "No gear yet")}
+            </View>
+
+            <View style={styles.statsSection}>
+              <Text style={styles.statsSectionTitle}>{language === "ru" ? "Приманки и наживки" : "Lures and bait"}</Text>
+              {renderBarRows(profileStats.gearRows, language === "ru" ? "Снасти не указаны" : "No gear recorded")}
+            </View>
+
+            <View style={styles.statsSection}>
+              <Text style={styles.statsSectionTitle}>{language === "ru" ? "Активность по месяцам" : "Monthly activity"}</Text>
+              {renderBarRows(profileStats.monthRows, language === "ru" ? "Нет дат уловов" : "No catch dates")}
+            </View>
+
+            <View style={styles.statsSection}>
+              <Text style={styles.statsSectionTitle}>{language === "ru" ? "Лучшие места" : "Top locations"}</Text>
+              {renderBarRows(profileStats.locationRows, language === "ru" ? "Нет координат" : "No coordinates recorded")}
+            </View>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      <Modal
         visible={followListModal !== null}
         animationType="slide"
         transparent={false}
         statusBarTranslucent
         onRequestClose={() => setFollowListModal(null)}
       >
-        <SafeAreaView style={styles.followModalContainer}>
+        <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.followModalContainer, { paddingTop: safeTop }]}>
           <View style={styles.followModalHeader}>
             <Text style={styles.followModalTitle}>
               {followListModal === "followers"
                 ? (language === "ru" ? "Подписчики" : "Followers")
                 : (language === "ru" ? "Подписки" : "Following")}
             </Text>
-            <TouchableOpacity onPress={() => setFollowListModal(null)} hitSlop={8}>
+            <TouchableOpacity onPress={() => setFollowListModal(null)} style={styles.closeBtn} hitSlop={8}>
               <Ionicons name="close" size={22} color="#64748b" />
             </TouchableOpacity>
           </View>
@@ -490,9 +663,7 @@ export default function Profile() {
                         contentFit="cover"
                       />
                     ) : (
-                      <Text style={styles.followAvatarText}>
-                        {(u.name || u.username || "?").slice(0, 2).toUpperCase()}
-                      </Text>
+                      <Ionicons name="person" size={20} color="#94a3b8" />
                     )}
                   </View>
                   <View style={{ flex: 1 }}>
@@ -538,14 +709,15 @@ export default function Profile() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
+  container: { flex: 1, backgroundColor: theme.colors.background },
+  closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   title: { color: "#e6eef8", fontSize: 18, marginBottom: 4 },
 
   // ── New profile header ──────────────────────────────────────────────────────
   profileHeaderContainer: { marginBottom: 12 },
   bannerContainer: {
     height: 140,
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
   bannerImage: { width: "100%", height: "100%" },
@@ -575,6 +747,9 @@ const styles = StyleSheet.create({
   profileAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
   profileName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
   profileUsername: { color: "#94a3b8", fontSize: 14, textAlign: "center", marginTop: 3 },
+  profileLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 5 },
+  profileLocationText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
+  profileJoined: { color: "#64748b", fontSize: 12, textAlign: "center", marginTop: 5 },
   profileBioCard: { marginHorizontal: 16, marginTop: 12, paddingHorizontal: 2 },
   profileBio: { color: "#cbd5e1", fontSize: 14, lineHeight: 22 },
 
@@ -599,12 +774,69 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
+    flexDirection: "row",
     backgroundColor: "#1e293b",
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
   },
-  actionBtnText: { color: "#e6eef8", fontSize: 13, fontWeight: "600" },
+  actionBtnText: { color: "#e6eef8", fontSize: 13, fontWeight: "600", textAlign: "center" },
+
+  statsModalContainer: { flex: 1, backgroundColor: theme.colors.background },
+  statsModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e293b",
+  },
+  statsModalTitle: { color: "#e6eef8", fontSize: 18, fontWeight: "700" },
+  statsModalContent: { padding: 16, paddingBottom: 40, gap: 12 },
+  statsSummaryGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  statsSummaryItem: {
+    width: "48.8%",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  statsSummaryValue: { color: "#ffffff", fontSize: 24, fontFamily: theme.fonts.displayBold },
+  statsSummaryLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
+  statsMetricRow: { flexDirection: "row", gap: 8 },
+  statsMetricBox: {
+    flex: 1,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  statsMetricLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 4 },
+  statsMetricValue: { color: "#e6eef8", fontSize: 18, fontFamily: theme.fonts.displaySemibold },
+  statsSection: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+  },
+  statsSectionTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700", marginBottom: 10 },
+  statsEmptyText: { color: "#64748b", fontSize: 13, paddingVertical: 4 },
+  statsBarRow: { marginBottom: 10 },
+  statsBarTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 5 },
+  statsBarLabel: { flex: 1, color: "#cbd5e1", fontSize: 13, fontWeight: "600" },
+  statsBarCount: { color: "#94a3b8", fontSize: 12, fontWeight: "700" },
+  statsBarTrack: { height: 8, borderRadius: 4, backgroundColor: "#1e293b", overflow: "hidden" },
+  statsBarFill: { height: 8, borderRadius: 4, backgroundColor: "#38bdf8" },
 
   featureTilesRow: {
     flexDirection: "row",
@@ -649,7 +881,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#1e293b",
   },
-  sortBtnActive: { backgroundColor: "#1d4ed8" },
+  sortBtnActive: { backgroundColor: theme.colors.primaryMuted },
   sortBtnText: { color: "#94a3b8", fontSize: 13, fontWeight: "600" },
   sortBtnTextActive: { color: "#fff" },
   speciesPillsContent: { gap: 8, paddingVertical: 2 },
@@ -659,7 +891,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: "#1e293b",
   },
-  speciesPillActive: { backgroundColor: "#1d4ed8" },
+  speciesPillActive: { backgroundColor: theme.colors.primaryMuted },
   speciesPillText: { color: "#94a3b8", fontSize: 13, fontWeight: "600" },
   speciesPillTextActive: { color: "#fff" },
 
@@ -674,7 +906,7 @@ const styles = StyleSheet.create({
   item: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 10,
     marginBottom: 10,
@@ -701,7 +933,7 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   deleteText: { color: "#fff", fontWeight: "700" },
-  detailScreen: { flex: 1, backgroundColor: "#0f172a" },
+  detailScreen: { flex: 1, backgroundColor: theme.colors.background },
   detailHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -731,23 +963,23 @@ const styles = StyleSheet.create({
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   metricsRow: { flexDirection: "row", gap: 12 },
   metricItem: { flex: 1 },
-  input: { backgroundColor: "#1e293b", color: "#fff", padding: 8, borderRadius: 8, marginTop: 4, minHeight: 40 },
+  input: { backgroundColor: "#1e293b", color: "#fff", padding: 8, borderRadius: theme.radius.control, marginTop: 4, minHeight: 40 },
   modalActions: { flexDirection: "row", gap: 12, marginTop: 24 },
   btnEdit: {
-    backgroundColor: "#1e3a5f",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.radius.control,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     flex: 1,
   },
   btnSave: {
-    backgroundColor: "#1e3a5f",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.radius.control,
     alignItems: "center",
     justifyContent: "center",
     flex: 1,
@@ -762,10 +994,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   btnMap: {
-    backgroundColor: "#0c4a6e",
+    backgroundColor: theme.colors.primaryDark,
     paddingHorizontal: 20,
     paddingVertical: 14,
-    borderRadius: 12,
+    borderRadius: theme.radius.control,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -825,7 +1057,7 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: 32,
     right: 0,
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#1e293b",
@@ -856,7 +1088,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "#071023",
+    backgroundColor: theme.colors.surface,
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -864,22 +1096,22 @@ const styles = StyleSheet.create({
   },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#94a3b8", fontSize: 12 },
-  editPickerRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#071023", borderRadius: 10, padding: 12, marginBottom: 10, gap: 12 },
+  editPickerRow: { flexDirection: "row", alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: 10, padding: 12, marginBottom: 10, gap: 12 },
   editPickerThumb: { width: 44, height: 44 },
   editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },
   editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
-  pickerModal: { flex: 1, backgroundColor: "#071023" },
+  pickerModal: { flex: 1, backgroundColor: theme.colors.background },
   pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   pickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   pickerSearch: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   pickerSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
-  pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: "#0b1220", borderBottomWidth: 1, gap: 12 },
+  pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   pickerItemImg: { width: 52, height: 52, flexShrink: 0 },
   pickerItemImgPlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   pickerItemText: { color: "#e6eef8", fontSize: 16 },
   pickerItemSub: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
 
-  followModalContainer: { flex: 1, backgroundColor: "#071023" },
+  followModalContainer: { flex: 1, backgroundColor: theme.colors.background },
   followModalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -897,7 +1129,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#0b1220",
+    borderBottomColor: theme.colors.border,
     gap: 12,
   },
   followAvatar: {
@@ -933,8 +1165,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   emptyBtn: {
-    backgroundColor: "#0c4a6e",
-    borderRadius: 10,
+    backgroundColor: theme.colors.primaryDark,
+    borderRadius: theme.radius.control,
     paddingHorizontal: 28,
     paddingVertical: 12,
   },
