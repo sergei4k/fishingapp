@@ -12,6 +12,7 @@ const gearPhotos: Record<string, any> = {
   crawsoft:    require("../assets/gear/crawsoft.png"),
   senko:       require("../assets/gear/senko.png"),
   bucktail:    require("../assets/gear/bucktail.png"),
+  tailspinner: require("../assets/gear/tailspin.png"),
   // Bait
   chervyak:    require("../assets/gear/worm.png"),
   motyl:       require("../assets/gear/bloodworm.png"),
