@@ -3,7 +3,6 @@ import { theme } from '../lib/theme';
 import { PurchasesProvider } from '@/lib/purchases';
 import { LanguageProvider } from '@/lib/language';
 import { NetworkProvider } from '@/lib/network';
-import OfflineBanner from '@/components/OfflineBanner';
 import { pb } from '@/lib/pocketbase';
 import '@/lib/mapbox';
 import { clearDeliveredNotifications } from '@/lib/notifications';
@@ -194,7 +193,6 @@ export default function RootLayout() {
           <LanguageProvider>
             <NetworkProvider>
               <RootNavigator />
-              <OfflineBanner />
               <SafeToast />
             </NetworkProvider>
           </LanguageProvider>

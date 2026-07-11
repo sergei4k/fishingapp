@@ -7,6 +7,7 @@ import { Text } from "@/components/AppText";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Line } from "react-native-svg";
 import { useLanguage } from "@/lib/language";
+import { useNetwork } from "@/lib/network";
 import { useRequireAuth } from "@/lib/auth";
 import { usePurchases } from "@/lib/purchases";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
@@ -703,6 +704,7 @@ function BiteForecast({
 
 export default function Weather() {
   const { t, language } = useLanguage();
+  const { isOnline } = useNetwork();
   const requireAuth = useRequireAuth();
   const { isPro, enabled: purchasesEnabled, presentPaywall } = usePurchases();
   const showPurchases = Platform.OS !== "ios" && purchasesEnabled;
@@ -788,11 +790,27 @@ export default function Weather() {
   }
 
   if (error || !weather) {
+    // Show the offline state either from NetInfo, or by recognising a network
+    // fetch failure (so it still works before a build that includes NetInfo).
+    const netFail = typeof error === "string" && /network request failed|failed to fetch|network error/i.test(error);
+    const offline = !isOnline || netFail;
     return (
       <SafeAreaView style={styles.container}>
-        <Text style={styles.errorText}>{error ?? t("error")}</Text>
+        {offline && (
+          <Ionicons name="cloud-offline-outline" size={40} color="#64748b" style={{ alignSelf: "center", marginBottom: 12 }} />
+        )}
+        <Text style={styles.errorText}>
+          {offline
+            ? (language === "ru" ? "Нет подключения к интернету" : "You're offline")
+            : (error ?? t("error"))}
+        </Text>
+        {offline && (
+          <Text style={{ color: "#64748b", fontSize: 14, textAlign: "center", marginTop: 6 }}>
+            {language === "ru" ? "Погода недоступна без сети" : "Weather needs an internet connection"}
+          </Text>
+        )}
         <TouchableOpacity onPress={() => { setLoading(true); fetchWeather(); }} style={{ marginTop: 16, alignSelf: "center" }}>
-          <Text style={{ color: "#ffffff", fontSize: 15 }}>Retry</Text>
+          <Text style={{ color: "#ffffff", fontSize: 15 }}>{language === "ru" ? "Повторить" : "Retry"}</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );

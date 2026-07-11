@@ -120,46 +120,57 @@ export async function getPendingCatchCount(): Promise<number> {
  * touches rows still flagged pendingSync, and swaps their temporary local id for
  * the real PocketBase id on success while keeping the on-device image path.
  */
+// Guards against overlapping runs. Without this, the login / reconnect /
+// foreground triggers could fire together, each read the same pending list, and
+// upload the same catch twice — creating duplicates on the server.
+let pushing = false;
+
 export async function pushPendingCatches(userId: string): Promise<void> {
-  const local = await getCatches();
-  const pending = local.filter((c) => c.pendingSync && !isPocketBaseId(c.id));
-  if (pending.length === 0) return;
+  if (pushing) return;
+  pushing = true;
+  try {
+    const local = await getCatches();
+    const pending = local.filter((c) => c.pendingSync && !isPocketBaseId(c.id));
+    if (pending.length === 0) return;
 
-  for (const item of pending) {
-    try {
-      const formData = new FormData();
-      formData.append('user_id', userId);
-      formData.append('species', item.species ?? '');
-      if (item.lat != null) formData.append('lat', String(item.lat));
-      if (item.lon != null) formData.append('lon', String(item.lon));
-      formData.append('description', item.description || '');
-      formData.append('gear', item.gear ?? '');
-      if (item.length) formData.append('length_cm', String(Number(item.length)));
-      if (item.weight) formData.append('weight_kg', String(Number(item.weight)));
-      const createdMs = new Date(item.date).getTime();
-      formData.append('created_at', String(isNaN(createdMs) ? Date.now() : createdMs));
-      formData.append('is_public', item.isPublic ? 'true' : 'false');
+    for (const item of pending) {
+      try {
+        const formData = new FormData();
+        formData.append('user_id', userId);
+        formData.append('species', item.species ?? '');
+        if (item.lat != null) formData.append('lat', String(item.lat));
+        if (item.lon != null) formData.append('lon', String(item.lon));
+        formData.append('description', item.description || '');
+        formData.append('gear', item.gear ?? '');
+        if (item.length) formData.append('length_cm', String(Number(item.length)));
+        if (item.weight) formData.append('weight_kg', String(Number(item.weight)));
+        const createdMs = new Date(item.date).getTime();
+        formData.append('created_at', String(isNaN(createdMs) ? Date.now() : createdMs));
+        formData.append('is_public', item.isPublic ? 'true' : 'false');
 
-      if (item.image && !/^https?:/.test(item.image)) {
-        formData.append('image', { uri: item.image, name: 'catch.jpg', type: 'image/jpeg' } as any);
-      }
-      (item.extraPhotos ?? []).forEach((uri: string, i: number) => {
-        if (uri && !/^https?:/.test(uri)) {
-          formData.append('images', { uri, name: `catch_extra_${i}.jpg`, type: 'image/jpeg' } as any);
+        if (item.image && !/^https?:/.test(item.image)) {
+          formData.append('image', { uri: item.image, name: 'catch.jpg', type: 'image/jpeg' } as any);
         }
-      });
+        (item.extraPhotos ?? []).forEach((uri: string, i: number) => {
+          if (uri && !/^https?:/.test(uri)) {
+            formData.append('images', { uri, name: `catch_extra_${i}.jpg`, type: 'image/jpeg' } as any);
+          }
+        });
 
-      const record = await pb.collection('catches').create(formData);
-      const pbImageUrl = record.image ? pb.files.getURL(record, record.image) : item.pbImageUrl;
-      // Swap the temp local id for the real server id; keep local image path so it
-      // still renders offline.
-      await updateCatch(item.id, { ...item, id: record.id, pbImageUrl, pendingSync: false });
-    } catch (e: any) {
-      // Still offline — stop and let the next trigger retry the whole queue.
-      if (isNetworkError(e)) return;
-      // A real server rejection (validation/auth): don't let one bad row block the
-      // rest; leave it pending and move on.
-      console.warn('pushPendingCatches: skipping', item.id, e?.status, e?.message);
+        const record = await pb.collection('catches').create(formData);
+        const pbImageUrl = record.image ? pb.files.getURL(record, record.image) : item.pbImageUrl;
+        // Swap the temp local id for the real server id; keep local image path so
+        // it still renders offline.
+        await updateCatch(item.id, { ...item, id: record.id, pbImageUrl, pendingSync: false });
+      } catch (e: any) {
+        // Still offline — stop and let the next trigger retry the whole queue.
+        if (isNetworkError(e)) return;
+        // A real server rejection (validation/auth): don't let one bad row block
+        // the rest; leave it pending and move on.
+        console.warn('pushPendingCatches: skipping', item.id, e?.status, e?.message);
+      }
     }
+  } finally {
+    pushing = false;
   }
 }

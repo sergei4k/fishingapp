@@ -9,6 +9,7 @@ import gearPhotos from "@/lib/gearPhotos";
 import { getSpeciesLabel } from "@/lib/species";
 import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import { useLanguage } from "@/lib/language";
+import { useNetwork } from "@/lib/network";
 import CatchDetailModal, { type CatchDetail } from "@/components/CatchDetailModal";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges, BadgeId } from "@/lib/badges";
@@ -170,6 +171,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
 
 export default function Social() {
   const { user } = useAuth();
+  const { isOnline } = useNetwork();
   const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
   const insets = useSafeAreaInsets();
@@ -1329,7 +1331,12 @@ export default function Social() {
             }
             ListEmptyComponent={
               <View style={styles.centerMsg}>
-                <Text style={styles.centerText}>{t("noPublicCatches")}</Text>
+                {!isOnline && <Ionicons name="cloud-offline-outline" size={44} color="#1e3a5f" />}
+                <Text style={styles.centerText}>
+                  {!isOnline
+                    ? (language === "ru" ? "Нет сети. Лента недоступна без интернета" : "You're offline. The feed needs a connection")
+                    : t("noPublicCatches")}
+                </Text>
               </View>
             }
           />
@@ -1347,9 +1354,11 @@ export default function Social() {
           <ActivityIndicator color="#ffffff" style={{ marginTop: 48 }} />
         ) : feedItems.length === 0 ? (
           <View style={styles.centerMsg}>
-            <Ionicons name="boat-outline" size={44} color="#1e3a5f" />
+            <Ionicons name={!isOnline ? "cloud-offline-outline" : "boat-outline"} size={44} color="#1e3a5f" />
             <Text style={styles.centerText}>
-              {myFollows.length === 0 ? t("followToSeeCatches") : t("noFollowingCatches")}
+              {!isOnline
+                ? (language === "ru" ? "Нет сети. Лента недоступна без интернета" : "You're offline. The feed needs a connection")
+                : (myFollows.length === 0 ? t("followToSeeCatches") : t("noFollowingCatches"))}
             </Text>
           </View>
         ) : (
