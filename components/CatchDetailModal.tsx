@@ -4,7 +4,6 @@ import { getGearLabel, getGearOptions, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON }
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
 import { pb } from "@/lib/pocketbase";
-import { sendPushNotification } from "@/lib/notifications";
 import { getSpeciesLabel, getSpeciesOptions } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
 import { Ionicons } from "@expo/vector-icons";
@@ -337,16 +336,7 @@ export default function CatchDetailModal({
       setCommentsInitialized(true);
       setNewComment("");
       onCommentAdded?.(item.id);
-      if (item.userId && item.userId !== user.id) {
-        pb.collection("users").getOne(item.userId, { fields: "pushToken", requestKey: null })
-          .then((owner) => {
-            if (owner.pushToken) {
-              const senderName = user.username || user.name || "Someone";
-              sendPushNotification(owner.pushToken, "New comment", `${senderName} commented on your catch`);
-            }
-          })
-          .catch(() => {});
-      }
+      // Push is sent server-side (pb_hooks) in the recipient's saved language.
     } catch (error: any) {
       console.warn("[comments] create failed", error?.status, error?.message, JSON.stringify(error?.response));
       Alert.alert(t("error"), t("saveError"));

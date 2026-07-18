@@ -2,7 +2,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { theme } from '../../lib/theme';
 import Toast from "react-native-toast-message";
 import { useAuth, useRequireAuth } from "@/lib/auth";
-import { sendPushNotification } from "@/lib/notifications";
 import { pb, isNetworkError } from "@/lib/pocketbase";
 import { getGearLabel } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
@@ -710,16 +709,7 @@ export default function Social() {
           items.map((c) => (c.id === item.id ? { ...c, _likeId: record.id } : c));
         setDiscoverItems(setId);
         setFeedItems(setId);
-        if (item.user_id && item.user_id !== user.id) {
-          pb.collection("users").getOne(item.user_id, { fields: "pushToken", requestKey: null })
-            .then((owner) => {
-              if (owner.pushToken) {
-                const senderName = user.username || user.name || "Someone";
-                sendPushNotification(owner.pushToken, "New like", `${senderName} liked your catch`);
-              }
-            })
-            .catch(() => {});
-        }
+        // Push is sent server-side (pb_hooks) in the recipient's saved language.
       }
     } catch {
       setDiscoverItems((prev) => prev.map((c) => (c.id === item.id ? item : c)));
@@ -946,16 +936,7 @@ export default function Social() {
           following_id: targetUser.id,
         });
         setMyFollows((prev) => [...prev, record]);
-        pb.collection("users").getOne(targetUser.id, { fields: "pushToken", requestKey: null })
-          .then((target) => {
-            if (target.pushToken) {
-              const senderName = user.username || user.name || "Someone";
-              sendPushNotification(target.pushToken, "New follower", `${senderName} started following you`);
-            } else {
-              console.warn("[follow] target has no pushToken, skipping notification");
-            }
-          })
-          .catch((e) => console.warn("[follow] failed to fetch target pushToken:", e?.status, e?.message));
+        // Push is sent server-side (pb_hooks) in the recipient's saved language.
       } catch (e) { console.warn("follow error:", e); }
       finally { followInFlight.current.delete(targetUser.id); }
     }
