@@ -3,8 +3,9 @@ import { theme } from '../lib/theme';
 import { getGearLabel, getGearOptions, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
+import { isProfane } from "@/lib/profanity";
 import { pb } from "@/lib/pocketbase";
-import { getSpeciesLabel, getSpeciesOptions } from "@/lib/species";
+import { getSpeciesHabitat, getSpeciesLabel, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
 import { Ionicons } from "@expo/vector-icons";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -56,6 +57,10 @@ type Props = {
   onDelete?: (catchId: string) => void;
   onTogglePublic?: (catchId: string, isPublic: boolean) => void;
   onUserPress?: (userId: string) => void;
+  onReportCatch?: (catchId: string, userId?: string | null) => void;
+  onReportComment?: (commentId: string, userId?: string | null, catchId?: string | null) => void;
+  onBlockUser?: (userId: string) => void;
+  blockedUserIds?: string[];
 };
 
 export default function CatchDetailModal({
@@ -68,6 +73,10 @@ export default function CatchDetailModal({
   onDelete,
   onTogglePublic,
   onUserPress,
+  onReportCatch,
+  onReportComment,
+  onBlockUser,
+  blockedUserIds = [],
 }: Props) {
   const { user } = useAuth();
   const requireAuth = useRequireAuth();
@@ -101,6 +110,7 @@ export default function CatchDetailModal({
   const [editSpecies, setEditSpecies] = useState<string | null>(null);
   const [editGear, setEditGear] = useState<string | null>(null);
   const [editSpeciesModal, setEditSpeciesModal] = useState(false);
+  const [editSpeciesTab, setEditSpeciesTab] = useState<SpeciesHabitat>("freshwater");
   const [editGearModal, setEditGearModal] = useState(false);
   const [editSpeciesSearch, setEditSpeciesSearch] = useState("");
   const [editGearSearch, setEditGearSearch] = useState("");
@@ -302,6 +312,13 @@ export default function CatchDetailModal({
     if (submitting) return;
     if (!user) { requireAuth(); return; }
     if (!newComment.trim() || !item) return;
+    if (isProfane(newComment.trim())) {
+      Alert.alert(
+        t("error"),
+        language === "ru" ? "Комментарий содержит недопустимый текст." : "The comment contains objectionable text."
+      );
+      return;
+    }
     setSubmitting(true);
     try {
       if (pb.authStore.record?.id !== user.id) {
@@ -367,6 +384,7 @@ export default function CatchDetailModal({
     setEditLength(item.length || "");
     setEditWeight(item.weight || "");
     setEditSpecies(item.species ?? null);
+    setEditSpeciesTab(getSpeciesHabitat(item.species));
     setEditGear(item.gear ?? null);
     setShowMenu(false);
     setEditing(true);
@@ -374,6 +392,13 @@ export default function CatchDetailModal({
 
   const handleSave = async () => {
     if (!item || !onSave) return;
+    if (editDescription.trim() && isProfane(editDescription)) {
+      Alert.alert(
+        t("error"),
+        language === "ru" ? "Описание содержит недопустимый текст." : "The description contains objectionable text."
+      );
+      return;
+    }
     setSaving(true);
     try {
       await onSave(item.id, {
@@ -409,6 +434,9 @@ export default function CatchDetailModal({
   };
 
   const canEdit = !!onSave || !!onDelete;
+  const isOwner = canEdit || (!!item?.userId && item.userId === user?.id);
+  const canModerate = !!item?.userId && !isOwner && (!!onReportCatch || !!onBlockUser);
+  const canShowMenu = canEdit || canModerate;
 
   return (
     <>
@@ -426,27 +454,45 @@ export default function CatchDetailModal({
             <Text style={styles.headerTitle} numberOfLines={1}>
               {getSpeciesLabel(item?.species, language)}
             </Text>
-            {canEdit ? (
+            {canShowMenu ? (
               <View>
                 <TouchableOpacity style={styles.closeBtn} onPress={() => setShowMenu((v) => !v)} hitSlop={8}>
                   <Ionicons name="ellipsis-vertical" size={20} color="#e6eef8" />
                 </TouchableOpacity>
                 {showMenu && (
                   <View style={styles.dropdownMenu}>
-                    {onSave && (
+                    {onSave && isOwner && (
                       <TouchableOpacity style={styles.dropdownItem} onPress={startEdit}>
                         <Ionicons name="pencil-outline" size={15} color="#cbd5e1" style={{ marginRight: 10 }} />
                         <Text style={styles.dropdownItemText}>{t("edit")}</Text>
                       </TouchableOpacity>
                     )}
-                    {onSave && onDelete && <View style={styles.dropdownDivider} />}
-                    {onDelete && (
+                    {onDelete && isOwner && (
                       <TouchableOpacity
                         style={styles.dropdownItem}
                         onPress={() => { setShowMenu(false); item && onDelete(item.id); }}
                       >
                         <Ionicons name="trash-outline" size={15} color="#f87171" style={{ marginRight: 10 }} />
                         <Text style={[styles.dropdownItemText, { color: "#f87171" }]}>{t("delete")}</Text>
+                      </TouchableOpacity>
+                    )}
+                    {canEdit && canModerate && <View style={styles.dropdownDivider} />}
+                    {onReportCatch && item && !isOwner && (
+                      <TouchableOpacity
+                        style={styles.dropdownItem}
+                        onPress={() => { setShowMenu(false); onReportCatch(item.id, item.userId); }}
+                      >
+                        <Ionicons name="flag-outline" size={15} color="#fbbf24" style={{ marginRight: 10 }} />
+                        <Text style={styles.dropdownItemText}>{t("reportContent")}</Text>
+                      </TouchableOpacity>
+                    )}
+                    {onBlockUser && item?.userId && !isOwner && (
+                      <TouchableOpacity
+                        style={styles.dropdownItem}
+                        onPress={() => { setShowMenu(false); onBlockUser(item.userId!); }}
+                      >
+                        <Ionicons name="ban-outline" size={15} color="#f87171" style={{ marginRight: 10 }} />
+                        <Text style={[styles.dropdownItemText, { color: "#f87171" }]}>{t("blockUser")}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -548,7 +594,7 @@ export default function CatchDetailModal({
             {/* Comments */}
             {showComments && (
               <View style={styles.commentsSection}>
-                {comments.map((c, i) => {
+                {comments.filter((c) => !blockedUserIds.includes(c.user_id)).map((c, i) => {
                   const isOwn = c.user_id === user?.id;
                   return (
                     <View key={c.id || i} style={[styles.commentRow, isOwn && styles.commentRowOwn]}>
@@ -573,6 +619,15 @@ export default function CatchDetailModal({
                           {isOwn && (
                             <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={8} style={{ marginLeft: 8 }}>
                               <Ionicons name="trash" size={15} color="#f87171" />
+                            </TouchableOpacity>
+                          )}
+                          {!isOwn && onReportComment && (
+                            <TouchableOpacity
+                              onPress={() => onReportComment(c.id, c.user_id, item?.id ?? null)}
+                              hitSlop={8}
+                              style={{ marginLeft: 8 }}
+                            >
+                              <Ionicons name="flag-outline" size={15} color="#fbbf24" />
                             </TouchableOpacity>
                           )}
                         </View>
@@ -604,7 +659,7 @@ export default function CatchDetailModal({
             <View style={styles.body}>
               {editing ? (
                 <>
-                  <TouchableOpacity style={styles.editPickerRow} onPress={() => setEditSpeciesModal(true)}>
+                  <TouchableOpacity style={styles.editPickerRow} onPress={() => { setEditSpeciesTab(getSpeciesHabitat(editSpecies)); setEditSpeciesModal(true); }}>
                     {editSpecies && speciesPhotos[editSpecies] && (
                       <ExpoImage source={speciesPhotos[editSpecies]} style={styles.editPickerThumb} contentFit="contain" />
                     )}
@@ -773,8 +828,22 @@ export default function CatchDetailModal({
                 clearButtonMode="while-editing"
               />
             </View>
+            <View style={styles.speciesTabRow}>
+              {(["freshwater", "saltwater"] as SpeciesHabitat[]).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  style={[styles.speciesTabBtn, editSpeciesTab === tab && styles.speciesTabBtnActive]}
+                  onPress={() => setEditSpeciesTab(tab)}
+                >
+                  <Text style={[styles.speciesTabText, editSpeciesTab === tab && styles.speciesTabTextActive]}>
+                    {t(tab)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <FlatList
               data={getSpeciesOptions(language).filter(s => {
+                if (s.habitat !== editSpeciesTab) return false;
                 if (!editSpeciesSearch.trim()) return true;
                 const q = editSpeciesSearch.toLowerCase();
                 return s.labelRu.toLowerCase().includes(q) || s.labelEn.toLowerCase().includes(q) || s.scientificName.toLowerCase().includes(q);
@@ -1113,6 +1182,18 @@ const styles = StyleSheet.create({
   pickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
   pickerSearch: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   pickerSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  speciesTabRow: {
+    flexDirection: "row",
+    backgroundColor: "#0f2236",
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 3,
+  },
+  speciesTabBtn: { flex: 1, alignItems: "center", borderRadius: 8, paddingVertical: 9 },
+  speciesTabBtnActive: { backgroundColor: theme.colors.primaryDark },
+  speciesTabText: { color: "#94a3b8", fontSize: 13, fontWeight: "700" },
+  speciesTabTextActive: { color: "#ffffff" },
   pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   pickerItemImg: { width: 52, height: 52, flexShrink: 0 },
   pickerItemImgPlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },

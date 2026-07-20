@@ -9,6 +9,7 @@ import { getSpeciesLabel } from "@/lib/species";
 import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import { useLanguage } from "@/lib/language";
 import { useNetwork } from "@/lib/network";
+import { blockUser, getBlockedUserIds, reportContent } from "@/lib/moderation";
 import CatchDetailModal, { type CatchDetail } from "@/components/CatchDetailModal";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges, BadgeId } from "@/lib/badges";
@@ -20,7 +21,7 @@ import ImageWithLoader from "@/components/ImageWithLoader";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -178,6 +179,8 @@ export default function Social() {
   const { userId: navUserId, openSearch: openSearchParam } = useLocalSearchParams<{ userId?: string; openSearch?: string }>();
 
   const [activeTab, setActiveTab] = useState<"discover" | "feed" | "groups">("discover");
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const blockedUserIdSet = React.useMemo(() => new Set(blockedUserIds), [blockedUserIds]);
 
   // ── Notifications ─────────────────────────────────────────────────────────
   type NotifItem = {
@@ -341,6 +344,10 @@ export default function Social() {
   }, [loadNotifications]);
 
   useEffect(() => {
+    getBlockedUserIds(user?.id).then(setBlockedUserIds).catch(() => setBlockedUserIds([]));
+  }, [user?.id]);
+
+  useEffect(() => {
     DeviceEventEmitter.emit("unreadNotifCountChanged", unreadCount);
   }, [unreadCount]);
 
@@ -437,6 +444,7 @@ export default function Social() {
   const [userFollowerCount, setUserFollowerCount] = useState(0);
   const [userFollowingCount, setUserFollowingCount] = useState(0);
   const [loadingUserCatches, setLoadingUserCatches] = useState(false);
+  const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [userFollowListModal, setUserFollowListModal] = useState<null | "followers" | "following">(null);
   const [userFollowListData, setUserFollowListData] = useState<any[]>([]);
   const [userFollowListLoading, setUserFollowListLoading] = useState(false);
@@ -488,7 +496,8 @@ export default function Social() {
         sort: "-created_at",
         requestKey: null,
       });
-      const enriched = await enrichCatches(result.items, user?.id);
+      const visibleItems = result.items.filter((item: any) => !blockedUserIdSet.has(item.user_id));
+      const enriched = await enrichCatches(visibleItems, user?.id);
       setDiscoverItems((prev) => (page === 1 ? enriched : [...prev, ...enriched]));
       setDiscoverHasMore(page < result.totalPages);
       setDiscoverPage(page);
@@ -498,7 +507,7 @@ export default function Social() {
       setLoadingDiscover(false);
       setLoadingMoreDiscover(false);
     }
-  }, [user?.id]);
+  }, [blockedUserIdSet, user?.id]);
 
   // ── PocketBase realtime like sync ────────────────────────────────────────
 
@@ -745,6 +754,95 @@ export default function Social() {
   };
   const closeDetail = () => setDetailCatch(null);
 
+  const pruneBlockedUser = useCallback((blockedId: string) => {
+    const remove = (items: CatchItem[]) => items.filter((item) => item.user_id !== blockedId);
+    setDiscoverItems(remove);
+    setFeedItems(remove);
+    setUserCatches(remove);
+    setSearchResults((prev) => prev.filter((item) => item.id !== blockedId));
+    setNotifications((prev) => prev.filter((item) => item.actorId !== blockedId));
+    setMyFollows((prev) => prev.filter((item) => item.following_id !== blockedId && item.follower_id !== blockedId));
+    setDetailCatch((curr) => (curr?.userId === blockedId ? null : curr));
+    setSelectedUser((curr: any) => (curr?.id === blockedId ? null : curr));
+  }, []);
+
+  const handleReportCatch = useCallback(async (catchId: string, reportedUserId?: string | null) => {
+    if (!requireAuth() || !user) return;
+    try {
+      await reportContent({
+        reporterId: user.id,
+        reportedUserId,
+        catchId,
+        reason: "objectionable_content",
+      });
+      Alert.alert(t("reportSent"), t("reportSentMessage"));
+    } catch (e) {
+      console.warn("report catch error:", e);
+      Alert.alert(t("error"), t("reportFailed"));
+    }
+  }, [requireAuth, t, user]);
+
+  const handleReportComment = useCallback(async (commentId: string, reportedUserId?: string | null, catchId?: string | null) => {
+    if (!requireAuth() || !user) return;
+    try {
+      await reportContent({
+        reporterId: user.id,
+        reportedUserId,
+        catchId,
+        commentId,
+        reason: "abusive_comment",
+      });
+      Alert.alert(t("reportSent"), t("reportSentMessage"));
+    } catch (e) {
+      console.warn("report comment error:", e);
+      Alert.alert(t("error"), t("reportFailed"));
+    }
+  }, [requireAuth, t, user]);
+
+  const handleReportUser = useCallback(async (reportedUserId: string) => {
+    if (!requireAuth() || !user || reportedUserId === user.id) return;
+    try {
+      await reportContent({
+        reporterId: user.id,
+        reportedUserId,
+        reason: "abusive_user",
+      });
+      Alert.alert(t("reportSent"), t("reportSentMessage"));
+    } catch (e) {
+      console.warn("report user error:", e);
+      Alert.alert(t("error"), t("reportFailed"));
+    }
+  }, [requireAuth, t, user]);
+
+
+  const handleBlockUser = useCallback((blockedId: string) => {
+    if (!requireAuth() || !user || blockedId === user.id) return;
+    Alert.alert(t("blockUserConfirm"), t("blockUserMessage"), [
+      { text: t("cancel"), style: "cancel" },
+      {
+        text: t("blockUser"),
+        style: "destructive",
+        onPress: async () => {
+          setBlockedUserIds((prev) => prev.includes(blockedId) ? prev : [...prev, blockedId]);
+          pruneBlockedUser(blockedId);
+          try {
+            void reportContent({
+              reporterId: user.id,
+              reportedUserId: blockedId,
+              reason: "blocked_abusive_user",
+              details: "User blocked from in-app moderation controls.",
+            }).catch((e) => console.warn("block report error:", e));
+            await blockUser(user.id, blockedId);
+            Alert.alert(t("userBlocked"));
+          } catch (e) {
+            console.warn("block user error:", e);
+            Alert.alert(t("error"), t("saveError"));
+          }
+        },
+      },
+    ]);
+  }, [pruneBlockedUser, requireAuth, t, user]);
+
   // Tapping a notification jumps to the actor's profile (follow, like or comment)
   const handleNotifPress = (item: NotifItem) => {
     setNotifVisible(false);
@@ -795,16 +893,21 @@ export default function Social() {
     if (!user || myFollows.length === 0) { setFeedItems([]); return; }
     setLoadingFeed(true);
     try {
-      const filterStr = myFollows.map((f) => `user_id = "${f.following_id}"`).join(" || ");
+      const visibleFollows = myFollows.filter((f) => !blockedUserIdSet.has(f.following_id));
+      if (visibleFollows.length === 0) {
+        setFeedItems([]);
+        return;
+      }
+      const filterStr = visibleFollows.map((f) => `user_id = "${f.following_id}"`).join(" || ");
       const records = await pb.collection("catches").getFullList({
         filter: `is_public = true && (${filterStr})`,
         sort: "-created_at",
         requestKey: null,
       });
-      setFeedItems(await enrichCatches(records, user.id));
+      setFeedItems(await enrichCatches(records.filter((item: any) => !blockedUserIdSet.has(item.user_id)), user.id));
     } catch (e) { console.warn("loadFeed error:", e); }
     finally { setLoadingFeed(false); }
-  }, [user, myFollows]);
+  }, [blockedUserIdSet, user, myFollows]);
 
   useEffect(() => {
     if (activeTab === "feed") loadFeed();
@@ -822,7 +925,7 @@ export default function Social() {
         sort: "username",
         requestKey: null,
       });
-      const users = result.items.filter((u: any) => u.id !== user?.id);
+      const users = result.items.filter((u: any) => u.id !== user?.id && !blockedUserIdSet.has(u.id));
       const usersWithCounts = await Promise.all(
         users.map(async (u: any) => ({
           ...u,
@@ -840,7 +943,7 @@ export default function Social() {
     } finally {
       setSearching(false);
     }
-  }, [user]);
+  }, [blockedUserIdSet, user]);
 
   const loadGroups = useCallback(async () => {
     setLoadingGroups(true);
@@ -943,6 +1046,11 @@ export default function Social() {
   };
 
   const openUser = async (targetUser: any) => {
+    if (blockedUserIdSet.has(targetUser.id)) {
+      Alert.alert(t("userBlocked"));
+      return;
+    }
+    setProfileMenuVisible(false);
     setUserFollowListModal(null);
     setUserFollowListData([]);
     setSelectedUser({
@@ -998,7 +1106,7 @@ export default function Social() {
           };
         });
       }
-      setUserCatches(await enrichCatches(records as any[], user?.id));
+      setUserCatches(await enrichCatches((records as any[]).filter((item: any) => !blockedUserIdSet.has(item.user_id)), user?.id));
       setUserCatchCount(publicCatchCount ?? (catchCountResult as any).totalItems ?? (records as any[]).length);
       setUserFollowerCount((followersResult as any).totalItems ?? 0);
       setUserFollowingCount((followingResult as any).totalItems ?? 0);
@@ -1020,7 +1128,7 @@ export default function Social() {
       });
       const ids = records
         .map((r: any) => type === "followers" ? r.follower_id : r.following_id)
-        .filter(Boolean);
+        .filter((id: string) => id && !blockedUserIdSet.has(id));
       const users = await Promise.all(
         ids.map((id: string) => pb.collection("users").getOne(id, { requestKey: null }).catch(() => null))
       );
@@ -1458,7 +1566,7 @@ export default function Social() {
       )}
 
       {/* User profile modal */}
-      <Modal visible={!!selectedUser} animationType="slide" onRequestClose={() => setSelectedUser(null)}>
+      <Modal visible={!!selectedUser} animationType="slide" onRequestClose={() => { setProfileMenuVisible(false); setSelectedUser(null); }}>
         <SafeAreaView style={styles.container}>
           <FlatList
             data={loadingUserCatches ? [] : userCatches}
@@ -1520,19 +1628,24 @@ export default function Social() {
             }
             ListHeaderComponent={
               <View>
-                {/* Banner */}
-                <View style={styles.upBanner}>
-                  {userCatches[0]?.image_uri ? (
-                    <ImageWithLoader source={{ uri: userCatches[0].image_uri }} contentFit="cover" style={{ width: "100%", height: "100%" }} />
-                  ) : (
-                    <View style={{ flex: 1, backgroundColor: "#0a1929" }} />
-                  )}
-                  <TouchableOpacity onPress={() => setSelectedUser(null)} style={[styles.upBackBtn, { top: safeTop + 8 }]} hitSlop={8}>
+                <View style={[styles.upHeaderRow, { paddingTop: safeTop + 16 }]}>
+                  <TouchableOpacity onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }} style={styles.upHeaderBtn} hitSlop={8}>
                     <Ionicons name="arrow-back" size={20} color="#e6eef8" />
                   </TouchableOpacity>
+                  {selectedUser && selectedUser.id !== user?.id && (
+                    <View>
+                      <TouchableOpacity
+                        onPress={() => setProfileMenuVisible((visible) => !visible)}
+                        style={styles.upHeaderBtn}
+                        hitSlop={8}
+                        accessibilityLabel={language === "ru" ? "Действия с профилем" : "Profile actions"}
+                      >
+                        <Ionicons name="ellipsis-vertical" size={20} color="#e6eef8" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
 
-                {/* Avatar overlapping banner */}
                 <View style={styles.upAvatarWrapper}>
                   <View style={styles.upAvatar}>
                     {selectedUser?.avatarUrl ? (
@@ -1618,6 +1731,10 @@ export default function Social() {
             onLikeChange={applyLikeToLists}
             onCommentAdded={applyCommentToLists}
             onCommentCountSynced={syncCommentCountInLists}
+            onReportCatch={handleReportCatch}
+            onReportComment={handleReportComment}
+            onBlockUser={handleBlockUser}
+            blockedUserIds={blockedUserIds}
             onUserPress={(userId) => {
               closeDetail();
               const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
@@ -1693,6 +1810,43 @@ export default function Social() {
               )}
             </SafeAreaView>
           </Modal>
+          <Modal
+            visible={profileMenuVisible && !!selectedUser && selectedUser.id !== user?.id}
+            transparent
+            animationType="fade"
+            statusBarTranslucent
+            onRequestClose={() => setProfileMenuVisible(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={styles.upMenuOverlay}
+              onPress={() => setProfileMenuVisible(false)}
+            >
+              <View style={[styles.upDropdownMenu, { top: safeTop + 70 }]}>
+                <TouchableOpacity
+                  style={styles.upDropdownItem}
+                  onPress={() => {
+                    setProfileMenuVisible(false);
+                    if (selectedUser?.id) handleReportUser(selectedUser.id);
+                  }}
+                >
+                  <Ionicons name="flag-outline" size={15} color="#fbbf24" style={{ marginRight: 10 }} />
+                  <Text style={styles.upDropdownItemText}>{t("reportUser")}</Text>
+                </TouchableOpacity>
+                <View style={styles.upDropdownDivider} />
+                <TouchableOpacity
+                  style={styles.upDropdownItem}
+                  onPress={() => {
+                    setProfileMenuVisible(false);
+                    if (selectedUser?.id) handleBlockUser(selectedUser.id);
+                  }}
+                >
+                  <Ionicons name="ban-outline" size={15} color="#f87171" style={{ marginRight: 10 }} />
+                  <Text style={[styles.upDropdownItemText, { color: "#f87171" }]}>{t("blockUser")}</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </Modal>
         </SafeAreaView>
       </Modal>
 
@@ -1702,6 +1856,10 @@ export default function Social() {
         onLikeChange={applyLikeToLists}
         onCommentAdded={applyCommentToLists}
         onCommentCountSynced={syncCommentCountInLists}
+        onReportCatch={handleReportCatch}
+        onReportComment={handleReportComment}
+        onBlockUser={handleBlockUser}
+        blockedUserIds={blockedUserIds}
         onUserPress={(userId) => {
           closeDetail();
           const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
@@ -2209,9 +2367,42 @@ const styles = StyleSheet.create({
   lbSpeciesPhoto: { width: 36, height: 36 },
 
   // ── Other-user profile modal ─────────────────────────────────────────────
-  upBanner: { height: 132, backgroundColor: theme.colors.surface, overflow: "hidden" },
-  upBackBtn: { position: "absolute", top: 12, left: 12, zIndex: 1, width: 44, height: 44, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 22 },
-  upAvatarWrapper: { alignItems: "center", marginTop: -42 },
+  upHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+  },
+  upHeaderBtn: {
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+  },
+  upMenuOverlay: { flex: 1, backgroundColor: "transparent" },
+  upDropdownMenu: {
+    position: "absolute",
+    right: 12,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#1e293b",
+    minWidth: 190,
+    zIndex: 100,
+    elevation: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+  },
+  upDropdownItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14 },
+  upDropdownItemText: { color: "#cbd5e1", fontSize: 15, fontWeight: "600" },
+  upDropdownDivider: { height: 1, backgroundColor: "#1e293b" },
+  upAvatarWrapper: { alignItems: "center", marginTop: 16 },
   upAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 3, borderColor: "#0f172a" },
   upAvatarImage: { width: 88, height: 88, borderRadius: 44 },
   upAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
@@ -2225,7 +2416,7 @@ const styles = StyleSheet.create({
   upStatItem: { flex: 1, alignItems: "center" },
   upStatNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
   upStatLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
-  upActionRow: { flexDirection: "row", marginTop: 6, marginHorizontal: 16 },
+  upActionRow: { flexDirection: "row", alignItems: "center", marginTop: 6, marginHorizontal: 16 },
   upActionBtn: { flex: 1, backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 10, alignItems: "center" },
   upActionBtnFollowing: { backgroundColor: "#1e293b" },
   upActionBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },

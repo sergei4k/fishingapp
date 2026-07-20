@@ -5,6 +5,7 @@ import { pb } from '@/lib/pocketbase';
 import Constants from 'expo-constants';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, Image, ImageBackground, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text, TextInput } from '@/components/AppText';
@@ -233,6 +234,24 @@ export default function Login() {
                 />
               )}
 
+              <Text style={styles.privacyText}>
+                {t('loginAgree')}{' '}
+                <Text
+                  style={styles.privacyLink}
+                  onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/terms.html')}
+                >
+                  {t('termsOfUse')}
+                </Text>
+                {' '}{t('and')}{' '}
+                <Text
+                  style={styles.privacyLink}
+                  onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}
+                >
+                  {t('privacyPolicy')}
+                </Text>
+                .
+              </Text>
+
             </View>
 
             <Modal visible={forgotVisible} transparent animationType="fade" onRequestClose={() => setForgotVisible(false)}>
@@ -440,6 +459,17 @@ const styles = StyleSheet.create({
   forgotText: {
     color: '#94a3b8',
     fontSize: 14,
+  },
+  privacyText: {
+    color: '#94a3b8',
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 14,
+    textAlign: 'center',
+  },
+  privacyLink: {
+    color: '#e6eef8',
+    fontWeight: '700',
   },
   modalOverlay: {
     flex: 1,

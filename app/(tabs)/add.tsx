@@ -17,12 +17,13 @@ import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Toast from "react-native-toast-message";
 import { useLanguage } from "@/lib/language";
 import { useNetwork } from "@/lib/network";
+import { isProfane } from "@/lib/profanity";
 import SignInPrompt from "@/components/SignInPrompt";
-import { getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions } from "@/lib/species";
+import { getSpeciesHabitat, getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
 import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { ActivityIndicator, Alert, DeviceEventEmitter, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
@@ -37,11 +38,20 @@ type PickedPhoto = {
   exif?: Record<string, any> | null;
 };
 
+type LocationSearchResult = {
+  id: string;
+  label: string;
+  subtitle: string;
+  center: [number, number];
+};
+
 // Lightly compress a photo before upload: cap the long edge at 1600px (no
 // upscaling) and re-encode JPEG at 0.82 quality. Cuts multi-MB phone photos to
 // ~1MB with no visible difference on a phone screen, so they load fast on a cold
 // cache. Falls back to the original uri if manipulation fails.
 const MAX_DIM = 1600;
+const PB_UPLOAD_TIMEOUT_MS = 12000;
+
 async function compressPhoto(uri: string): Promise<string> {
   try {
     const probe = await ImageManipulator.manipulateAsync(uri, [], {});
@@ -61,6 +71,23 @@ async function compressPhoto(uri: string): Promise<string> {
   }
 }
 
+async function withPbTimeout<T>(requestKey: string, task: () => Promise<T>, timeoutMs = PB_UPLOAD_TIMEOUT_MS): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      task(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => {
+          pb.cancelRequest(requestKey);
+          reject(new Error("PB_TIMEOUT"));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
@@ -75,6 +102,7 @@ export default function Add() {
   const [length, setLength] = useState("");
   const [weight, setWeight] = useState("");
   const [selectedSpecies, setSelectedSpecies] = useState<string | null>(null);
+  const [speciesTab, setSpeciesTab] = useState<SpeciesHabitat>("freshwater");
   const [moreModalVisible, setMoreModalVisible] = useState(false);
   const [speciesSearch, setSpeciesSearch] = useState("");
   const [selectedGear, setSelectedGear] = useState<string | null>(null);
@@ -88,8 +116,54 @@ export default function Add() {
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [pendingCoord, setPendingCoord] = useState<{ lat: number; lon: number } | null>(null);
   const [pickerCenter, setPickerCenter] = useState<[number, number]>([0, 0]);
+  const [locationSearchQuery, setLocationSearchQuery] = useState("");
+  const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
+  const [searchingLocation, setSearchingLocation] = useState(false);
+
+  useEffect(() => {
+    if (!locationPickerVisible) return;
+    const q = locationSearchQuery.trim();
+    if (q.length < 2) {
+      setLocationSearchResults([]);
+      setSearchingLocation(false);
+      return;
+    }
+
+    const timeout = setTimeout(async () => {
+      setSearchingLocation(true);
+      try {
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json` +
+          `?access_token=${MAPBOX_ACCESS_TOKEN}&types=poi,address,place,locality,neighborhood&autocomplete=true&limit=6&language=${language}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const results: LocationSearchResult[] = (json.features ?? [])
+          .filter((feature: any) => Array.isArray(feature.center) && feature.center.length >= 2)
+          .map((feature: any) => ({
+            id: feature.id,
+            label: feature.text ?? feature.place_name ?? "",
+            subtitle: feature.place_name ?? "",
+            center: [Number(feature.center[0]), Number(feature.center[1])] as [number, number],
+          }))
+          .filter((item: LocationSearchResult, index: number, arr: LocationSearchResult[]) =>
+            item.label && Number.isFinite(item.center[0]) && Number.isFinite(item.center[1]) &&
+            arr.findIndex((other) => other.subtitle === item.subtitle) === index
+          );
+        setLocationSearchResults(results);
+      } catch (e) {
+        console.warn("Catch location search error:", e);
+        setLocationSearchResults([]);
+      } finally {
+        setSearchingLocation(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [language, locationPickerVisible, locationSearchQuery]);
 
   const openLocationPicker = async () => {
+    setLocationSearchQuery("");
+    setLocationSearchResults([]);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
@@ -174,6 +248,8 @@ export default function Add() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
         quality: 1,
         exif: true,
       });
@@ -269,16 +345,18 @@ export default function Add() {
 
   const allSpeciesOptions = getSpeciesOptions(language);
   const moreSpecies = allSpeciesOptions;
-  const filteredMoreSpecies = speciesSearch.trim()
-    ? moreSpecies.filter(s => {
+  const filteredMoreSpecies = moreSpecies
+    .filter(s => s.habitat === speciesTab)
+    .filter(s => {
+      if (!speciesSearch.trim()) return true;
         const q = speciesSearch.toLowerCase();
         return s.labelRu.toLowerCase().includes(q) ||
                s.labelEn.toLowerCase().includes(q) ||
                s.scientificName.toLowerCase().includes(q);
-      })
-    : moreSpecies;
+      });
 
   const openMore = () => {
+    setSpeciesTab(getSpeciesHabitat(selectedSpecies));
     setMoreModalVisible(true);
   };
 
@@ -307,6 +385,14 @@ export default function Add() {
   ).filter(Boolean);
 
   const handleUpload = async () => {
+    if (description.trim() && isProfane(description)) {
+      Alert.alert(
+        t("error"),
+        language === "ru" ? "Описание содержит недопустимый текст." : "The description contains objectionable text."
+      );
+      return;
+    }
+
     setIsUploading(true);
     try {
       const lat = imageCoords?.lat ?? null;
@@ -362,7 +448,11 @@ export default function Add() {
             } as any);
           });
 
-          const record = await pb.collection('catches').create(formData);
+          const uploadRequestKey = `create-catch-${createdAt}`;
+          const record = await withPbTimeout(
+            uploadRequestKey,
+            () => pb.collection('catches').create(formData, { requestKey: uploadRequestKey })
+          );
           pbRecordId = record.id;
 
           if (record.image) {
@@ -376,13 +466,19 @@ export default function Add() {
           // Grant "rybolov" badge on first catch
           const existingBadges = parseBadges(user.badges);
           if (!existingBadges.includes("rybolov")) {
-            const catchCount = await pb.collection("catches").getList(1, 1, {
+            const countRequestKey = `first-catch-count-${createdAt}`;
+            const catchCount = await withPbTimeout(countRequestKey, () => pb.collection("catches").getList(1, 1, {
               filter: `user_id = "${user.id}"`,
-              requestKey: null,
-            });
+              requestKey: countRequestKey,
+            }), 5000);
             if (catchCount.totalItems === 1) {
               const newBadges = [...existingBadges, "rybolov"];
-              await pb.collection("users").update(user.id, { badges: newBadges });
+              const badgeRequestKey = `grant-rybolov-${createdAt}`;
+              await withPbTimeout(
+                badgeRequestKey,
+                () => pb.collection("users").update(user.id, { badges: newBadges }, { requestKey: badgeRequestKey }),
+                5000
+              );
               pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, badges: newBadges });
             }
           }
@@ -520,10 +616,52 @@ export default function Add() {
             <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
               <View style={{ paddingTop: safeTop + 12, paddingBottom: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>{t("locationPickerTitle")}</Text>
-                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); }} style={styles.closeBtn} hitSlop={8}>
+                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); setLocationSearchQuery(""); setLocationSearchResults([]); }} style={styles.closeBtn} hitSlop={8}>
                   <Ionicons name="close" size={22} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
+              <View style={styles.locationSearchBox}>
+                <Ionicons name="search-outline" size={15} color="#64748b" />
+                <TextInput
+                  style={styles.locationSearchInput}
+                  placeholder={language === "ru" ? "Найти место..." : "Search location..."}
+                  placeholderTextColor="#475569"
+                  value={locationSearchQuery}
+                  onChangeText={setLocationSearchQuery}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  keyboardAppearance="dark"
+                  returnKeyType="search"
+                />
+                {searchingLocation ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+              </View>
+              {locationSearchResults.length > 0 && (
+                <View style={styles.locationSearchResults}>
+                  <FlatList
+                    data={locationSearchResults}
+                    keyExtractor={(result) => result.id}
+                    keyboardShouldPersistTaps="handled"
+                    renderItem={({ item: result }) => (
+                      <TouchableOpacity
+                        style={styles.locationSearchResultRow}
+                        activeOpacity={0.75}
+                        onPress={() => {
+                          setPickerCenter(result.center);
+                          setPendingCoord({ lon: result.center[0], lat: result.center[1] });
+                          setLocationSearchQuery(result.label);
+                          setLocationSearchResults([]);
+                        }}
+                      >
+                        <Ionicons name="location-outline" size={17} color="#38bdf8" />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.locationSearchResultTitle}>{result.label}</Text>
+                          <Text style={styles.locationSearchResultSub} numberOfLines={1}>{result.subtitle}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 {mapboxReady ? (
                   <>
@@ -557,6 +695,8 @@ export default function Add() {
                     setImageCoords(pendingCoord);
                     detectWaterBody(pendingCoord.lat, pendingCoord.lon);
                     setLocationPickerVisible(false);
+                    setLocationSearchQuery("");
+                    setLocationSearchResults([]);
                     setPendingCoord(null);
                   }}
                 >
@@ -735,6 +875,19 @@ export default function Add() {
                     clearButtonMode="while-editing"
                   />
                 </View>
+                <View style={styles.speciesTabRow}>
+                  {(["freshwater", "saltwater"] as SpeciesHabitat[]).map((tab) => (
+                    <TouchableOpacity
+                      key={tab}
+                      style={[styles.speciesTabBtn, speciesTab === tab && styles.speciesTabBtnActive]}
+                      onPress={() => setSpeciesTab(tab)}
+                    >
+                      <Text style={[styles.speciesTabText, speciesTab === tab && styles.speciesTabTextActive]}>
+                        {t(tab)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <FlatList
                   data={filteredMoreSpecies}
                   keyExtractor={(s) => s.id}
@@ -876,6 +1029,18 @@ const styles = StyleSheet.create({
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },
   searchRow: { flexDirection: "row", alignItems: "center", backgroundColor: "#0f2236", borderRadius: 10, marginHorizontal: 12, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 8 },
   searchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  speciesTabRow: {
+    flexDirection: "row",
+    backgroundColor: "#0f2236",
+    borderRadius: 10,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    padding: 3,
+  },
+  speciesTabBtn: { flex: 1, alignItems: "center", borderRadius: 8, paddingVertical: 9 },
+  speciesTabBtnActive: { backgroundColor: theme.colors.primaryDark },
+  speciesTabText: { color: "#94a3b8", fontSize: 13, fontWeight: "700" },
+  speciesTabTextActive: { color: "#ffffff" },
   modalItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   modalItemLeft: { flex: 1 },
   modalItemText: { color: "#e6eef8", fontSize: 16 },
@@ -889,6 +1054,37 @@ const styles = StyleSheet.create({
   addLocationBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
   addLocationBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
   confirmLocationBtn: { backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 15, alignItems: "center" },
+  locationSearchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#0f2236",
+    borderRadius: 10,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    minHeight: 44,
+  },
+  locationSearchInput: { flex: 1, color: "#e6eef8", fontSize: 15, padding: 0 },
+  locationSearchResults: {
+    maxHeight: 190,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 10,
+    backgroundColor: theme.colors.surface,
+    overflow: "hidden",
+  },
+  locationSearchResultRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  locationSearchResultTitle: { color: "#e6eef8", fontSize: 14, fontWeight: "600" },
+  locationSearchResultSub: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
   publicRowDisabled: { opacity: 0.5 },
   waterBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#0c2d48", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   waterBadgeText: { color: "#38bdf8", fontSize: 13 },

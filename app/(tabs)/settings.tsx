@@ -6,6 +6,7 @@ import SignInPrompt from "@/components/SignInPrompt";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
 import { registerForPushNotificationsAsync } from "@/lib/notifications";
+import { getBlockedUserIds, unblockUser } from "@/lib/moderation";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { getUpgradeCopy } from "@/lib/upgradeCopy";
@@ -58,6 +59,9 @@ export default function Settings() {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [pushTokenStatus, setPushTokenStatus] = useState<string>("checking…");
+  const [blockedModalVisible, setBlockedModalVisible] = useState(false);
+  const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+  const [loadingBlockedUsers, setLoadingBlockedUsers] = useState(false);
 
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
   const showPurchases = Platform.OS !== "ios" && purchasesEnabled;
@@ -329,6 +333,51 @@ export default function Settings() {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
     Alert.alert(t("languageChanged"), t("languageChangedMessage"));
+  };
+
+  const loadBlockedUsers = async () => {
+    if (!user) return;
+    setLoadingBlockedUsers(true);
+    try {
+      const ids = await getBlockedUserIds(user.id);
+      if (ids.length === 0) {
+        setBlockedUsers([]);
+        return;
+      }
+      const users = await pb.collection("users").getFullList({
+        filter: ids.map((id) => `id = "${id}"`).join(" || "),
+        fields: "id,username,name,avatar",
+        requestKey: null,
+      }).catch(() => [] as any[]);
+      const userMap = new Map(users.map((u: any) => [u.id, u]));
+      setBlockedUsers(ids.map((id) => userMap.get(id) ?? { id, username: language === "ru" ? "Пользователь" : "User" }));
+    } finally {
+      setLoadingBlockedUsers(false);
+    }
+  };
+
+  const openBlockedUsers = () => {
+    setBlockedModalVisible(true);
+    loadBlockedUsers();
+  };
+
+  const handleUnblockUser = (blockedUser: any) => {
+    if (!user) return;
+    Alert.alert(t("unblockUserConfirm"), blockedUser.username || blockedUser.name || "", [
+      { text: t("cancel"), style: "cancel" },
+      {
+        text: t("unblock"),
+        onPress: async () => {
+          setBlockedUsers((prev) => prev.filter((item) => item.id !== blockedUser.id));
+          try {
+            await unblockUser(user.id, blockedUser.id);
+            Alert.alert(t("userUnblocked"));
+          } catch {
+            Alert.alert(t("error"), t("saveError"));
+          }
+        },
+      },
+    ]);
   };
 
   const handleBuyPremium = async () => {
@@ -687,6 +736,14 @@ export default function Settings() {
             </View>
           )}
 
+          <TouchableOpacity style={styles.settingItem} onPress={openBlockedUsers}>
+            <View style={styles.settingLeft}>
+              <Ionicons name="ban-outline" size={20} color="#ffffff" />
+              <Text style={styles.settingText}>{t("blockedUsers")}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.settingItem}
             onPress={() => {
@@ -871,6 +928,56 @@ export default function Settings() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={blockedModalVisible}
+        animationType="slide"
+        transparent={false}
+        statusBarTranslucent
+        onRequestClose={() => setBlockedModalVisible(false)}
+      >
+        <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.blockedModalContainer, { paddingTop: safeTop }]}>
+          <View style={styles.locationModalHeader}>
+            <Text style={styles.locationModalTitle}>{t("blockedUsers")}</Text>
+            <TouchableOpacity onPress={() => setBlockedModalVisible(false)} style={styles.modalCloseBtn} hitSlop={8}>
+              <Ionicons name="close" size={22} color="#64748b" />
+            </TouchableOpacity>
+          </View>
+          {loadingBlockedUsers ? (
+            <ActivityIndicator color="#ffffff" style={{ marginTop: 40 }} />
+          ) : (
+            <FlatList
+              data={blockedUsers}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={{ paddingBottom: 40 }}
+              ListEmptyComponent={<Text style={styles.locationEmptyText}>{t("noBlockedUsers")}</Text>}
+              renderItem={({ item }) => {
+                const avatarUrl = item.avatar
+                  ? `${pb.baseURL}/api/files/_pb_users_auth_/${item.id}/${item.avatar}?thumb=100x100`
+                  : null;
+                return (
+                  <View style={styles.blockedUserRow}>
+                    <View style={styles.blockedUserAvatar}>
+                      {avatarUrl ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.blockedUserAvatarImg} />
+                      ) : (
+                        <Ionicons name="person" size={20} color="#94a3b8" />
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      {item.name ? <Text style={styles.blockedUserName}>{item.name}</Text> : null}
+                      <Text style={styles.blockedUserHandle}>@{item.username || item.id}</Text>
+                    </View>
+                    <TouchableOpacity style={styles.unblockBtn} onPress={() => handleUnblockUser(item)}>
+                      <Text style={styles.unblockBtnText}>{t("unblock")}</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              }}
+            />
+          )}
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -1222,4 +1329,33 @@ const styles = StyleSheet.create({
   locationResultTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
   locationResultSub: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
   locationEmptyText: { color: "#64748b", textAlign: "center", marginTop: 40, fontSize: 14 },
+  blockedModalContainer: { flex: 1, backgroundColor: theme.colors.background },
+  blockedUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.border,
+  },
+  blockedUserAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#0f3460",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  blockedUserAvatarImg: { width: 40, height: 40, borderRadius: 20 },
+  blockedUserName: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  blockedUserHandle: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
+  unblockBtn: {
+    backgroundColor: "#1e293b",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  unblockBtnText: { color: "#e6eef8", fontSize: 13, fontWeight: "700" },
 });

@@ -5,6 +5,7 @@ import { isProfane } from '@/lib/profanity';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import Toast from 'react-native-toast-message';
 import React, { useState } from 'react';
 import { ActivityIndicator, Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -12,7 +13,7 @@ import { Text, TextInput } from '@/components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function Register() {
-  const { signUp } = useAuth();
+  const { signUp, signInWithApple } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
 
@@ -67,6 +68,20 @@ export default function Register() {
     } else {
       Toast.show({ type: 'success', text1: t('registerSuccess'), position: 'top', visibilityTime: 3000 });
       // Auth state change in _layout.tsx redirects to /(tabs) automatically
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    setLoading(true);
+    const { error } = await signInWithApple();
+    setLoading(false);
+    if (error && error.message === 'APPLE_FAILED') {
+      Alert.alert(
+        t('error'),
+        language === 'ru'
+          ? 'Не удалось войти через Apple. Попробуйте регистрацию по email и паролю.'
+          : 'Apple sign-in failed. Please try email and password instead.',
+      );
     }
   };
 
@@ -194,6 +209,13 @@ export default function Register() {
                 {t('registeringAgree')}{' '}
                 <Text
                   style={styles.privacyLink}
+                  onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/terms.html')}
+                >
+                  {t('termsOfUse')}
+                </Text>
+                {' '}{t('and')}{' '}
+                <Text
+                  style={styles.privacyLink}
                   onPress={() => Linking.openURL('https://sergei4k.github.io/fishingapp/privacy-policy.html')}
                 >
                   {t('privacyPolicy')}
@@ -213,6 +235,23 @@ export default function Register() {
                   <Text style={styles.buttonText}>{t('registerButton')}</Text>
                 )}
               </TouchableOpacity>
+
+              {Platform.OS === 'ios' && (
+                <>
+                  <View style={styles.dividerRow}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>{language === 'ru' ? 'или' : 'or'}</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                    cornerRadius={10}
+                    style={styles.appleBtn}
+                    onPress={handleAppleLogin}
+                  />
+                </>
+              )}
 
             </View>
 
@@ -427,5 +466,9 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
+  },
+  appleBtn: {
+    height: 46,
+    width: '100%',
   },
 });
