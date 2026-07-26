@@ -599,13 +599,20 @@ export default function CatchDetailModal({
                   return (
                     <View key={c.id || i} style={[styles.commentRow, isOwn && styles.commentRowOwn]}>
                       {!isOwn && (
-                        <View style={styles.commentAvatar}>
+                        <TouchableOpacity
+                          accessibilityRole="button"
+                          accessibilityLabel={`Open ${c.username || "user"}'s profile`}
+                          activeOpacity={onUserPress ? 0.7 : 1}
+                          disabled={!onUserPress}
+                          onPress={() => onUserPress?.(c.user_id)}
+                          style={styles.commentAvatar}
+                        >
                           {c._avatarUrl ? (
                             <ExpoImage source={{ uri: c._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} />
                           ) : (
                             <Ionicons name="person" size={15} color="#94a3b8" />
                           )}
-                        </View>
+                        </TouchableOpacity>
                       )}
                       <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
                         {!isOwn && (

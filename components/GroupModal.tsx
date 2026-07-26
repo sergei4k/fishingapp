@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { theme } from '../lib/theme';
-import { ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Modal, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Keyboard, KeyboardAvoidingView, Modal, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image as ExpoImage } from "expo-image";
@@ -306,6 +306,13 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
   useEffect(() => {
     getBlockedUserIds(currentUserId).then(setBlockedUserIds);
   }, [currentUserId]);
+  useEffect(() => {
+    const event = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const subscription = Keyboard.addListener(event, () => {
+      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (!canChat) return;
@@ -813,7 +820,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={[styles.container, { paddingTop: insets.top }]}
       >
         <View style={styles.header}>
@@ -916,6 +923,8 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
               updateCellsBatchingPeriod={50}
               windowSize={7}
               removeClippedSubviews={Platform.OS === "android"}
+              keyboardDismissMode="interactive"
+              keyboardShouldPersistTaps="handled"
               onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
               ListHeaderComponent={messagesHeader}
               ListEmptyComponent={!loadingMessages && !messagesUnavailable ? (
