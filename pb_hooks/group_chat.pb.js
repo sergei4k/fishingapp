@@ -79,5 +79,27 @@ onRecordCreateRequest((e) => {
     });
     throw new Error("forbidden");
   }
+
+  if (u.hasObjectionableText(u.recordOrBodyString(e, "text"))) {
+    console.log("[group-chat] reject objectionable message", { authId: userId, groupId: groupId });
+    throw new Error("objectionable content");
+  }
+
+  const replyTo = u.recordOrBodyString(e, "reply_to");
+  if (replyTo) {
+    let originalMessage = null;
+    try {
+      originalMessage = e.app.findRecordById("group_messages", replyTo);
+    } catch {}
+    if (!originalMessage || u.getRecordString(originalMessage, "group_id") !== groupId) {
+      console.log("[group-chat] reject invalid reply", {
+        replyTo: replyTo,
+        groupId: groupId,
+        authId: userId,
+      });
+      throw new Error("invalid reply");
+    }
+  }
+
   e.next();
 }, "group_messages");

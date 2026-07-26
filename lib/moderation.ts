@@ -42,20 +42,16 @@ export async function blockUser(blockerId: string, blockedId: string) {
   current.add(blockedId);
   await AsyncStorage.setItem(blockedUsersKey(blockerId), JSON.stringify([...current]));
 
-  void (async () => {
-    try {
-      const existing = await pb.collection("user_blocks").getList(1, 1, {
-        filter: `blocker_id = "${blockerId}" && blocked_id = "${blockedId}"`,
-        requestKey: null,
-      });
-      if (existing.totalItems === 0) {
-        await pb.collection("user_blocks").create({
-          blocker_id: blockerId,
-          blocked_id: blockedId,
-        }, { requestKey: null });
-      }
-    } catch {}
-  })();
+  const existing = await pb.collection("user_blocks").getList(1, 1, {
+    filter: `blocker_id = "${blockerId}" && blocked_id = "${blockedId}"`,
+    requestKey: null,
+  });
+  if (existing.totalItems === 0) {
+    await pb.collection("user_blocks").create({
+      blocker_id: blockerId,
+      blocked_id: blockedId,
+    }, { requestKey: null });
+  }
 }
 
 export async function unblockUser(blockerId: string, blockedId: string) {
@@ -71,16 +67,12 @@ export async function unblockUser(blockerId: string, blockedId: string) {
   current.delete(blockedId);
   await AsyncStorage.setItem(blockedUsersKey(blockerId), JSON.stringify([...current]));
 
-  void (async () => {
-    try {
-      const records = await pb.collection("user_blocks").getFullList({
-        filter: `blocker_id = "${blockerId}" && blocked_id = "${blockedId}"`,
-        fields: "id",
-        requestKey: null,
-      });
-      await Promise.all(records.map((record) => pb.collection("user_blocks").delete(record.id, { requestKey: null })));
-    } catch {}
-  })();
+  const records = await pb.collection("user_blocks").getFullList({
+    filter: `blocker_id = "${blockerId}" && blocked_id = "${blockedId}"`,
+    fields: "id",
+    requestKey: null,
+  });
+  await Promise.all(records.map((record) => pb.collection("user_blocks").delete(record.id, { requestKey: null })));
 }
 
 export async function reportContent(input: {

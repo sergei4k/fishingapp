@@ -99,6 +99,18 @@ function canAccessChat(e, groupId, userId) {
   return isGroupCreator(e, groupId, userId) || isApprovedMember(e, groupId, userId);
 }
 
+const BLOCKED_TERMS = [
+  "fuck", "shit", "nigga", "niga", "cunt", "nigger", "faggot", "fag", "bitch", "asshole", "bastard", "whore", "slut",
+  "хуй", "хуя", "хуем", "хуйня", "пизда", "пизды", "пиздец", "пизде", "ебать", "ебал", "ебаный", "ёбаный",
+  "блядь", "бляди", "сука", "суки", "мудак", "мудаки", "пидор", "пидорас", "залупа", "ёб",
+  "huy", "khuy", "hui", "pizda", "blyad", "bliad", "ebat", "ebal", "suka", "mudak", "pidor",
+];
+
+function hasObjectionableText(text) {
+  const value = String(text || "").toLowerCase();
+  return BLOCKED_TERMS.some((term) => value.includes(term));
+}
+
 module.exports = {
   getRecordString,
   getRecordBool,
@@ -109,4 +121,5 @@ module.exports = {
   isGroupCreator,
   isApprovedMember,
   canAccessChat,
+  hasObjectionableText,
 };

@@ -8,9 +8,12 @@ import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library";
 import { File, Paths } from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
+import Swipeable from "react-native-gesture-handler/Swipeable";
 import { pb } from "@/lib/pocketbase";
 import { parseBadges } from "@/lib/badges";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { blockUser, getBlockedUserIds, reportContent } from "@/lib/moderation";
+import { isProfane } from "@/lib/profanity";
 
 type MemberStatus = "approved" | "pending";
 
@@ -31,6 +34,11 @@ type ChatMessage = {
   username?: string;
   text: string;
   image?: string;
+  reply_to?: string;
+  reply_user_id?: string;
+  reply_username?: string;
+  reply_text?: string;
+  reply_has_image?: boolean;
   created?: string;
   _localUri?: string;
   _pending?: boolean;
@@ -46,6 +54,108 @@ type Props = {
   onOpenUser?: (user: any) => void;
 };
 
+type MessageRowProps = {
+  item: ChatMessage;
+  currentUserId?: string;
+  ru: boolean;
+  onReply: (message: ChatMessage) => void;
+  onActions: (message: ChatMessage) => void;
+  onOpenFullscreen: (message: ChatMessage) => void;
+  getImageUrl: (message: ChatMessage, thumb?: boolean) => string;
+};
+
+const MessageRow = React.memo(function MessageRow({
+  item,
+  currentUserId,
+  ru,
+  onReply,
+  onActions,
+  onOpenFullscreen,
+  getImageUrl,
+}: MessageRowProps) {
+  const mine = item.user_id === currentUserId;
+  const hasImage = !!(item._localUri || item.image);
+  const replyAuthor = item.reply_user_id === currentUserId
+    ? (ru ? "Вы" : "You")
+    : item.reply_username;
+
+  return (
+    <Swipeable
+      enabled={!item._pending}
+      overshootRight={false}
+      friction={2}
+      rightThreshold={36}
+      onSwipeableOpen={() => onReply(item)}
+      renderRightActions={() => (
+        <View style={styles.swipeReplyAction}>
+          <TouchableOpacity
+            onPress={() => onReply(item)}
+            style={styles.swipeReplyButton}
+          >
+            <Ionicons name="return-down-back-outline" size={19} color="#ffffff" />
+            <Text style={styles.swipeReplyText}>{ru ? "Ответ" : "Reply"}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    >
+      <View style={[styles.messageRow, mine && styles.messageRowMine]}>
+        <TouchableOpacity
+          activeOpacity={0.78}
+          onLongPress={item._pending ? undefined : () => onActions(item)}
+          delayLongPress={350}
+          style={[
+            styles.messageBubble,
+            mine ? styles.messageBubbleMine : styles.messageBubbleOther,
+            hasImage ? styles.messageBubbleImage : null,
+          ]}
+        >
+          {!mine ? <Text style={[styles.messageAuthor, hasImage && styles.messagePad]}>{item.username || (ru ? "Участник" : "Member")}</Text> : null}
+          {item.reply_to ? (
+            <View style={[styles.replyPreview, hasImage && styles.replyPreviewOnImage]}>
+              <Text style={styles.replyPreviewAuthor} numberOfLines={1}>
+                {replyAuthor || (ru ? "Участник" : "Member")}
+              </Text>
+              <Text style={styles.replyPreviewText} numberOfLines={2}>
+                {item.reply_text || (item.reply_has_image ? (ru ? "Фото" : "Photo") : (ru ? "Сообщение" : "Message"))}
+              </Text>
+            </View>
+          ) : null}
+          {hasImage ? (
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={item._pending ? undefined : () => onOpenFullscreen(item)}
+              onLongPress={item._pending ? undefined : () => onActions(item)}
+              delayLongPress={350}
+            >
+              <ExpoImage
+                source={{ uri: getImageUrl(item) }}
+                contentFit="cover"
+                style={[styles.messageImage, item._pending && { opacity: 0.6 }]}
+              />
+              {item._pending ? (
+                <View style={styles.messageImageSpinner}><ActivityIndicator color="#ffffff" /></View>
+              ) : null}
+            </TouchableOpacity>
+          ) : null}
+          {item.text ? (
+            <View style={[styles.messageTextRow, hasImage && styles.messagePad]}>
+              <Text style={styles.messageText}>{item.text}</Text>
+              {item._pending && !hasImage ? (
+                <ActivityIndicator
+                  accessibilityLabel={ru ? "Сообщение отправляется" : "Sending message"}
+                  color="#ffffff"
+                  size="small"
+                  style={styles.messageSendingIndicator}
+                />
+              ) : null}
+            </View>
+          ) : null}
+        </TouchableOpacity>
+      </View>
+    </Swipeable>
+  );
+});
+
 export default function GroupModal({ group, currentUserId, language, onClose, onDeleted, onChanged, onOpenUser }: Props) {
   const insets = useSafeAreaInsets();
   const listRef = useRef<FlatList<ChatMessage>>(null);
@@ -54,8 +164,10 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
   const [loading, setLoading] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [messagesUnavailable, setMessagesUnavailable] = useState(false);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [acting, setActing] = useState(false);
   const [messageText, setMessageText] = useState("");
+  const [replyToMessage, setReplyToMessage] = useState<ChatMessage | null>(null);
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [membersVisible, setMembersVisible] = useState(false);
@@ -84,9 +196,36 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
   const canChat = isCreator || myMemberRecord?.status === "approved";
   const hasPendingRequest = myMemberRecord?.status === "pending";
   const isMuted = !!myMemberRecord?.muted;
+  const blockedUserIdSet = useMemo(() => new Set(blockedUserIds), [blockedUserIds]);
 
   const avatarUrl = editAvatarUri
     ?? (liveGroup.avatar ? `${pb.baseURL}/api/files/groups/${liveGroup.id}/${liveGroup.avatar}?thumb=300x300` : null);
+
+  const previewReplyText = useCallback((message: ChatMessage) => {
+    const text = message.text?.trim();
+    if (text) return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+    return message._localUri || message.image || message.reply_has_image
+      ? (ru ? "Фото" : "Photo")
+      : (ru ? "Сообщение" : "Message");
+  }, [ru]);
+
+  const buildReplyPayload = useCallback((message: ChatMessage | null) => {
+    if (!message || message._pending || message.id.startsWith("temp_")) {
+      return null;
+    }
+    return {
+      reply_to: message.id,
+      reply_user_id: message.user_id,
+      reply_username: message.username || (message.user_id === currentUserId ? (ru ? "Вы" : "You") : (ru ? "Участник" : "Member")),
+      reply_text: previewReplyText(message),
+      reply_has_image: !!(message._localUri || message.image),
+    };
+  }, [currentUserId, previewReplyText, ru]);
+
+  const handleReplyToMessage = useCallback((message: ChatMessage) => {
+    if (message._pending) return;
+    setReplyToMessage(message);
+  }, []);
 
   const enrichMembers = useCallback(async (records: any[]) => {
     const userIds = [...new Set(records.map((m) => m.user_id).filter(Boolean))] as string[];
@@ -143,7 +282,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         sort: "created",
         requestKey: null,
       });
-      setMessages(records as unknown as ChatMessage[]);
+      setMessages((records as unknown as ChatMessage[]).filter((message) => !blockedUserIdSet.has(message.user_id)));
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
     } catch (e: any) {
       if (e?.status === 404) {
@@ -154,7 +293,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     } finally {
       setLoadingMessages(false);
     }
-  }, [canChat, liveGroup.id]);
+  }, [blockedUserIdSet, canChat, liveGroup.id]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -164,12 +303,16 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { loadMessages(); }, [loadMessages]);
+  useEffect(() => {
+    getBlockedUserIds(currentUserId).then(setBlockedUserIds);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!canChat) return;
     pb.collection("group_messages").subscribe("*", (event) => {
       if (event.record?.group_id !== liveGroup.id) return;
       if (event.action === "create") {
+        if (blockedUserIdSet.has(event.record.user_id)) return;
         setMessages((prev) => prev.some((m) => m.id === event.record.id) ? prev : [...prev, event.record as unknown as ChatMessage]);
         requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
       }
@@ -178,7 +321,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
       }
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("group_messages").unsubscribe("*"); };
-  }, [canChat, liveGroup.id]);
+  }, [blockedUserIdSet, canChat, liveGroup.id]);
 
   const handleRequestJoin = async () => {
     if (!currentUserId || acting || myMemberRecord) return;
@@ -239,7 +382,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     }
   };
 
-  const handleApprove = async (member: Member) => {
+  const handleApprove = useCallback(async (member: Member) => {
     if (!isCreator || acting) return;
     setActing(true);
     try {
@@ -252,9 +395,9 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     } finally {
       setActing(false);
     }
-  };
+  }, [acting, enrichMembers, isCreator, ru]);
 
-  const handleReject = async (member: Member) => {
+  const handleReject = useCallback(async (member: Member) => {
     if (!isCreator || acting) return;
     setActing(true);
     try {
@@ -265,7 +408,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     } finally {
       setActing(false);
     }
-  };
+  }, [acting, isCreator]);
 
   const handleDelete = () => {
     Alert.alert(
@@ -322,7 +465,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     }
   };
 
-  const handleDeleteMessage = (message: ChatMessage) => {
+  const handleDeleteMessage = useCallback((message: ChatMessage) => {
     if (message.user_id !== currentUserId) return;
     Alert.alert(
       ru ? "Удалить сообщение" : "Delete message",
@@ -336,8 +479,9 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
             setMessages((prev) => prev.filter((m) => m.id !== message.id));
             try {
               await pb.collection("group_messages").delete(message.id, { requestKey: null });
-            } catch (e) {
-              console.warn("delete group message error:", e);
+            } catch (e: any) {
+              if (e?.status === 404) return;
+              console.warn("delete group message error:", e?.status, e?.message, JSON.stringify(e?.response));
               setMessages((prev) => prev.some((m) => m.id === message.id) ? prev : [...prev, message]);
               Alert.alert(ru ? "Ошибка" : "Error", ru ? "Не удалось удалить сообщение" : "Could not delete message");
             }
@@ -345,11 +489,15 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         },
       ]
     );
-  };
+  }, [currentUserId, ru]);
 
   const handleSend = async () => {
     const text = messageText.trim();
     if (!text || !currentUserId || !canChat || acting) return;
+    if (isProfane(text)) {
+      Alert.alert(ru ? "Ошибка" : "Error", ru ? "Сообщение содержит недопустимый текст." : "The message contains objectionable text.");
+      return;
+    }
     if (messagesUnavailable) {
       Alert.alert(
         ru ? "Чат ещё не настроен" : "Chat is not configured yet",
@@ -357,19 +505,42 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
       );
       return;
     }
+    const replyPayload = buildReplyPayload(replyToMessage);
+    const tempId = `temp_${Date.now()}`;
+    const optimistic: ChatMessage = {
+      id: tempId,
+      group_id: liveGroup.id,
+      user_id: currentUserId,
+      username: pb.authStore.record?.username || pb.authStore.record?.name || "",
+      text,
+      _pending: true,
+      ...(replyPayload ?? {}),
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    setMessageText("");
+    setReplyToMessage(null);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
+
     setActing(true);
     try {
       const created = await pb.collection("group_messages").create({
         group_id: liveGroup.id,
         user_id: currentUserId,
-        username: pb.authStore.record?.username || pb.authStore.record?.name || "",
+        username: optimistic.username,
         text,
+        ...(replyPayload ?? {}),
       });
-      setMessages((prev) => prev.some((m) => m.id === created.id) ? prev : [...prev, created as unknown as ChatMessage]);
-      setMessageText("");
-      requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-    } catch (e) {
-      console.warn("send group message error:", e);
+      setMessages((prev) => {
+        const withoutTemp = prev.filter((m) => m.id !== tempId);
+        return withoutTemp.some((m) => m.id === created.id)
+          ? withoutTemp
+          : [...withoutTemp, created as unknown as ChatMessage];
+      });
+    } catch (e: any) {
+      console.warn("send group message error:", e?.status, e?.message, JSON.stringify(e?.response));
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setMessageText(text);
+      setReplyToMessage(replyToMessage);
       Alert.alert(ru ? "Ошибка" : "Error", ru ? "Не удалось отправить сообщение" : "Could not send message");
     } finally {
       setActing(false);
@@ -394,7 +565,12 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     const mime = asset.mimeType || "image/jpeg";
     const ext = (mime.split("/")[1] || "jpg").replace("jpeg", "jpg");
     const caption = messageText.trim();
+    if (caption && isProfane(caption)) {
+      Alert.alert(ru ? "Ошибка" : "Error", ru ? "Сообщение содержит недопустимый текст." : "The message contains objectionable text.");
+      return;
+    }
     const username = pb.authStore.record?.username || pb.authStore.record?.name || "";
+    const replyPayload = buildReplyPayload(replyToMessage);
 
     // Warm the image cache, then show it in the chat immediately (optimistic)
     // so the photo is visible before the upload confirms.
@@ -403,9 +579,11 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     const optimistic: ChatMessage = {
       id: tempId, group_id: liveGroup.id, user_id: currentUserId,
       username, text: caption, _localUri: asset.uri, _pending: true,
+      ...(replyPayload ?? {}),
     };
     setMessages((prev) => [...prev, optimistic]);
     setMessageText("");
+    setReplyToMessage(null);
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
 
     setActing(true);
@@ -415,58 +593,41 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
       form.append("user_id", currentUserId);
       form.append("username", username);
       form.append("text", caption);
+      if (replyPayload) {
+        form.append("reply_to", replyPayload.reply_to);
+        form.append("reply_user_id", replyPayload.reply_user_id);
+        form.append("reply_username", replyPayload.reply_username);
+        form.append("reply_text", replyPayload.reply_text);
+        form.append("reply_has_image", String(replyPayload.reply_has_image));
+      }
       form.append("image", { uri: asset.uri, name: `chat.${ext}`, type: mime } as any);
       const created = await pb.collection("group_messages").create(form, { requestKey: null });
       setMessages((prev) => {
         const withoutTemp = prev.filter((m) => m.id !== tempId);
         return withoutTemp.some((m) => m.id === created.id) ? withoutTemp : [...withoutTemp, created as unknown as ChatMessage];
       });
-    } catch (e) {
-      console.warn("send group photo error:", e);
+    } catch (e: any) {
+      console.warn("send group photo error:", e?.status, e?.message, JSON.stringify(e?.response));
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setMessageText(caption);
+      setReplyToMessage(replyToMessage);
       Alert.alert(ru ? "Ошибка" : "Error", ru ? "Не удалось отправить фото" : "Could not send photo");
     } finally {
       setActing(false);
     }
   };
 
-  const messageImageUrl = (message: ChatMessage, thumb = true) =>
+  const messageImageUrl = useCallback((message: ChatMessage, thumb = true) =>
     message._localUri
       ? message._localUri
-      : `${pb.baseURL}/api/files/group_messages/${message.id}/${message.image}${thumb ? "?thumb=600x600" : ""}`;
+      : `${pb.baseURL}/api/files/group_messages/${message.id}/${message.image}${thumb ? "?thumb=600x600" : ""}`, []);
 
-  const openFullscreen = (message: ChatMessage) => {
+  const openFullscreen = useCallback((message: ChatMessage) => {
     if (!message._localUri && !message.image) return;
     setFullscreenImage(messageImageUrl(message, false));
-  };
+  }, [messageImageUrl]);
 
-  const promptSaveImage = (message: ChatMessage) => {
-    if (!message.image) return;
-    Alert.alert(
-      ru ? "Фото" : "Photo",
-      undefined,
-      [
-        { text: ru ? "Сохранить в галерею" : "Save to phone", onPress: () => handleSaveImage(message) },
-        { text: ru ? "Отмена" : "Cancel", style: "cancel" },
-      ],
-    );
-  };
-
-  const handleOpenMember = (member: Member) => {
-    if (!onOpenUser) return;
-    setMembersVisible(false);
-    setSettingsVisible(false);
-    onOpenUser({
-      id: member.user_id,
-      username: member.username,
-      name: "",
-      avatarUrl: member.avatarUrl,
-      badges: member.verified ? ["verified"] : [],
-    });
-  };
-
-  const handleSaveImage = async (message: ChatMessage) => {
+  const handleSaveImage = useCallback(async (message: ChatMessage) => {
     if (!message.image || savingImage) return;
     setSavingImage(true);
     try {
@@ -490,9 +651,97 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
     } finally {
       setSavingImage(false);
     }
-  };
+  }, [messageImageUrl, ru, savingImage]);
 
-  const renderMember = (item: Member, pending = false) => (
+  const handleMessageActions = useCallback((message: ChatMessage) => {
+    if (message._pending) return;
+    const mine = message.user_id === currentUserId;
+    const hasImage = !!message.image;
+    Alert.alert(
+      ru ? "Сообщение" : "Message",
+      undefined,
+      [
+        { text: ru ? "Ответить" : "Reply", onPress: () => handleReplyToMessage(message) },
+        ...(hasImage ? [{ text: ru ? "Сохранить фото" : "Save photo", onPress: () => handleSaveImage(message) }] : []),
+        ...(mine ? [{
+          text: ru ? "Удалить" : "Delete",
+          style: "destructive" as const,
+          onPress: () => handleDeleteMessage(message),
+        }] : [
+          {
+            text: ru ? "Пожаловаться" : "Report",
+            onPress: async () => {
+              if (!currentUserId) return;
+              try {
+                await reportContent({
+                  reporterId: currentUserId,
+                  reportedUserId: message.user_id,
+                  reason: "abusive_group_message",
+                  details: `group_id=${message.group_id}; group_message_id=${message.id}`,
+                });
+                Alert.alert(ru ? "Жалоба отправлена" : "Report sent", ru ? "Мы рассмотрим её в течение 24 часов." : "We'll review it within 24 hours.");
+              } catch (error) {
+                console.warn("report group message error:", error);
+                Alert.alert(ru ? "Ошибка" : "Error", ru ? "Не удалось отправить жалобу. Попробуйте позже." : "Could not submit the report. Please try again later.");
+              }
+            },
+          },
+          {
+            text: ru ? "Заблокировать пользователя" : "Block user",
+            style: "destructive" as const,
+            onPress: () => {
+              if (!currentUserId) return;
+              const reporterId = currentUserId;
+              Alert.alert(
+                ru ? "Заблокировать пользователя?" : "Block user?",
+                ru ? "Вы больше не будете видеть сообщения этого пользователя." : "You will no longer see this user's messages.",
+                [
+                  { text: ru ? "Отмена" : "Cancel", style: "cancel" },
+                  {
+                    text: ru ? "Заблокировать" : "Block",
+                    style: "destructive",
+                    onPress: async () => {
+                      setBlockedUserIds((previous) => previous.includes(message.user_id) ? previous : [...previous, message.user_id]);
+                      setMessages((previous) => previous.filter((item) => item.user_id !== message.user_id));
+                      try {
+                        await reportContent({
+                          reporterId,
+                          reportedUserId: message.user_id,
+                          reason: "blocked_abusive_group_user",
+                          details: `group_id=${message.group_id}; group_message_id=${message.id}`,
+                        });
+                        await blockUser(reporterId, message.user_id);
+                        Alert.alert(ru ? "Пользователь заблокирован" : "User blocked");
+                      } catch (error) {
+                        console.warn("block group user error:", error);
+                        Alert.alert(ru ? "Ошибка" : "Error", ru ? "Пользователь скрыт на этом устройстве, но не удалось отправить жалобу. Попробуйте позже." : "The user is hidden on this device, but the report could not be sent. Please try again later.");
+                      }
+                    },
+                  },
+                ],
+              );
+            },
+          },
+        ]),
+        { text: ru ? "Отмена" : "Cancel", style: "cancel" as const },
+      ],
+    );
+  }, [currentUserId, handleDeleteMessage, handleReplyToMessage, handleSaveImage, ru]);
+
+  const handleOpenMember = useCallback((member: Member) => {
+    if (!onOpenUser) return;
+    setMembersVisible(false);
+    setSettingsVisible(false);
+    onOpenUser({
+      id: member.user_id,
+      username: member.username,
+      name: "",
+      avatarUrl: member.avatarUrl,
+      badges: member.verified ? ["verified"] : [],
+    });
+  }, [onOpenUser]);
+
+  const renderMember = useCallback((item: Member, pending = false) => (
     <TouchableOpacity
       style={styles.memberRow}
       activeOpacity={onOpenUser && !pending ? 0.75 : 1}
@@ -527,7 +776,39 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         <Ionicons name="chevron-forward" size={18} color="#64748b" />
       ) : null}
     </TouchableOpacity>
-  );
+  ), [handleApprove, handleOpenMember, handleReject, isCreator, liveGroup.creator_id, onOpenUser, ru]);
+
+  const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
+
+  const renderMessage = useCallback(({ item }: { item: ChatMessage }) => (
+    <MessageRow
+      item={item}
+      currentUserId={currentUserId}
+      ru={ru}
+      onReply={handleReplyToMessage}
+      onActions={handleMessageActions}
+      onOpenFullscreen={openFullscreen}
+      getImageUrl={messageImageUrl}
+    />
+  ), [currentUserId, handleMessageActions, handleReplyToMessage, messageImageUrl, openFullscreen, ru]);
+
+  const messagesHeader = useMemo(() => (
+    <View>
+      {isCreator && pendingMembers.length > 0 ? (
+        <View style={styles.requestsBlock}>
+          <Text style={styles.sectionTitle}>{ru ? "Запросы на вход" : "Join requests"}</Text>
+          {pendingMembers.map((m) => <View key={m.id}>{renderMember(m, true)}</View>)}
+        </View>
+      ) : null}
+      <Text style={styles.sectionTitle}>{ru ? "Чат" : "Chat"}</Text>
+      {loadingMessages ? <ActivityIndicator color="#ffffff" style={{ marginVertical: 16 }} /> : null}
+      {messagesUnavailable ? (
+        <Text style={styles.emptyText}>
+          {ru ? "Чат ещё не настроен на сервере" : "Chat is not configured on the server yet"}
+        </Text>
+      ) : null}
+    </View>
+  ), [isCreator, loadingMessages, messagesUnavailable, pendingMembers, renderMember, ru]);
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
@@ -628,84 +909,52 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
             <FlatList
               ref={listRef}
               data={messages}
-              keyExtractor={(i) => i.id}
+              keyExtractor={keyExtractor}
               contentContainerStyle={styles.messagesList}
+              initialNumToRender={18}
+              maxToRenderPerBatch={8}
+              updateCellsBatchingPeriod={50}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === "android"}
               onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
-              ListHeaderComponent={
-                <View>
-                  {isCreator && pendingMembers.length > 0 ? (
-                    <View style={styles.requestsBlock}>
-                      <Text style={styles.sectionTitle}>{ru ? "Запросы на вход" : "Join requests"}</Text>
-                      {pendingMembers.map((m) => <View key={m.id}>{renderMember(m, true)}</View>)}
-                    </View>
-                  ) : null}
-                  <Text style={styles.sectionTitle}>{ru ? "Чат" : "Chat"}</Text>
-                  {loadingMessages ? <ActivityIndicator color="#ffffff" style={{ marginVertical: 16 }} /> : null}
-                  {messagesUnavailable ? (
-                    <Text style={styles.emptyText}>
-                      {ru ? "Чат ещё не настроен на сервере" : "Chat is not configured on the server yet"}
-                    </Text>
-                  ) : null}
-                </View>
-              }
+              ListHeaderComponent={messagesHeader}
               ListEmptyComponent={!loadingMessages && !messagesUnavailable ? (
                 <Text style={styles.emptyText}>{ru ? "Сообщений пока нет" : "No messages yet"}</Text>
               ) : null}
-              renderItem={({ item }) => {
-                const mine = item.user_id === currentUserId;
-                const hasImage = !!(item._localUri || item.image);
-                return (
-                  <View style={[styles.messageRow, mine && styles.messageRowMine]}>
-                    <TouchableOpacity
-                      activeOpacity={mine ? 0.7 : 1}
-                      onLongPress={mine && !item._pending ? () => handleDeleteMessage(item) : undefined}
-                      delayLongPress={350}
-                      style={[
-                        styles.messageBubble,
-                        mine ? styles.messageBubbleMine : styles.messageBubbleOther,
-                        hasImage ? styles.messageBubbleImage : null,
-                      ]}
-                    >
-                      {!mine ? <Text style={[styles.messageAuthor, hasImage && styles.messagePad]}>{item.username || (ru ? "Участник" : "Member")}</Text> : null}
-                      {hasImage ? (
-                        <TouchableOpacity
-                          activeOpacity={0.85}
-                          onPress={item._pending ? undefined : () => openFullscreen(item)}
-                          onLongPress={item._pending ? undefined : () => (mine ? handleDeleteMessage(item) : promptSaveImage(item))}
-                          delayLongPress={350}
-                        >
-                          <ExpoImage
-                            source={{ uri: messageImageUrl(item) }}
-                            contentFit="cover"
-                            style={[styles.messageImage, item._pending && { opacity: 0.6 }]}
-                          />
-                          {item._pending ? (
-                            <View style={styles.messageImageSpinner}><ActivityIndicator color="#ffffff" /></View>
-                          ) : null}
-                        </TouchableOpacity>
-                      ) : null}
-                      {item.text ? <Text style={[styles.messageText, hasImage && styles.messagePad]}>{item.text}</Text> : null}
-                    </TouchableOpacity>
-                  </View>
-                );
-              }}
+              renderItem={renderMessage}
             />
-            <View style={[styles.inputRow, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-              <TouchableOpacity onPress={handleSendPhoto} disabled={acting} style={styles.attachBtn}>
-                <Ionicons name="image-outline" size={22} color={acting ? "#475569" : "#94a3b8"} />
-              </TouchableOpacity>
-              <TextInput
-                style={styles.messageInput}
-                value={messageText}
-                onChangeText={setMessageText}
-                placeholder={ru ? "Сообщение..." : "Message..."}
-                placeholderTextColor="#475569"
-                multiline
-                keyboardAppearance="dark"
-              />
-              <TouchableOpacity onPress={handleSend} disabled={!messageText.trim() || acting} style={styles.sendBtn}>
-                <Ionicons name="send-outline" size={18} color={messageText.trim() ? "#ffffff" : "#64748b"} />
-              </TouchableOpacity>
+            <View style={[styles.composerContainer, { paddingBottom: Math.max(insets.bottom, 8) }]}>
+              {replyToMessage ? (
+                <View style={styles.replyComposer}>
+                  <View style={styles.replyComposerBar} />
+                  <View style={styles.replyComposerTextWrap}>
+                    <Text style={styles.replyComposerTitle} numberOfLines={1}>
+                      {ru ? "Ответ" : "Reply"}: {replyToMessage.user_id === currentUserId ? (ru ? "вы" : "you") : (replyToMessage.username || (ru ? "участник" : "member"))}
+                    </Text>
+                    <Text style={styles.replyComposerText} numberOfLines={1}>{previewReplyText(replyToMessage)}</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setReplyToMessage(null)} style={styles.replyComposerClose} hitSlop={8}>
+                    <Ionicons name="close" size={18} color="#94a3b8" />
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+              <View style={styles.inputRow}>
+                <TouchableOpacity onPress={handleSendPhoto} disabled={acting} style={styles.attachBtn}>
+                  <Ionicons name="image-outline" size={22} color={acting ? "#475569" : "#94a3b8"} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.messageInput}
+                  value={messageText}
+                  onChangeText={setMessageText}
+                  placeholder={ru ? "Сообщение..." : "Message..."}
+                  placeholderTextColor="#475569"
+                  multiline
+                  keyboardAppearance="dark"
+                />
+                <TouchableOpacity onPress={handleSend} disabled={!messageText.trim() || acting} style={styles.sendBtn}>
+                  <Ionicons name="send-outline" size={18} color={messageText.trim() ? "#ffffff" : "#64748b"} />
+                </TouchableOpacity>
+              </View>
             </View>
           </>
         ) : (
@@ -920,21 +1169,71 @@ const styles = StyleSheet.create({
   messagesList: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 16 },
   messageRow: { flexDirection: "row", marginBottom: 8 },
   messageRowMine: { justifyContent: "flex-end" },
+  swipeReplyAction: {
+    width: 84,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  swipeReplyButton: {
+    minWidth: 66,
+    height: 38,
+    borderRadius: 19,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    backgroundColor: "#0ea5e9",
+  },
+  swipeReplyText: { color: "#ffffff", fontSize: 12, fontWeight: "800" },
   messageBubble: { maxWidth: "82%", borderRadius: 14, paddingHorizontal: 12, paddingVertical: 9 },
   messageBubbleMine: { backgroundColor: theme.colors.primaryDark, borderBottomRightRadius: 4 },
   messageBubbleOther: { backgroundColor: "#1e293b", borderBottomLeftRadius: 4 },
   messageAuthor: { color: "#94a3b8", fontSize: 11, fontWeight: "700", marginBottom: 3 },
-  messageText: { color: "#e6eef8", fontSize: 14, lineHeight: 19 },
+  messageTextRow: { flexDirection: "row", alignItems: "center" },
+  messageText: { color: "#e6eef8", fontSize: 14, lineHeight: 19, flexShrink: 1 },
+  messageSendingIndicator: { marginLeft: 8 },
+  replyPreview: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#38bdf8",
+    backgroundColor: "rgba(15, 23, 42, 0.32)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginBottom: 7,
+  },
+  replyPreviewOnImage: { marginHorizontal: 8, marginTop: 8 },
+  replyPreviewAuthor: { color: "#bae6fd", fontSize: 11, fontWeight: "800", marginBottom: 1 },
+  replyPreviewText: { color: "#cbd5e1", fontSize: 12, lineHeight: 16 },
   messageBubbleImage: { padding: 0, overflow: "hidden" },
   messageImage: { width: 220, height: 220 },
   messageImageSpinner: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   messagePad: { paddingHorizontal: 12, paddingVertical: 8 },
-  inputRow: {
-    flexDirection: "row", alignItems: "flex-end", gap: 8,
-    paddingHorizontal: 12, paddingTop: 8,
+  composerContainer: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
     borderTopWidth: 1, borderTopColor: "#1e293b",
     backgroundColor: theme.colors.background,
   },
+  inputRow: {
+    flexDirection: "row", alignItems: "flex-end", gap: 8,
+  },
+  replyComposer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 8,
+  },
+  replyComposerBar: { width: 3, alignSelf: "stretch", borderRadius: 2, backgroundColor: "#38bdf8" },
+  replyComposerTextWrap: { flex: 1, minWidth: 0 },
+  replyComposerTitle: { color: "#bae6fd", fontSize: 12, fontWeight: "800" },
+  replyComposerText: { color: "#94a3b8", fontSize: 12, marginTop: 1 },
+  replyComposerClose: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
   messageInput: {
     flex: 1, minHeight: 42, maxHeight: 110,
     backgroundColor: theme.colors.surface, borderRadius: 14,
