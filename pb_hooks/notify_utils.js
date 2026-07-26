@@ -227,6 +227,30 @@ function notifyFollowedUser(e) {
 }
 
 const ADMIN_EMAIL = "serg.ivnv05@gmail.com";
+// Set MODERATION_EMAIL in the PocketBase service environment to send these
+// alerts to a dedicated moderation inbox. Falling back keeps the existing
+// administrator inbox working until that optional setting is configured.
+const MODERATION_EMAIL = ($os.getenv("MODERATION_EMAIL") || ADMIN_EMAIL).trim();
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function getUserLabel(e, userId) {
+  if (!userId) return "Not supplied";
+  try {
+    const user = e.app.findRecordById("users", userId);
+    const name = getRecordString(user, "username") || getRecordString(user, "name");
+    return name ? `${name} (${userId})` : userId;
+  } catch {
+    return userId;
+  }
+}
 
 function notifyNewUser(e) {
   const username = getRecordString(e.record, "username") || getRecordString(e.record, "name") || "(no name)";
@@ -241,6 +265,38 @@ function notifyNewUser(e) {
     html: `<p>New signup:</p><p><b>${username}</b> — ${email}</p>`,
   });
   e.app.newMailClient().send(message);
+}
+
+function notifyModerationReport(e) {
+  const report = e.record;
+  const reportId = report.id || "unknown";
+  const reporterId = getRecordString(report, "reporter_id");
+  const reportedUserId = getRecordString(report, "reported_user_id");
+  const reason = getRecordString(report, "reason") || "No reason supplied";
+  const details = getRecordString(report, "details") || "None";
+  const catchId = getRecordString(report, "catch_id") || "None";
+  const commentId = getRecordString(report, "comment_id") || "None";
+
+  const message = new MailerMessage({
+    from: {
+      address: e.app.settings().meta.senderAddress,
+      name: e.app.settings().meta.senderName,
+    },
+    to: [{ address: MODERATION_EMAIL }],
+    subject: `StrikeFeed report needs review: ${reason}`,
+    html: [
+      "<p>A user submitted a content report. Please review it within 24 hours.</p>",
+      `<p><b>Report ID:</b> ${escapeHtml(reportId)}</p>`,
+      `<p><b>Reason:</b> ${escapeHtml(reason)}</p>`,
+      `<p><b>Reporter:</b> ${escapeHtml(getUserLabel(e, reporterId))}</p>`,
+      `<p><b>Reported user:</b> ${escapeHtml(getUserLabel(e, reportedUserId))}</p>`,
+      `<p><b>Catch ID:</b> ${escapeHtml(catchId)}<br/><b>Comment ID:</b> ${escapeHtml(commentId)}</p>`,
+      `<p><b>Details:</b> ${escapeHtml(details)}</p>`,
+    ].join(""),
+  });
+
+  e.app.newMailClient().send(message);
+  console.log("[moderation] report email sent for", reportId);
 }
 
 const BADGE_LABELS = {
@@ -388,8 +444,10 @@ module.exports = {
   notifyCatchOwner,
   notifyFollowedUser,
   notifyNewUser,
+  notifyModerationReport,
   notifyBadgeChange,
   notifyGroupMessage,
   BADGE_LABELS,
   ADMIN_EMAIL,
+  MODERATION_EMAIL,
 };

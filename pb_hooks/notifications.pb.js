@@ -55,6 +55,15 @@ onRecordAfterCreateSuccess((e) => {
   e.next();
 }, "users");
 
+onRecordAfterCreateSuccess((e) => {
+  try {
+    require(`${__hooks}/notify_utils.js`).notifyModerationReport(e);
+  } catch (err) {
+    console.log("moderation report email error:", err);
+  }
+  e.next();
+}, "content_reports");
+
 onRecordAfterUpdateSuccess((e) => {
   try {
     require(`${__hooks}/notify_utils.js`).notifyBadgeChange(e);
