@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import Toast from 'react-native-toast-message';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text, TextInput } from '@/components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,6 +25,7 @@ export default function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const appleSignInInFlight = useRef(false);
 
   const handleRegister = async () => {
     if (!email.trim() || !password || !username.trim() || !name.trim()) {
@@ -72,16 +73,22 @@ export default function Register() {
   };
 
   const handleAppleLogin = async () => {
+    if (appleSignInInFlight.current) return;
+    appleSignInInFlight.current = true;
     setLoading(true);
-    const { error } = await signInWithApple();
-    setLoading(false);
-    if (error && error.message === 'APPLE_FAILED') {
-      Alert.alert(
-        t('error'),
-        language === 'ru'
-          ? 'Не удалось войти через Apple. Попробуйте регистрацию по email и паролю.'
-          : 'Apple sign-in failed. Please try email and password instead.',
-      );
+    try {
+      const { error } = await signInWithApple();
+      if (error && error.message === 'APPLE_FAILED') {
+        Alert.alert(
+          t('error'),
+          language === 'ru'
+            ? 'Не удалось войти через Apple. Попробуйте регистрацию по email и паролю.'
+            : 'Apple sign-in failed. Please try email and password instead.',
+        );
+      }
+    } finally {
+      appleSignInInFlight.current = false;
+      setLoading(false);
     }
   };
 
@@ -247,7 +254,7 @@ export default function Register() {
                     buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
                     buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
                     cornerRadius={10}
-                    style={styles.appleBtn}
+                    style={[styles.appleBtn, loading && styles.appleBtnDisabled]}
                     onPress={handleAppleLogin}
                   />
                 </>
@@ -470,5 +477,8 @@ const styles = StyleSheet.create({
   appleBtn: {
     height: 46,
     width: '100%',
+  },
+  appleBtnDisabled: {
+    opacity: 0.6,
   },
 });

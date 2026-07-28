@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
 import { FontAwesome5, Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ImageBackground, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text, TextInput } from '@/components/AppText';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -24,6 +24,7 @@ export default function Login() {
   const [forgotVisible, setForgotVisible] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
+  const appleSignInInFlight = useRef(false);
 
   const handleResetPassword = async () => {
     if (!resetEmail.trim()) return;
@@ -69,16 +70,24 @@ export default function Login() {
   };
 
   const handleAppleLogin = async () => {
+    // AppleAuthenticationButton has no disabled prop. Guard repeat taps while
+    // the native sheet or server exchange is active.
+    if (appleSignInInFlight.current) return;
+    appleSignInInFlight.current = true;
     setLoading(true);
-    const { error } = await signInWithApple();
-    setLoading(false);
-    if (error && error.message === 'APPLE_FAILED') {
-      Alert.alert(
-        t('error'),
-        language === 'ru'
-          ? 'Не удалось войти через Apple. Попробуйте войти по email и паролю.'
-          : 'Apple sign-in failed. Please try email and password instead.',
-      );
+    try {
+      const { error } = await signInWithApple();
+      if (error && error.message === 'APPLE_FAILED') {
+        Alert.alert(
+          t('error'),
+          language === 'ru'
+            ? 'Не удалось войти через Apple. Попробуйте войти по email и паролю.'
+            : 'Apple sign-in failed. Please try email and password instead.',
+        );
+      }
+    } finally {
+      appleSignInInFlight.current = false;
+      setLoading(false);
     }
   };
 
@@ -229,7 +238,7 @@ export default function Login() {
                   buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
                   buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
                   cornerRadius={10}
-                  style={styles.appleBtn}
+                  style={[styles.appleBtn, loading && styles.appleBtnDisabled]}
                   onPress={handleAppleLogin}
                 />
               )}
@@ -574,5 +583,8 @@ const styles = StyleSheet.create({
     height: 46,
     width: '100%',
     marginTop: 10,
+  },
+  appleBtnDisabled: {
+    opacity: 0.6,
   },
 });

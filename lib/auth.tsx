@@ -21,6 +21,7 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const APPLE_SIGN_IN_TIMEOUT_MS = 30_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -203,11 +204,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ? [cred.fullName.givenName, cred.fullName.familyName].filter(Boolean).join(' ').trim()
         : '';
 
-      const res = await fetch(`${pb.baseURL}/apple-signin`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: cred.authorizationCode, fullName }),
-      });
+      // The native Apple sheet has already completed at this point. Always
+      // bound the server exchange so the Continue button cannot leave the
+      // screen in a permanent loading state when the network stalls.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), APPLE_SIGN_IN_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(`${pb.baseURL}/apple-signin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: cred.authorizationCode, fullName }),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
