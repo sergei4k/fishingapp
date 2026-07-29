@@ -5,7 +5,7 @@ import { usePurchases } from "@/lib/purchases";
 import SignInPrompt from "@/components/SignInPrompt";
 import { useLanguage, type Language } from "@/lib/language";
 import { parseBadges } from "@/lib/badges";
-import { registerForPushNotificationsAsync } from "@/lib/notifications";
+import { disablePushNotificationsForUser, enablePushNotificationsForUser, getPushNotificationsEnabled } from "@/lib/notifications";
 import { getBlockedUserIds, unblockUser } from "@/lib/moderation";
 import { MAPBOX_ACCESS_TOKEN } from "@/lib/mapbox";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import Constants from "expo-constants";
 import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -59,6 +59,9 @@ export default function Settings() {
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [pushTokenStatus, setPushTokenStatus] = useState<string>("checking…");
+  const [pushNotificationsEnabled, setPushNotificationsEnabled] = useState(true);
+  const [pushNotificationsLoaded, setPushNotificationsLoaded] = useState(false);
+  const [updatingPushNotifications, setUpdatingPushNotifications] = useState(false);
   const [blockedModalVisible, setBlockedModalVisible] = useState(false);
   const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
   const [loadingBlockedUsers, setLoadingBlockedUsers] = useState(false);
@@ -66,8 +69,19 @@ export default function Settings() {
   const currentVersion = Constants.expoConfig?.version ?? "0.0.0";
   const showPurchases = Platform.OS !== "ios" && purchasesEnabled;
   const upgradeCopy = getUpgradeCopy(language);
-  const notificationsEnabled = pushTokenStatus.startsWith("OK:");
-  const notificationsChecking = pushTokenStatus === "checking…";
+  const notificationHint = !pushNotificationsLoaded || updatingPushNotifications
+    ? (language === "ru" ? "Проверка настроек…" : "Checking settings…")
+    : !pushNotificationsEnabled
+      ? (language === "ru" ? "Выключены на этом устройстве" : "Disabled on this device")
+      : pushTokenStatus.startsWith("FAILED")
+        ? (language === "ru" ? "Разрешите уведомления в настройках устройства" : "Allow notifications in device Settings")
+        : (language === "ru" ? "Уведомления на этом устройстве" : "Notifications on this device");
+
+  useEffect(() => {
+    getPushNotificationsEnabled()
+      .then(setPushNotificationsEnabled)
+      .finally(() => setPushNotificationsLoaded(true));
+  }, []);
 
   useEffect(() => {
     if (!profileInitialized && user?.id) {
@@ -127,6 +141,12 @@ export default function Settings() {
   }, [user?.id, bioInitialized]);
 
   useEffect(() => {
+    if (!pushNotificationsLoaded) return;
+    if (!pushNotificationsEnabled) {
+      setPushTokenStatus("DISABLED_BY_USER");
+      return;
+    }
+
     (async () => {
       try {
         const Constants_ = await import("expo-constants");
@@ -171,7 +191,7 @@ export default function Settings() {
         setPushTokenStatus(`FAILED — ${e?.message ?? "unknown"}`);
       }
     })();
-  }, []);
+  }, [pushNotificationsEnabled, pushNotificationsLoaded]);
 
   useEffect(() => {
     pb.collection("app_config").getFirstListItem('key = "latest_version"', { requestKey: null })
@@ -333,6 +353,33 @@ export default function Settings() {
     await setLanguage(newLanguage);
     setLanguageModalVisible(false);
     Alert.alert(t("languageChanged"), t("languageChangedMessage"));
+  };
+
+  const handlePushNotificationsChange = async (enabled: boolean) => {
+    if (!user || updatingPushNotifications) return;
+    setUpdatingPushNotifications(true);
+    try {
+      if (enabled) {
+        setPushNotificationsEnabled(true);
+        setPushTokenStatus("checking…");
+        const token = await enablePushNotificationsForUser(user.id);
+        setPushTokenStatus(token ? `OK: ${token.slice(0, 28)}…` : "FAILED — permission denied");
+      } else {
+        await disablePushNotificationsForUser(user.id);
+        setPushNotificationsEnabled(false);
+        setPushTokenStatus("DISABLED_BY_USER");
+      }
+    } catch (e) {
+      console.warn("Push notification preference error:", e);
+      Alert.alert(
+        t("error"),
+        language === "ru"
+          ? "Не удалось обновить настройки уведомлений. Попробуйте снова."
+          : "Could not update notification settings. Please try again."
+      );
+    } finally {
+      setUpdatingPushNotifications(false);
+    }
   };
 
   const loadBlockedUsers = async () => {
@@ -630,30 +677,21 @@ export default function Settings() {
           <View style={styles.settingItem}>
             <View style={styles.settingLeft}>
               <Ionicons name="notifications-outline" size={20} color="#ffffff" />
-              <Text style={styles.settingText}>{language === "ru" ? "Уведомления" : "Notifications"}</Text>
+              <View>
+                <Text style={styles.settingText}>{language === "ru" ? "Уведомления" : "Notifications"}</Text>
+                <Text style={styles.notificationHint}>
+                  {notificationHint}
+                </Text>
+              </View>
             </View>
-            <View style={[
-              styles.notificationStatus,
-              notificationsEnabled ? styles.notificationStatusOn : styles.notificationStatusOff,
-              notificationsChecking && styles.notificationStatusChecking,
-            ]}>
-              <View style={[
-                styles.notificationDot,
-                notificationsEnabled ? styles.notificationDotOn : styles.notificationDotOff,
-                notificationsChecking && styles.notificationDotChecking,
-              ]} />
-              <Text style={[
-                styles.notificationStatusText,
-                notificationsEnabled ? styles.notificationStatusTextOn : styles.notificationStatusTextOff,
-                notificationsChecking && styles.notificationStatusTextChecking,
-              ]}>
-                {notificationsChecking
-                  ? (language === "ru" ? "Проверка" : "Checking")
-                  : notificationsEnabled
-                    ? (language === "ru" ? "Включены" : "Enabled")
-                    : (language === "ru" ? "Выключены" : "Disabled")}
-              </Text>
-            </View>
+            <Switch
+              value={pushNotificationsEnabled}
+              onValueChange={handlePushNotificationsChange}
+              disabled={!pushNotificationsLoaded || updatingPushNotifications}
+              trackColor={{ false: theme.colors.surfaceRaised, true: theme.colors.primaryMuted }}
+              thumbColor={pushNotificationsEnabled ? theme.colors.primary : "#94a3b8"}
+              accessibilityLabel={language === "ru" ? "Включить уведомления" : "Enable notifications"}
+            />
           </View>
 
           <View style={styles.settingItem}>
@@ -1071,6 +1109,12 @@ const styles = StyleSheet.create({
     color: "#e6eef8",
     fontSize: 16,
     marginLeft: 12,
+  },
+  notificationHint: {
+    color: "#64748b",
+    fontSize: 12,
+    marginLeft: 12,
+    marginTop: 2,
   },
   premiumBuy: {
     borderWidth: 1,

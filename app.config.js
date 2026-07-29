@@ -60,7 +60,7 @@ export default {
     },
     ios: {
       bundleIdentifier: "com.strikefeed.myapp",
-      buildNumber: "4",
+      buildNumber: "5",
       usesAppleSignIn: true,
       infoPlist: {
         NSLocationWhenInUseUsageDescription: "StrikeFeed uses your location to show your current position on the fishing map. For example, this helps you see where you are relative to catches and fishing spots while viewing the map. Your location is private and never shared.",
