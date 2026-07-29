@@ -11,7 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter, usePathname, useRootNavigationState, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Linking, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Image, Linking, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/AppText';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -109,6 +109,7 @@ function useProtectedRoute() {
 function RootNavigator() {
   const { loading } = useAuth();
   const [updateRequired, setUpdateRequired] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   useProtectedRoute();
 
   useEffect(() => {
@@ -126,13 +127,22 @@ function RootNavigator() {
         const minVersion = (record.value as string).trim();
         const currentVersion = Constants.expoConfig?.version ?? (Constants as any).manifest?.version ?? '0.0.0';
         if (compareVersions(currentVersion, minVersion) < 0) {
-          setUpdateRequired(true);
+          if (Platform.OS === 'ios') setUpdateAvailable(true);
+          else setUpdateRequired(true);
         }
       } catch {
         // if config fetch fails, let the user in
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!updateAvailable) return;
+    Alert.alert(
+      'Update available',
+      'A new version of StrikeFeed is available in the App Store.\n\nДоступна новая версия StrikeFeed в App Store.',
+    );
+  }, [updateAvailable]);
 
   if (loading) {
     return (
