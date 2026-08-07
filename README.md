@@ -38,7 +38,7 @@ Designed for Russian-speaking anglers and already seen by more than **6,900 peop
 <p align="center">
   <a href="https://play.google.com/store/apps/details?id=com.strikefeed.myapp"><img src="https://img.shields.io/badge/GET_IT_ON-Google_Play-01875F?style=for-the-badge&logo=google-play&logoColor=white" alt="Get StrikeFeed on Google Play" /></a>
   <a href="https://www.rustore.ru/catalog/app/com.strikefeed.myapp"><img src="https://img.shields.io/badge/Download_on-RuStore-0B67F0?style=for-the-badge" alt="Download StrikeFeed on RuStore" /></a>
-  <a href="https://apps.apple.com/us/app/strikefeed/id6786357993"><<img src="https://img.shields.io/badge/App_Store-Coming_soon-1D1D1F?style=for-the-badge&logo=apple&logoColor=white" alt="Get StrikeFeed on App Store" /></a>
+  <a href="https://apps.apple.com/us/app/strikefeed/id6786357993"><img src="https://img.shields.io/badge/App_Store-Coming_soon-1D1D1F?style=for-the-badge&logo=apple&logoColor=white" alt="Get StrikeFeed on App Store" /></a>
 </p>
 
 ## Features
