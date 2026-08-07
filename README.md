@@ -25,9 +25,9 @@
 
 ## The fishing journal that goes where you go
 
-StrikeFeed turns every trip into a useful record. Save the catch, pin the place, add the details that matter, and revisit the story when the next great day on the water begins.
+I've built this out of my love for fishing and a lack of apps that met my criteria. StrikeFeed turns every trip into a useful record. Save the catch, pin the place, add the details that matter, and revisit the story when the next great day on the water begins.
 
-Designed for Russian-speaking anglers and already seen by more than **6,900 people on RuStore**, StrikeFeed combines a personal catch log with a social fishing community.
+Designed for Russian-speaking anglers. StrikeFeed combines a personal catch log with a social fishing community.
 
 <p align="center">
   <img src="screenshots/StrikeFeed.png" alt="StrikeFeed catch map and catch detail" width="260" />
