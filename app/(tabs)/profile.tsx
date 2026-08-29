@@ -1,4 +1,5 @@
 import { getSpeciesLabel } from "@/lib/species";
+import { formatEuropeanDate } from "@/lib/dateFormat";
 import { theme } from '../../lib/theme';
 import { getGearLabel, getGearOptions } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
@@ -11,7 +12,9 @@ import { getCatches, deleteCatch, updateCatch, CatchItem } from "@/lib/storage";
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import CatchDetailModal, { EditableFields } from "@/components/CatchDetailModal";
+import AvatarPreviewModal from "@/components/AvatarPreviewModal";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "@react-navigation/native";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
@@ -32,31 +35,11 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
 
-  const catchCountLabel = (n: number) => {
-    if (language === "ru") {
-      const mod10 = n % 10;
-      const mod100 = n % 100;
-      if (mod10 === 1 && mod100 !== 11) return `${n} улов`;
-      if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return `${n} улова`;
-      return `${n} уловов`;
-    }
-    return `${n} ${n === 1 ? "catch" : "catches"}`;
-  };
-
-  const formatDate = (val: any, full = false) => {
-    if (!val) return "";
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return "";
-    const locale = language === "ru" ? "ru-RU" : "en-US";
-    return full ? d.toLocaleString(locale) : d.toLocaleDateString(locale);
-  };
+  const formatDate = (val: any) => formatEuropeanDate(val);
 
   const formatJoinedDate = (val: any) => {
-    if (!val) return "";
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return "";
-    const locale = language === "ru" ? "ru-RU" : "en-US";
-    const date = d.toLocaleDateString(locale, { month: "long", year: "numeric" });
+    const date = formatEuropeanDate(val);
+    if (!date) return "";
     return language === "ru" ? `С ${date}` : `Joined ${date}`;
   };
 
@@ -73,6 +56,8 @@ export default function Profile() {
   const [statsVisible, setStatsVisible] = useState(false);
   const [filterSpecies, setFilterSpecies] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [avatarPreviewVisible, setAvatarPreviewVisible] = useState(false);
 
   const availableSpecies = useMemo(
     () => [...new Set(catches.map((c) => c.species).filter(Boolean))] as string[],
@@ -246,6 +231,41 @@ export default function Profile() {
   const openCatch = (item: CatchWithExtras) => setSelectedCatch(item);
   const closeCatch = () => setSelectedCatch(null);
 
+  const handlePickBanner = async () => {
+    if (!user || uploadingBanner) return;
+
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [3, 1],
+        quality: 0.82,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+
+      const asset = result.assets[0];
+      setUploadingBanner(true);
+      const formData = new FormData();
+      formData.append("banner", {
+        uri: asset.uri,
+        name: "banner.jpg",
+        type: asset.mimeType || "image/jpeg",
+      } as any);
+      const record = await pb.collection("users").update(user.id, formData);
+      pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, banner: record.banner });
+    } catch (error: any) {
+      console.warn("Banner upload error:", error);
+      Alert.alert(
+        t("error"),
+        language === "ru"
+          ? "Не удалось загрузить баннер."
+          : "Could not upload the banner."
+      );
+    } finally {
+      setUploadingBanner(false);
+    }
+  };
+
   const handleDelete = (id: string) => {
     Alert.alert(t("deleteConfirm"), t("deleteConfirmMessage"), [
       { text: t("cancel"), style: "cancel" },
@@ -338,7 +358,7 @@ export default function Profile() {
             {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
           </Text>
         </View>
-        <View style={{ alignItems: "flex-end", gap: 4 }}>
+        <View style={{ alignItems: "flex-end", gap: 18 }}>
           <Text style={styles.date}>{formatDate(item.date)}</Text>
           {!item.isPublic && (
             <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" />
@@ -348,18 +368,30 @@ export default function Profile() {
     </Swipeable>
   );
 
-  const bannerUri = catches.find((c) => c.image || c.imageUrl);
-  const bannerSource = bannerUri ? { uri: bannerUri.image ?? bannerUri.imageUrl } : null;
+  const bannerSource = user?.banner
+    ? { uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.banner}?thumb=1200x400` }
+    : require("../../assets/images/default-water-banner.png");
+  const ownAvatarUri = user?.avatar
+    ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`
+    : null;
 
   const profileHeader = user ? (
     <View style={styles.profileHeaderContainer}>
       {/* Banner */}
       <View style={styles.bannerContainer}>
-        {bannerSource ? (
-          <ImageWithLoader source={bannerSource} contentFit="cover" style={styles.bannerImage} />
-        ) : (
-          <View style={styles.bannerPlaceholder} />
-        )}
+        <ImageWithLoader source={bannerSource} contentFit="cover" style={styles.bannerImage} />
+        <TouchableOpacity
+          onPress={handlePickBanner}
+          disabled={uploadingBanner}
+          style={styles.editBannerBtn}
+          accessibilityLabel={language === "ru" ? "Изменить баннер" : "Edit banner"}
+        >
+          {uploadingBanner ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <Ionicons name="create-outline" size={18} color="#ffffff" />
+          )}
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => router.push('/(tabs)/settings')} style={styles.settingsBtn}>
           <Ionicons name="settings-outline" size={22} color="#e6eef8" />
         </TouchableOpacity>
@@ -367,7 +399,14 @@ export default function Profile() {
 
       {/* Avatar overlapping banner */}
       <View style={styles.avatarWrapper}>
-        <View style={styles.profileAvatar}>
+        <TouchableOpacity
+          style={styles.profileAvatar}
+          onPress={() => setAvatarPreviewVisible(true)}
+          disabled={!ownAvatarUri}
+          activeOpacity={0.82}
+          accessibilityRole="button"
+          accessibilityLabel={language === "ru" ? "Открыть фото профиля" : "Open profile photo"}
+        >
           {user.avatar ? (
             <ImageWithLoader
               source={{ uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` }}
@@ -375,9 +414,9 @@ export default function Profile() {
               style={styles.profileAvatarImage}
             />
           ) : (
-            <Ionicons name="person" size={42} color="#94a3b8" />
+                    <Ionicons name="person" size={52} color="#94a3b8" />
           )}
-        </View>
+        </TouchableOpacity>
       </View>
 
       {/* Name / username */}
@@ -704,6 +743,11 @@ export default function Profile() {
         onDelete={handleDelete}
         onTogglePublic={handleTogglePublic}
       />
+      <AvatarPreviewModal
+        visible={avatarPreviewVisible}
+        uri={ownAvatarUri}
+        onClose={() => setAvatarPreviewVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -721,7 +765,17 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   bannerImage: { width: "100%", height: "100%" },
-  bannerPlaceholder: { flex: 1, backgroundColor: "#0a1929" },
+  editBannerBtn: {
+    position: "absolute",
+    right: 12,
+    bottom: 10,
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(7, 24, 40, 0.82)",
+    borderRadius: 18,
+  },
   settingsBtn: {
     position: "absolute",
     top: 12,
@@ -731,11 +785,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
     borderRadius: 20,
   },
-  avatarWrapper: { alignItems: "center", marginTop: -44 },
+  avatarWrapper: { alignItems: "center", marginTop: -54 },
   profileAvatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
     backgroundColor: "#0f3460",
     alignItems: "center",
     justifyContent: "center",
@@ -743,14 +797,22 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "#0f172a",
   },
-  profileAvatarImage: { width: 88, height: 88, borderRadius: 44 },
+  profileAvatarImage: { width: 110, height: 110, borderRadius: 55 },
   profileAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
   profileName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
   profileUsername: { color: "#94a3b8", fontSize: 14, textAlign: "center", marginTop: 3 },
   profileLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 5 },
   profileLocationText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
   profileJoined: { color: "#64748b", fontSize: 12, textAlign: "center", marginTop: 5 },
-  profileBioCard: { marginHorizontal: 16, marginTop: 12, paddingHorizontal: 2 },
+  profileBioCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.card,
+    padding: 14,
+  },
   profileBio: { color: "#cbd5e1", fontSize: 14, lineHeight: 22 },
 
   statsRow: {
@@ -922,7 +984,7 @@ const styles = StyleSheet.create({
   detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
   desc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
   meta: { color: "#7ea8c9", fontSize: 12, marginTop: 6 },
-  date: { color: "#94a3b8", fontSize: 12, marginLeft: 8 },
+  date: { color: "#94a3b8", fontSize: 14, marginLeft: 8 },
   deleteAction: { justifyContent: "center" },
   deleteButton: {
     backgroundColor: "#7d1616",

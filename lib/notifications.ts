@@ -73,10 +73,17 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     });
   }
 
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  if (existingStatus !== "granted") {
-    const { status } = await Notifications.requestPermissionsAsync();
+  const existingPermissions = await Notifications.getPermissionsAsync();
+  let finalStatus = existingPermissions.status;
+  const badgePermissionMissing = Platform.OS === "ios" && !existingPermissions.ios?.allowsBadge;
+  if (existingPermissions.status !== "granted" || badgePermissionMissing) {
+    const { status } = await Notifications.requestPermissionsAsync({
+      ios: {
+        allowAlert: true,
+        allowBadge: true,
+        allowSound: true,
+      },
+    });
     finalStatus = status;
   }
 
@@ -152,13 +159,34 @@ export async function sendPushNotification(token: string, title: string, body: s
   }
 }
 
-export async function clearDeliveredNotifications(): Promise<void> {
+async function clearRemoteBadgeCount(userId: string): Promise<void> {
+  const token = await AsyncStorage.getItem(LAST_PUSH_TOKEN_KEY);
+  if (!token) return;
+
+  try {
+    const record = await pb.collection("user_push_tokens").getFirstListItem(
+      `user_id = "${userId}" && token = "${token.replace(/"/g, '\\"')}"`,
+      { requestKey: null },
+    );
+    await pb.collection("user_push_tokens").update(record.id, { badge_count: 0 }, { requestKey: null });
+  } catch (e: any) {
+    if (e?.status !== 404 && !isNetworkError(e)) {
+      console.warn("clearRemoteBadgeCount error:", e);
+    }
+  }
+}
+
+export async function clearDeliveredNotifications(userId?: string): Promise<void> {
   const Notifications = await getNotificationsModule();
-  if (!Notifications) return;
   try {
     await Promise.all([
-      Notifications.dismissAllNotificationsAsync(),
-      Notifications.setBadgeCountAsync(0),
+      Notifications
+        ? Promise.all([
+            Notifications.dismissAllNotificationsAsync(),
+            Notifications.setBadgeCountAsync(0),
+          ])
+        : Promise.resolve(),
+      userId ? clearRemoteBadgeCount(userId) : Promise.resolve(),
     ]);
   } catch (e) {
     console.warn("clearDeliveredNotifications error:", e);
@@ -181,10 +209,10 @@ export async function syncPushTokenForUser(userId: string): Promise<string | nul
         `user_id = "${userId}" && token = "${token.replace(/"/g, '\\"')}"`,
         { requestKey: null },
       );
-      await pb.collection("user_push_tokens").update(existing.id, { platform }, { requestKey: null });
+      await pb.collection("user_push_tokens").update(existing.id, { platform, badge_count: 0 }, { requestKey: null });
     } catch (e: any) {
       if (e?.status === 404) {
-        await pb.collection("user_push_tokens").create({ user_id: userId, token, platform }, { requestKey: null });
+        await pb.collection("user_push_tokens").create({ user_id: userId, token, platform, badge_count: 0 }, { requestKey: null });
       } else {
         throw e;
       }

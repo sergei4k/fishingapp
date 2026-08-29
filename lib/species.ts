@@ -25,6 +25,7 @@ const speciesOptions: SpeciesOption[] = [
   { id: "ukleya",     labelRu: "Уклея",        labelEn: "Bleak",           scientificName: "Alburnus alburnus", habitat: "freshwater" },
   { id: "zhereh",      labelRu: "Жерех",             labelEn: "Asp",              scientificName: "Aspius aspius", habitat: "freshwater" },
   { id: "bass",        labelRu: "Басс",              labelEn: "Largemouth Bass",  scientificName: "Micropterus salmoides", habitat: "freshwater" },
+  { id: "black_sea_bass", labelRu: "Чёрный морской окунь", labelEn: "Black Sea Bass", scientificName: "Centropristis striata", habitat: "saltwater" },
   { id: "stripedbass", labelRu: "Полосатый окунь",   labelEn: "Striped Bass",     scientificName: "Morone saxatilis", habitat: "saltwater" },
   { id: "losos",       labelRu: "Лосось",            labelEn: "Salmon",           scientificName: "Salmo salar", habitat: "saltwater" },
   { id: "sterlyad",    labelRu: "Стерлядь",          labelEn: "Sterlet",          scientificName: "Acipenser ruthenus", habitat: "freshwater" },

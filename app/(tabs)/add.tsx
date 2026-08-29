@@ -7,7 +7,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
-import { Blurhash } from 'react-native-blurhash';
 import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
 import { Buffer } from 'buffer';
@@ -24,7 +23,8 @@ import { useNetwork } from "@/lib/network";
 import { isProfane } from "@/lib/profanity";
 import SignInPrompt from "@/components/SignInPrompt";
 import { getSpeciesHabitat, getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
-import { getGearOptions, getGearLabel, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
+import { filterGearOptions, getGearOptions, getGearLabel, getGearPickerTab, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON, type GearPickerTab } from "@/lib/gear";
+import { CATCH_FORM_STEP_COUNT, canAdvanceCatchFormStep, getCatchFormReadiness, getResetCatchFormStep } from "@/lib/catchFormFlow";
 import gearPhotos from "@/lib/gearPhotos";
 import { ActivityIndicator, Alert, DeviceEventEmitter, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
@@ -97,6 +97,7 @@ export default function Add() {
   const safeTop = insets.top;
 
   const [image, setImage] = useState<string | null>(null);
+  const [currentStep, setCurrentStep] = useState(0);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
   const [description, setDescription] = useState("");
   const [length, setLength] = useState("");
@@ -107,6 +108,7 @@ export default function Add() {
   const [speciesSearch, setSpeciesSearch] = useState("");
   const [selectedGear, setSelectedGear] = useState<string | null>(null);
   const [gearModalVisible, setGearModalVisible] = useState(false);
+  const [gearTab, setGearTab] = useState<GearPickerTab>("lure");
   const [gearSearch, setGearSearch] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
@@ -372,19 +374,50 @@ export default function Add() {
     : null;
 
   const allGearOptions = getGearOptions(language);
-  const filteredGearOptions = gearSearch.trim()
-    ? allGearOptions.filter(g => {
-        const q = gearSearch.toLowerCase();
-        return g.labelRu.toLowerCase().includes(q) ||
-               g.labelEn.toLowerCase().includes(q);
-      })
-    : allGearOptions;
+  const filteredGearOptions = filterGearOptions(language, gearTab, gearSearch);
+
+  const openGearPicker = () => {
+    setGearTab(getGearPickerTab(selectedGear));
+    setGearModalVisible(true);
+  };
 
   const featuredGear = ["vobler", "spoon", "vrashchalka", "silikon"].map(id =>
     allGearOptions.find(g => g.id === id)!
   ).filter(Boolean);
 
+  const resetForm = () => {
+    setCurrentStep(getResetCatchFormStep());
+    setImage(null);
+    setExtraPhotos([]);
+    setDescription("");
+    setLength("");
+    setWeight("");
+    setSelectedSpecies(null);
+    setSpeciesTab("freshwater");
+    setMoreModalVisible(false);
+    setSpeciesSearch("");
+    setSelectedGear(null);
+    setGearTab("lure");
+    setGearModalVisible(false);
+    setGearSearch("");
+    setImageCoords(null);
+    setWaterBody(null);
+    setDetectingWater(false);
+    setIsPublic(true);
+    setLocationPickerVisible(false);
+    setPendingCoord(null);
+    setPickerCenter([0, 0]);
+    setLocationSearchQuery("");
+    setLocationSearchResults([]);
+    setSearchingLocation(false);
+  };
+
   const handleUpload = async () => {
+    if (!getCatchFormReadiness({ hasPhoto: !!image }).ready) {
+      Alert.alert(t("error"), language === "ru" ? "Добавьте фото улова, чтобы сохранить запись." : "Add a catch photo before saving.");
+      return;
+    }
+
     if (description.trim() && isProfane(description)) {
       Alert.alert(
         t("error"),
@@ -528,19 +561,9 @@ export default function Add() {
         pendingSync: savedOffline,
       });
 
-      Toast.show({ type: "success", text1: savedOffline ? t("catchSavedOffline") : t("catchSaved"), position: "top", visibilityTime: 3000 });
+      Toast.show({ type: "catchSaved", text1: savedOffline ? t("catchSavedOffline") : t("catchSaved"), position: "top", visibilityTime: 3000 });
+      resetForm();
       router.push("/profile");
-
-      setImage(null);
-      setExtraPhotos([]);
-      setDescription("");
-      setLength("");
-      setWeight("");
-      setSelectedSpecies(null);
-      setSelectedGear(null);
-      setImageCoords(null);
-      setWaterBody(null);
-      setIsPublic(false);
 
     } catch (e: any) {
       console.error("handleUpload error", e);
@@ -560,13 +583,22 @@ export default function Add() {
     );
   }
 
+  const readiness = getCatchFormReadiness({ hasPhoto: !!image });
+  const goToNextStep = () => {
+    if (!canAdvanceCatchFormStep(currentStep, { hasPhoto: !!image })) {
+      Alert.alert(t("error"), language === "ru" ? "Фото улова обязательно." : "A catch photo is required.");
+      return;
+    }
+    setCurrentStep((step) => Math.min(step + 1, CATCH_FORM_STEP_COUNT - 1));
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       style={{ flex: 1, backgroundColor: theme.colors.background }}
       keyboardVerticalOffset={0}
     >
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <SafeAreaView edges={["top", "left", "right"]} style={{ flex: 1, backgroundColor: theme.colors.background }}>
         <ScrollView
           style={{ flex: 1, backgroundColor: theme.colors.background }}
           contentContainerStyle={styles.container}
@@ -580,37 +612,25 @@ export default function Add() {
             </TouchableOpacity>
           </View>
 
+          <View
+            accessibilityRole="progressbar"
+            accessibilityLabel={language === "ru" ? "Ход добавления улова" : "Catch creation progress"}
+            accessibilityValue={{ min: 0, max: CATCH_FORM_STEP_COUNT, now: currentStep + 1 }}
+            style={styles.progressPill}
+          >
+            <View style={[styles.progressPillFill, { width: `${((currentStep + 1) / CATCH_FORM_STEP_COUNT) * 100}%` }]} />
+          </View>
+
+          {currentStep === 0 && (<>
+          <Text style={styles.stepHeading}>{language === "ru" ? "Добавьте фото" : "Add a photo"}</Text>
+          <Text style={styles.stepHint}>{language === "ru" ? "Сначала выберите главное фото улова." : "Start by choosing the main catch photo."}</Text>
           <View style={styles.imageRow}>
             <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
               {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
               <Text style={styles.placeholderText}>{t("addPhoto")}</Text>}
             </TouchableOpacity>
-            <View style={styles.rightColumn}>
-              {extraPhotos.slice(0, 5).map((uri, i) => (
-                <View key={i} style={styles.extraThumbWrapper}>
-                  <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
-                  <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)}>
-                    <Ionicons name="close" size={9} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {extraPhotos.length < 5 && (
-                <TouchableOpacity style={styles.addExtraBtn} onPress={pickExtraPhoto}>
-                  <Ionicons name="add" size={16} color="#64748b" />
-                </TouchableOpacity>
-              )}
-            </View>
           </View>
-
-          {!imageCoords && (
-            <View style={styles.noCoordsRow}>
-              <Ionicons name="location-outline" size={16} color="#ef4444" style={{ marginRight: 8 }} />
-              <Text style={styles.noCoordsText}>{t("noCoordsLabel")}</Text>
-              <TouchableOpacity onPress={openLocationPicker} style={styles.addLocationBtn}>
-                <Text style={styles.addLocationBtnText}>{t("addLocationManually")}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          </>)}
 
           <Modal visible={locationPickerVisible} animationType="slide" onRequestClose={() => setLocationPickerVisible(false)}>
             <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -705,26 +725,40 @@ export default function Add() {
               </View>
             </View>
           </Modal>
-          {imageCoords && (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
-              <Text style={styles.coordsText}>
-                {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
-              </Text>
-              {(detectingWater || waterBody) && (
-                <View style={styles.waterBadge}>
-                  <Ionicons name="water-outline" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
-                  <Text style={styles.waterBadgeText}>
-                    {detectingWater ? t("detectingWater") : waterBody}
-                  </Text>
+          {currentStep === 1 && (<>
+          <Text style={styles.stepHeading}>{language === "ru" ? "Детали улова" : "Catch details"}</Text>
+          <Text style={styles.stepHint}>{language === "ru" ? "Все поля необязательны — добавьте столько, сколько знаете." : "Everything here is optional—add what you know."}</Text>
+          <View style={styles.photoReviewRow}>
+            <TouchableOpacity
+              accessibilityLabel={language === "ru" ? "Изменить главное фото" : "Change main photo"}
+              onPress={pickImageAndGetGps}
+              style={styles.photoReviewButton}
+            >
+              <ExpoImage source={{ uri: image! }} style={styles.photoReview} contentFit="cover" />
+              <View style={styles.photoEditBadge}>
+                <Ionicons name="pencil" size={12} color="#ffffff" />
+              </View>
+            </TouchableOpacity>
+            <View style={styles.rightColumn}>
+              {extraPhotos.slice(0, 5).map((uri, i) => (
+                <View key={i} style={styles.extraThumbWrapper}>
+                  <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
+                  <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)} accessibilityLabel={language === "ru" ? "Удалить дополнительное фото" : "Remove extra photo"}>
+                    <Ionicons name="close" size={9} color="#fff" />
+                  </TouchableOpacity>
                 </View>
+              ))}
+              {extraPhotos.length < 5 && (
+                <TouchableOpacity style={styles.addExtraBtn} onPress={pickExtraPhoto} accessibilityLabel={language === "ru" ? "Добавить дополнительное фото" : "Add an extra photo"}>
+                  <Ionicons name="add" size={16} color="#64748b" />
+                </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: 'auto' }]}>
-                <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
-              </TouchableOpacity>
             </View>
-          )}
-
+            <View style={styles.photoReviewCopy}>
+              <Text style={styles.photoReviewTitle}>{language === "ru" ? "Главное фото" : "Main photo"}</Text>
+              <Text style={styles.photoReviewHint}>{language === "ru" ? "Нажмите, чтобы изменить" : "Tap to change"}</Text>
+            </View>
+          </View>
           <View style={styles.inputs}>
             <TextInput
               style={styles.descriptionInput}
@@ -757,7 +791,7 @@ export default function Add() {
               keyboardAppearance="dark"
             />
           </View>
-
+          <Text style={styles.sectionHeading}>{language === "ru" ? "Рыба и снасти" : "Species & gear"}</Text>
           <View style={styles.speciesWrapper}>
             <Text style={styles.speciesTitle}>{t("species")}</Text>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -817,7 +851,7 @@ export default function Add() {
                     <Text style={styles.speciesLabel}>{g.label}</Text>
                   </TouchableOpacity>
                 ))}
-                <TouchableOpacity style={styles.moreButton} onPress={() => setGearModalVisible(true)}>
+                <TouchableOpacity style={styles.moreButton} onPress={openGearPicker}>
                   <Text style={styles.moreText}>{t("more")}</Text>
                 </TouchableOpacity>
               </ScrollView>
@@ -826,7 +860,34 @@ export default function Add() {
               {selectedGear ? `${t("selectedGear")}: ${getGearLabel(selectedGear, language)}` : t("gearNotSelected")}
             </Text>
           </View>
-
+          <Text style={styles.sectionHeading}>{language === "ru" ? "Место и видимость" : "Location & visibility"}</Text>
+          {imageCoords ? (
+            <View style={styles.locationRow}>
+              <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
+              <Text style={styles.coordsText}>
+                {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
+              </Text>
+              {(detectingWater || waterBody) && (
+                <View style={styles.waterBadge}>
+                  <Ionicons name="water-outline" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
+                  <Text style={styles.waterBadgeText}>
+                    {detectingWater ? t("detectingWater") : waterBody}
+                  </Text>
+                </View>
+              )}
+              <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: "auto" }]}>
+                <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.noCoordsRow}>
+              <Ionicons name="location-outline" size={16} color="#ef4444" style={{ marginRight: 8 }} />
+              <Text style={styles.noCoordsText}>{t("noCoordsLabel")}</Text>
+              <TouchableOpacity onPress={openLocationPicker} style={styles.addLocationBtn}>
+                <Text style={styles.addLocationBtnText}>{t("addLocationManually")}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={[styles.publicRow, !imageCoords && styles.publicRowDisabled]}>
             <View style={{ flex: 1 }}>
               <Text style={styles.publicLabel}>{t("makePublic")}</Text>
@@ -842,10 +903,7 @@ export default function Add() {
               thumbColor="#ffffff"
             />
           </View>
-
-          <TouchableOpacity style={[styles.uploadBtn, isUploading && { opacity: 0.7 }]} onPress={handleUpload} disabled={isUploading}>
-            <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
-          </TouchableOpacity>
+          </>)}
 
           <Modal
             visible={moreModalVisible}
@@ -952,6 +1010,21 @@ export default function Add() {
                     clearButtonMode="while-editing"
                   />
                 </View>
+                <View style={styles.speciesTabRow} accessibilityRole="tablist">
+                  {(["lure", "bait"] as GearPickerTab[]).map((tab) => (
+                    <TouchableOpacity
+                      key={tab}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: gearTab === tab }}
+                      style={[styles.speciesTabBtn, gearTab === tab && styles.speciesTabBtnActive]}
+                      onPress={() => setGearTab(tab)}
+                    >
+                      <Text style={[styles.speciesTabText, gearTab === tab && styles.speciesTabTextActive]}>
+                        {t(tab === "lure" ? "gearCategoryLure" : "gearCategoryBait")}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
                 <FlatList
                   data={filteredGearOptions}
                   keyExtractor={(g) => g.id}
@@ -971,9 +1044,6 @@ export default function Add() {
                         )}
                         <View style={styles.modalItemLeft}>
                           <Text style={styles.modalItemText}>{g.label}</Text>
-                          <Text style={[styles.modalItemScientific, { color: GEAR_CATEGORY_COLOR[g.category] }]}>
-                            {t(g.category === "lure" ? "gearCategoryLure" : g.category === "bait" ? "gearCategoryBait" : "gearCategoryRig")}
-                          </Text>
                         </View>
                       </View>
                     </Pressable>
@@ -988,17 +1058,46 @@ export default function Add() {
             </SafeAreaView>
           </Modal>
         </ScrollView>
+        <View style={styles.flowActions}>
+          {currentStep > 0 ? (
+            <TouchableOpacity style={styles.backBtn} onPress={() => setCurrentStep((step) => step - 1)}>
+              <Text style={styles.backBtnText}>{language === "ru" ? "Назад" : "Back"}</Text>
+            </TouchableOpacity>
+          ) : <View style={styles.actionSpacer} />}
+          {currentStep < CATCH_FORM_STEP_COUNT - 1 ? (
+            <TouchableOpacity style={styles.nextBtn} onPress={goToNextStep}>
+              <Text style={styles.nextBtnText}>{language === "ru" ? "Далее" : "Continue"}</Text>
+              <Ionicons name="arrow-forward" size={17} color="#ffffff" />
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={[styles.uploadBtn, styles.actionPrimary, (!readiness.ready || isUploading) && { opacity: 0.55 }]} onPress={handleUpload} disabled={!readiness.ready || isUploading}>
+              <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </SafeAreaView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, backgroundColor: theme.colors.background, padding: 16, alignItems: "center" },
+  container: { flexGrow: 1, backgroundColor: theme.colors.background, padding: 16, paddingBottom: 108, alignItems: "center" },
+  progressPill: { width: "100%", height: 6, overflow: "hidden", borderRadius: 999, marginTop: 12, marginBottom: 28, backgroundColor: theme.colors.surfaceRaised },
+  progressPillFill: { height: "100%", borderRadius: 999, backgroundColor: theme.colors.primary },
+  stepHeading: { width: "100%", color: theme.colors.text.primary, fontSize: 20, fontFamily: theme.fonts.displaySemibold, marginBottom: 4 },
+  stepHint: { width: "100%", color: theme.colors.text.secondary, fontSize: 13, lineHeight: 19, marginBottom: 18 },
+  sectionHeading: { width: "100%", color: theme.colors.text.primary, fontSize: 17, fontFamily: theme.fonts.displaySemibold, marginTop: 10, marginBottom: 10 },
   imageRow: { width: "100%", flexDirection: "row", alignItems: "flex-start", marginBottom: 12 },
   photoBox: { width: 200, height: 160, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160 },
+  photoReviewRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18, padding: 10, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  photoReviewButton: { width: 88, height: 88, borderRadius: theme.radius.control, overflow: "hidden", position: "relative" },
+  photoReview: { width: "100%", height: "100%" },
+  photoEditBadge: { position: "absolute", right: 5, bottom: 5, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: theme.colors.primaryDark },
+  photoReviewCopy: { flex: 1, minWidth: 0 },
+  photoReviewTitle: { color: theme.colors.text.primary, fontFamily: theme.fonts.bodySemibold, fontSize: 14 },
+  photoReviewHint: { color: theme.colors.text.secondary, fontSize: 12, marginTop: 3 },
   rightColumn: { marginLeft: 10, flexDirection: "column", gap: 6 },
   extraThumbWrapper: { position: "relative" },
   extraThumb: { width: 56, height: 56, borderRadius: 6 },
@@ -1024,6 +1123,19 @@ const styles = StyleSheet.create({
   publicSub: { color: "#94a3b8", fontSize: 13 },
   uploadBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 20, paddingVertical: 10, borderRadius: theme.radius.control },
   uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
+  flowActions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  actionSpacer: { flex: 1 },
+  backBtn: { minHeight: 46, minWidth: 92, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control },
+  backBtnText: { color: theme.colors.text.primary, fontFamily: theme.fonts.bodySemibold },
+  nextBtn: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginLeft: "auto", paddingHorizontal: 18, backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control },
+  nextBtnText: { color: "#ffffff", fontFamily: theme.fonts.bodyBold },
+  actionPrimary: { marginLeft: "auto" },
+  saveCard: { width: "100%", backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.card, padding: 16, gap: 10 },
+  readinessRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
+  readinessText: { flex: 1, color: theme.colors.text.secondary, fontSize: 13, lineHeight: 19 },
+  summaryRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border },
+  summaryLabel: { color: theme.colors.text.secondary, fontSize: 13 },
+  summaryValue: { flex: 1, color: theme.colors.text.primary, fontSize: 13, fontFamily: theme.fonts.bodySemibold, textAlign: "right" },
   modalOverlay: { flex: 1, backgroundColor: theme.colors.background },
   modalContent: { flex: 1, paddingTop: 8, paddingBottom: 16 },
   modalHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, marginBottom: 12 },

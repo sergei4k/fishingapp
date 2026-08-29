@@ -261,7 +261,7 @@ export default function Settings() {
 
   const handleSelectLocation = async (result: LocationResult | null) => {
     if (!user || savingLocation) return;
-    const nextLocation = result?.label ?? "";
+    const nextLocation = result?.city ?? "";
     setSavingLocation(true);
     try {
       await pb.collection("users").update(user.id, { city: nextLocation });
@@ -459,7 +459,7 @@ export default function Settings() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoider}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
@@ -475,12 +475,25 @@ export default function Settings() {
       >
         {user && (
           <View style={styles.userCard}>
-            <TouchableOpacity onPress={handlePickAvatar} disabled={uploadingAvatar} style={styles.userAvatar}>
+            <TouchableOpacity
+              onPress={handlePickAvatar}
+              disabled={uploadingAvatar}
+              style={styles.userAvatar}
+              accessibilityRole="button"
+              accessibilityLabel={language === "ru" ? "Изменить фото профиля" : "Edit profile photo"}
+            >
               {avatarUri ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
               ) : (
                 <Ionicons name="person" size={34} color="#94a3b8" />
               )}
+              <View style={styles.avatarEditBadge} pointerEvents="none">
+                {uploadingAvatar ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Ionicons name="pencil" size={14} color="#ffffff" />
+                )}
+              </View>
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
               {user.name ? <Text style={styles.userName}>{user.name}</Text> : null}
@@ -745,7 +758,10 @@ export default function Settings() {
           <TouchableOpacity style={styles.settingItem} onPress={() => Linking.openURL('https://t.me/rybolovapp')}>
             <View style={styles.settingLeft}>
               <Ionicons name="paper-plane-outline" size={20} color="#229ED9" />
-              <Text style={styles.settingText}>Telegram</Text>
+              <View style={styles.telegramCopy}>
+                <Text style={[styles.settingText, styles.telegramTitle]}>Telegram</Text>
+                <Text style={styles.telegramHint}>{language === "ru" ? "Блог StrikeFeed" : "StrikeFeed blog"}</Text>
+              </View>
             </View>
             <View style={styles.settingRight}>
               <Text style={styles.settingValue}>@rybolovapp</Text>
@@ -1059,11 +1075,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    position: "relative",
   },
   avatarImage: {
     width: 56,
     height: 56,
     borderRadius: 28,
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    right: 0,
+    bottom: 0,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: theme.colors.primaryDark,
+    borderWidth: 2,
+    borderColor: theme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
   },
   userAvatarText: {
     color: "#ffffff",
@@ -1110,6 +1140,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 12,
   },
+  telegramCopy: { marginLeft: 12 },
+  telegramTitle: { marginLeft: 0 },
+  telegramHint: { color: theme.colors.text.secondary, fontSize: 12, marginTop: 2 },
   notificationHint: {
     color: "#64748b",
     fontSize: 12,

@@ -57,6 +57,7 @@ export default function Register() {
     const { error } = await signUp(email.trim(), password, {
       username: username.trim(),
       name: name.trim(),
+      language,
     });
     setLoading(false);
 

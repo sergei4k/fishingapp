@@ -6,6 +6,7 @@ const speciesPhotos: Record<string, any> = {
   forel:         require("../assets/fishicons/Rainbow_Trout.png"),
   zhereh:        require("../assets/fishicons/zhereh.png"),
   bass:          require("../assets/fishicons/Largemouth_Bass.png"),
+  black_sea_bass: require("../assets/fishicons/blackseabass.png"),
   stripedbass:   require("../assets/fishicons/Striped_Bass.png"),
   nalim:         require("../assets/fishicons/Burbot.png"),
   losos:         require("../assets/fishicons/salmon.png"),

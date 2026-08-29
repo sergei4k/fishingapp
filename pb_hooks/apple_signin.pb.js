@@ -121,6 +121,7 @@ routerAdd("POST", "/apple-signin", (e) => {
     record.set("emailVisibility", false);
     record.setPassword($security.randomString(40)); // required; unused (OAuth login)
     record.setVerified(true);
+    record.set("onboarding_pending", true);
     if (fullName) record.set("name", fullName);
     try {
       e.app.save(record);

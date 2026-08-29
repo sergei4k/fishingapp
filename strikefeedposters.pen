@@ -1,0 +1,236 @@
+{
+  "version": "2.17",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": -41,
+      "y": 302,
+      "name": "Frame",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#0d1a2d",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "Oo1gy",
+          "x": -12,
+          "y": 0,
+          "fill": {
+            "type": "shader",
+            "opacity": 0.2,
+            "enabled": true,
+            "url": "dither-image.glsl",
+            "uniforms": {
+              "u_image": "image.png",
+              "u_contrast": 0.99,
+              "u_brightness": 0.8829999999999999,
+              "u_lightColor": "#ffffff",
+              "u_cellSize": 4,
+              "u_darkColor": "#303478"
+            }
+          },
+          "width": 1128,
+          "height": 1365
+        },
+        {
+          "type": "text",
+          "id": "spPlB",
+          "x": 329,
+          "y": 36,
+          "fill": "#ffffff",
+          "content": "StrikeFeed Updates",
+          "fontFamily": "Oswald",
+          "fontSize": 60,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "Wk50B",
+          "x": 141,
+          "y": 1124,
+          "fill": "#ffffff",
+          "content": "Просоединяйся и открой 100+ точек где клюет ",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "XQdou",
+          "x": 431,
+          "y": 1195,
+          "fill": "#ffffff",
+          "content": "(это бесплатно)",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "OvXID",
+          "x": 346,
+          "y": 149,
+          "fill": "#ffffff",
+          "content": "Новые снасти и приманки",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "GwSU7",
+          "x": 154,
+          "y": 664,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "images/glidebait.png",
+            "mode": "fill"
+          },
+          "width": 430,
+          "height": 141
+        },
+        {
+          "type": "rectangle",
+          "id": "q262R",
+          "x": 222,
+          "y": 339,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "images/fly.png",
+            "mode": "fill"
+          },
+          "width": 247,
+          "height": 169
+        },
+        {
+          "type": "text",
+          "id": "OX6fY",
+          "x": 291,
+          "y": 508,
+          "fill": "#ffffff",
+          "content": "Мушка",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "ZaxUL",
+          "x": 291,
+          "y": 786,
+          "fill": "#ffffff",
+          "textGrowth": "fixed-width-height",
+          "width": 165,
+          "height": 38,
+          "content": "Глайдбэйт",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "ZsL5C",
+          "x": 552,
+          "y": 274,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "rattlebait.png",
+            "mode": "fill"
+          },
+          "width": 402,
+          "height": 185
+        },
+        {
+          "type": "rectangle",
+          "id": "S1i0P",
+          "x": 703,
+          "y": 591,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "feedermix.png",
+            "mode": "fill"
+          },
+          "width": 213,
+          "height": 288
+        },
+        {
+          "type": "text",
+          "id": "PhaEY",
+          "x": 677,
+          "y": 872,
+          "fill": "#ffffff",
+          "content": "Фидерная смесь",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "wV2mg",
+          "x": 602,
+          "y": 450,
+          "fill": "#ffffff",
+          "content": "Рэтлбэйт",
+          "fontFamily": "Inter",
+          "fontSize": 32,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "C9L5d",
+          "x": 358,
+          "y": 998,
+          "fill": "#ffffff",
+          "content": "Уже в приложении",
+          "fontFamily": "Inter",
+          "fontSize": 42,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "path",
+      "id": "eCQNw",
+      "x": -597,
+      "y": 1671,
+      "geometry": "M0 945.5l1468 0 0 607.5-1468 0 0-607.5z",
+      "fill": {
+        "type": "shader",
+        "opacity": 0.1,
+        "enabled": true,
+        "url": "dither-image.glsl",
+        "uniforms": {
+          "u_image": "images/image.png",
+          "u_cellSize": 5.64,
+          "u_brightness": 0.8,
+          "u_contrast": 1.41,
+          "u_darkColor": "#232d3d",
+          "u_lightColor": "#ffffff00",
+          "u_keepColor": 0
+        }
+      },
+      "width": 1468,
+      "height": 607.5
+    },
+    {
+      "type": "frame",
+      "id": "Dwh8I",
+      "x": 1432,
+      "y": 302,
+      "name": "Frame 1",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#FFFFFF",
+      "layout": "none"
+    }
+  ],
+  "fileToken": "b00fb356-5982-40d3-9e79-0b15789fe7e7"
+}

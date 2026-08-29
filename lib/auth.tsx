@@ -12,7 +12,7 @@ type AuthContextType = {
   user: any;
   session: any;
   loading: boolean;
-  signUp: (email: string, password: string, meta?: { username?: string; name?: string }) => Promise<{ error: any }>;
+  signUp: (email: string, password: string, meta?: { username?: string; name?: string; language?: "ru" | "en" }) => Promise<{ error: any }>;
   signIn: (email: string, password: string) => Promise<{ error: any }>;
   signInWithGoogle: () => Promise<{ error: any }>;
   signInWithYandex: () => Promise<{ error: any }>;
@@ -22,6 +22,7 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const APPLE_SIGN_IN_TIMEOUT_MS = 30_000;
+const OAUTH_SIGN_IN_TIMEOUT_MS = 120_000;
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -82,7 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, []);
 
-  const signUp = async (email: string, password: string, meta?: { username?: string; name?: string }) => {
+  const signUp = async (email: string, password: string, meta?: { username?: string; name?: string; language?: "ru" | "en" }) => {
     // Drop realtime before the auth token changes to avoid PB 403
     // "current and previous request authorization don't match".
     pb.realtime.unsubscribe().catch(() => {});
@@ -97,6 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         passwordConfirm: password,
         name: meta?.name ?? '',
         username: meta?.username?.toLowerCase() ?? '',
+        language: meta?.language ?? 'ru',
+        onboarding_pending: true,
       }),
       timeout,
     ]);
@@ -154,26 +157,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithOAuthProvider = async (provider: "google" | "yandex") => {
     pb.realtime.unsubscribe().catch(() => {});
     try {
-      let cancelFn: ((msg: string) => void) | null = null;
-      const cancelPromise = new Promise<never>((_, reject) => {
-        cancelFn = (msg) => reject(new Error(msg));
-      });
-      cancelPromise.catch(() => {});
-
       const authPromise = pb.collection('users').authWithOAuth2({
         provider,
         urlCallback: async (url: string) => {
           await WebBrowser.openBrowserAsync(url);
-          // Browser closed — give SSE 3s to deliver result, then cancel
-          setTimeout(() => cancelFn?.('BROWSER_CLOSED'), 3000);
         },
       });
 
-      await Promise.race([authPromise, cancelPromise]);
+      // Android resolves openBrowserAsync as soon as Chrome Custom Tabs opens,
+      // not after the user completes Google OAuth. PocketBase receives the
+      // completed sign-in through its realtime callback, so it needs time to
+      // wait for that result instead of treating the browser as closed.
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('OAUTH_TIMEOUT')), OAUTH_SIGN_IN_TIMEOUT_MS);
+      });
+
+      try {
+        await Promise.race([authPromise, timeoutPromise]);
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
       return { error: null };
     } catch (e: any) {
       console.warn(`[${provider} OAuth error]`, e?.status, e?.message, JSON.stringify(e?.response));
-      if (e?.message === 'BROWSER_CLOSED') return { error: { message: 'CANCELLED' } };
+      if (e?.message === 'OAUTH_TIMEOUT') return { error: { message: `${provider.toUpperCase()}_FAILED` } };
       if (isNetworkError(e)) return { error: { message: 'OFFLINE' } };
       if ((e as any)?.isAbort || e?.message?.includes('cancelled') || e?.message?.includes('manually cancelled')) return { error: { message: 'CANCELLED' } };
       return { error: { message: `${provider.toUpperCase()}_FAILED` } };

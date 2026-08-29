@@ -20,12 +20,14 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image as ExpoImage } from "expo-image";
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
-import { ActivityIndicator, Alert, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
 const PREVIEW_THUMB_SIZE = "300x300";
+const CATCH_VIEW_FADE = { duration: 240, delay: 0 };
+const VIEW_TOGGLE_THUMB_WIDTH = 104;
 
 
 const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
@@ -77,6 +79,10 @@ export default function Map() {
   const [showHeatmap, setShowHeatmap] = useState(false);
   // "public" = all public catches (own public + everyone's); "mine" = all of the user's own catches
   const [mapView, setMapView] = useState<"public" | "mine">("public");
+  const [selectedMapView, setSelectedMapView] = useState<"public" | "mine">("public");
+  const [markersVisible, setMarkersVisible] = useState(true);
+  const mapViewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapViewSlider = useRef(new Animated.Value(0)).current;
 
   const [spots, setSpots] = useState<Spot[]>([]);
   const [publicSpots, setPublicSpots] = useState<Spot[]>([]);
@@ -92,6 +98,26 @@ export default function Map() {
   const [searchResults, setSearchResults] = useState<{ id: string; name: string; coords: [number, number] }[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const searchBlurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const switchMapView = (nextView: "public" | "mine") => {
+    if (nextView === selectedMapView) return;
+    if (mapViewTimer.current) clearTimeout(mapViewTimer.current);
+    setSelectedMapView(nextView);
+    Animated.timing(mapViewSlider, {
+      toValue: nextView === "mine" ? 1 : 0,
+      duration: 220,
+      useNativeDriver: true,
+    }).start();
+    setMarkersVisible(false);
+    mapViewTimer.current = setTimeout(() => {
+      setMapView(nextView);
+      setMarkersVisible(true);
+    }, CATCH_VIEW_FADE.duration / 2);
+  };
+
+  useEffect(() => () => {
+    if (mapViewTimer.current) clearTimeout(mapViewTimer.current);
+  }, []);
 
   // ─── Location ────────────────────────────────────────────────────────────────
 
@@ -567,7 +593,8 @@ export default function Map() {
               visibility: showHeatmap ? "none" : "visible",
               circleRadius: ["step", ["get", "point_count"], 20, 10, 28, 30, 36],
               circleColor: "#0284c7",
-              circleOpacity: 0.9,
+              circleOpacity: markersVisible ? 0.9 : 0,
+              circleOpacityTransition: CATCH_VIEW_FADE,
               circleStrokeWidth: 2,
               circleStrokeColor: "#ffffff",
             }}
@@ -579,6 +606,8 @@ export default function Map() {
               visibility: showHeatmap ? "none" : "visible",
               textField: ["get", "point_count_abbreviated"],
               textColor: "#ffffff",
+              textOpacity: markersVisible ? 1 : 0,
+              textOpacityTransition: CATCH_VIEW_FADE,
               textSize: 14,
               textFont: ["DIN Offc Pro Medium", "Arial Unicode MS Bold"],
             }}
@@ -590,6 +619,8 @@ export default function Map() {
               visibility: showHeatmap ? "none" : "visible",
               iconImage: "catch-pin",
               iconSize: 0.7,
+              iconOpacity: markersVisible ? 1 : 0,
+              iconOpacityTransition: CATCH_VIEW_FADE,
               iconColor: ["case", ["==", ["get", "is_own"], true], "#f59e0b", "#38bdf8"],
               iconAllowOverlap: true,
               iconAnchor: "bottom",
@@ -640,22 +671,34 @@ export default function Map() {
       </View>
 
       {/* Public / private view toggle */}
-      <View style={[styles.viewToggleWrap, { top: safeTop + 64 }]} pointerEvents="box-none">
-        <View style={styles.viewToggle}>
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, mapView === "public" && styles.viewToggleBtnActive]}
-            onPress={() => setMapView("public")}
-          >
-            <Text style={[styles.viewToggleText, mapView === "public" && styles.viewToggleTextActive]}>
-              {language === "ru" ? "Все" : "Public"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.viewToggleBtn, mapView === "mine" && styles.viewToggleBtnActive]}
-            onPress={() => { if (requireAuth()) setMapView("mine"); }}
-          >
-            <Text style={[styles.viewToggleText, mapView === "mine" && styles.viewToggleTextActive]}>
-              {language === "ru" ? "Мои уловы" : "My catches"}
+        <View style={[styles.viewToggleWrap, { top: safeTop + 64 }]} pointerEvents="box-none">
+          <View style={styles.viewToggle}>
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.viewToggleThumb,
+                {
+                  transform: [{ translateX: mapViewSlider.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, VIEW_TOGGLE_THUMB_WIDTH],
+                  }) }],
+                },
+              ]}
+            />
+            <TouchableOpacity
+              style={styles.viewToggleBtn}
+              onPress={() => switchMapView("public")}
+            >
+              <Text style={[styles.viewToggleText, selectedMapView === "public" && styles.viewToggleTextActive]}>
+                {language === "ru" ? "Все" : "Public"}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.viewToggleBtn}
+              onPress={() => { if (requireAuth()) switchMapView("mine"); }}
+            >
+              <Text style={[styles.viewToggleText, selectedMapView === "mine" && styles.viewToggleTextActive]}>
+                {language === "ru" ? "Мои уловы" : "My catches"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -886,6 +929,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.94)",
     borderRadius: 20,
     padding: 3,
+    overflow: "hidden",
     elevation: 6,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -893,13 +937,19 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
   },
   viewToggleBtn: {
-    flexDirection: "row",
+    width: VIEW_TOGGLE_THUMB_WIDTH,
+    height: 34,
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    justifyContent: "center",
     borderRadius: 17,
   },
-  viewToggleBtnActive: {
+  viewToggleThumb: {
+    position: "absolute",
+    top: 3,
+    left: 3,
+    width: VIEW_TOGGLE_THUMB_WIDTH,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: theme.colors.primaryMuted,
   },
   viewToggleText: {

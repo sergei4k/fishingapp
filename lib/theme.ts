@@ -5,10 +5,10 @@ export const theme = {
   colors: {
     // Interactive accent — the one committed water-cyan. Use for links,
     // small active indicators, and icon accents.
-    primary: '#38bdf8',
+    primary: '#00a6fb',
     // Filled primary action buttons (Sign in, Join, Save, Confirm, Upload, …).
     // Deep enough to carry white text; the single blue every CTA now uses.
-    primaryDark: '#0284c7',
+    primaryDark: '#0582ca',
     // Active / selected segmented states (map toggle, switches, filter pills).
     // Muted so it reads as "selected" without competing with CTAs.
     primaryMuted: '#0c4a6e',
@@ -17,7 +17,7 @@ export const theme = {
     background: '#0d1a2d',    // app canvas / full-screen containers (darkest)
     surface: '#16233b',       // raised cards, inputs, rows — lighter than canvas
     surfaceRaised: '#1e293b', // segments, insets, active states (lightest)
-    border: '#24344f',        // visible hairline
+    border: '#807f7f',        // visible hairline
 
     text: {
       primary: '#e6eef8',

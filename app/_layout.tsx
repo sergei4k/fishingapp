@@ -6,13 +6,16 @@ import { NetworkProvider } from '@/lib/network';
 import { pb } from '@/lib/pocketbase';
 import '@/lib/mapbox';
 import { clearDeliveredNotifications } from '@/lib/notifications';
+import { needsOnboarding } from '@/lib/onboarding';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useRouter, usePathname, useRootNavigationState, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, AppState, Image, Linking, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, AppState, Image, Linking, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text } from '@/components/AppText';
+import CatchSavedToast from '@/components/CatchSavedToast';
+import FishLoader from '@/components/FishLoader';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useFonts,
@@ -32,6 +35,7 @@ import {
 import '../global.css';
 
 const toastConfig = {
+  catchSaved: (props: BaseToastProps) => <CatchSavedToast {...props} />,
   success: ({ text1 }: BaseToastProps) => (
     <View style={toastStyles.container}>
       <View style={toastStyles.accent} />
@@ -83,42 +87,51 @@ function useProtectedRoute() {
   const pathname = usePathname();
   const router = useRouter();
   const navigationState = useRootNavigationState();
+  const usernameSetupRequired = needsUsernameSetup(user);
+  const onboardingRequired = needsOnboarding(user);
 
   useEffect(() => {
     if (!navigationState?.key) return;
     if (loading) return;
     if (!pathname) return;
 
-    const inAuthGroup = pathname.startsWith('/(auth)') || pathname.startsWith('/login') || pathname.startsWith('/register');
+    const inAuthGroup = pathname.startsWith('/(auth)')
+      || pathname.startsWith('/login')
+      || pathname.startsWith('/register')
+      || pathname.startsWith('/setup-username')
+      || pathname.startsWith('/onboarding');
     const onSetupUsername = pathname.includes('setup-username');
+    const onOnboarding = pathname.includes('onboarding');
 
     if (session) {
       // Signed in: finish username setup, then keep out of the auth screens.
-      if (needsUsernameSetup(user)) {
+      if (usernameSetupRequired) {
         if (!onSetupUsername) router.replace('/(auth)/setup-username' as const as any);
+      } else if (onboardingRequired) {
+        if (!onOnboarding) router.replace('/(auth)/onboarding' as const as any);
       } else if (inAuthGroup) {
         router.replace('/(tabs)' as const as any);
       }
     } else {
-      // Guest: free to browse the tabs. Only bounce off the setup screen.
-      if (onSetupUsername) router.replace('/(tabs)' as const as any);
+      // Guest: free to browse the tabs. Only bounce off account setup screens.
+      if (onSetupUsername || onOnboarding) router.replace('/(tabs)' as const as any);
     }
-  }, [session, loading, pathname, user?.username, navigationState?.key]);
+  }, [session, loading, pathname, usernameSetupRequired, onboardingRequired, navigationState?.key, router]);
 }
 
 function RootNavigator() {
-  const { loading } = useAuth();
+  const { loading, user } = useAuth();
   const [updateRequired, setUpdateRequired] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   useProtectedRoute();
 
   useEffect(() => {
-    clearDeliveredNotifications();
+    clearDeliveredNotifications(user?.id);
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active") clearDeliveredNotifications();
+      if (state === "active") clearDeliveredNotifications(user?.id);
     });
     return () => sub.remove();
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => {
     (async () => {
@@ -147,8 +160,7 @@ function RootNavigator() {
   if (loading) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
-        <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
-        <ActivityIndicator size="small" color="#94a3b8" />
+        <FishLoader />
       </View>
     );
   }
@@ -168,8 +180,7 @@ function SafeToast() {
 function SplashLoading() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
-      <Image source={require('../assets/images/logo.png')} style={{ width: 100, height: 100, resizeMode: 'contain', marginBottom: 24 }} />
-      <ActivityIndicator size="small" color={theme.colors.text.secondary} />
+      <FishLoader />
     </View>
   );
 }

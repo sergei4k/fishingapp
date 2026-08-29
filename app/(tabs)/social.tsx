@@ -14,21 +14,24 @@ import CatchDetailModal, { type CatchDetail } from "@/components/CatchDetailModa
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges, BadgeId } from "@/lib/badges";
 import GroupModal from "@/components/GroupModal";
+import AppNewsModal from "@/components/AppNewsModal";
+import AvatarPreviewModal from "@/components/AvatarPreviewModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { AppNewsItem, countUnreadNews, fetchAppNews, getLatestNewsTimestamp, readNewsLastSeen, writeNewsLastSeen } from "@/lib/appNews";
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Linking, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PAGE_SIZE = 15;
 
-function LikeButton({ isLiked, count, onPress, size = 20, style }: {
-  isLiked: boolean; count: number; onPress: () => void; size?: number; style?: any;
+function LikeButton({ isLiked, onPress, size = 20, style }: {
+  isLiked: boolean; onPress: () => void; size?: number; style?: any;
 }) {
   const scale = React.useRef(new Animated.Value(1)).current;
   const handlePress = () => {
@@ -201,6 +204,58 @@ export default function Social() {
   // Timestamp of the previous visit — rows newer than this render as unread
   const [notifSeenBefore, setNotifSeenBefore] = useState<string | null>(null);
   const lastSeenNotifsKey = "last_seen_notifs";
+
+  // ── App news ──────────────────────────────────────────────────────────────
+  const [newsVisible, setNewsVisible] = useState(false);
+  const [newsItems, setNewsItems] = useState<AppNewsItem[]>([]);
+  const [newsUnreadCount, setNewsUnreadCount] = useState(0);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [refreshingNews, setRefreshingNews] = useState(false);
+  const [newsError, setNewsError] = useState(false);
+
+  const loadNews = useCallback(async (markSeen = false, showLoading = false) => {
+    if (showLoading) setLoadingNews(true);
+    try {
+      const items = await fetchAppNews(pb, language);
+      setNewsItems(items);
+      setNewsError(false);
+
+      const lastSeen = await readNewsLastSeen(AsyncStorage);
+      setNewsUnreadCount(countUnreadNews(items, lastSeen));
+      if (markSeen) {
+        const latest = getLatestNewsTimestamp(items);
+        if (latest) await writeNewsLastSeen(AsyncStorage, latest);
+        setNewsUnreadCount(0);
+      }
+    } catch (error) {
+      if (!isNetworkError(error)) console.warn("loadNews error:", error);
+      setNewsError(true);
+    } finally {
+      if (showLoading) setLoadingNews(false);
+    }
+  }, [language]);
+
+  const openNews = () => {
+    setNewsVisible(true);
+    void loadNews(true, newsItems.length === 0);
+  };
+
+  const refreshNews = async () => {
+    setRefreshingNews(true);
+    try {
+      await loadNews(true);
+    } finally {
+      setRefreshingNews(false);
+    }
+  };
+
+  const openNewsLink = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert(language === "ru" ? "Не удалось открыть ссылку" : "Could not open link");
+    }
+  };
 
   const loadNotifications = useCallback(async () => {
     if (!user) return;
@@ -439,6 +494,10 @@ export default function Social() {
 
   // User profile modal
   const [selectedUser, setSelectedUser] = useState<any>(null);
+  const [avatarPreviewVisible, setAvatarPreviewVisible] = useState(false);
+  const selectedAvatarUri = selectedUser?.avatar
+    ? `${pb.baseURL}/api/files/_pb_users_auth_/${selectedUser.id}/${selectedUser.avatar}`
+    : selectedUser?.avatarUrl ?? null;
   const [userCatches, setUserCatches] = useState<CatchItem[]>([]);
   const [userCatchCount, setUserCatchCount] = useState(0);
   const [userFollowerCount, setUserFollowerCount] = useState(0);
@@ -886,7 +945,8 @@ export default function Social() {
     useCallback(() => {
       loadDiscover(1);
       loadFollows();
-    }, [loadDiscover, loadFollows])
+      void loadNews();
+    }, [loadDiscover, loadFollows, loadNews])
   );
 
   const loadFeed = useCallback(async () => {
@@ -1055,6 +1115,8 @@ export default function Social() {
     setUserFollowListData([]);
     setSelectedUser({
       ...targetUser,
+      banner: targetUser.banner ?? null,
+      avatar: targetUser.avatar ?? null,
       avatarUrl:
         targetUser.avatarUrl ??
         (targetUser.avatar
@@ -1100,6 +1162,8 @@ export default function Social() {
             bio: fullUser.bio ?? "",
             created: fullUser.created ?? prev.created,
             city: fullUser.city ?? prev.city,
+            banner: fullUser.banner ?? prev.banner ?? null,
+            avatar: fullUser.avatar ?? prev.avatar ?? null,
             avatarUrl: fullUser.avatar
               ? `${pb.baseURL}/api/files/_pb_users_auth_/${fullUser.id}/${fullUser.avatar}?thumb=200x200`
               : prev.avatarUrl ?? null,
@@ -1255,7 +1319,7 @@ export default function Social() {
         {/* Like / comment row */}
         <View style={styles.feedActions}>
           <View style={styles.feedActionBtn}>
-            <LikeButton isLiked={item._isLiked} count={item._likeCount} onPress={() => toggleLike(item)} size={20} />
+            <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={20} />
             <Text style={[styles.feedActionText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
           </View>
           <TouchableOpacity style={styles.feedActionBtn} onPress={() => openDetail(item)}>
@@ -1307,7 +1371,7 @@ export default function Social() {
         <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
         <View style={styles.catchCounts}>
           <View style={styles.catchCountBtn}>
-            <LikeButton isLiked={item._isLiked} count={item._likeCount} onPress={() => toggleLike(item)} size={13} />
+            <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={13} />
             <Text style={[styles.catchCountText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
           </View>
           <TouchableOpacity onPress={() => openDetail(item)} style={styles.catchCountBtn}>
@@ -1350,19 +1414,41 @@ export default function Social() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* Header row: title + notifications bell */}
+      {/* Header row: title + news + notifications */}
       <View style={styles.socialHeader}>
         <Text style={styles.socialHeaderTitle}>{language === "ru" ? "Сообщество" : "Community"}</Text>
-        <TouchableOpacity style={styles.notifBtn} onPress={openNotifs}>
-          <View>
-            <Ionicons name="notifications-outline" size={24} color="#e6eef8" />
-            {unreadCount > 0 && (
-              <View style={styles.notifBadge}>
-                <Text style={styles.notifBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.notifBtn}
+            onPress={openNews}
+            accessibilityRole="button"
+            accessibilityLabel={language === "ru" ? "Новости" : "News"}
+          >
+            <View>
+              <Ionicons name="newspaper-outline" size={24} color="#e6eef8" />
+              {newsUnreadCount > 0 ? (
+                <View style={[styles.notifBadge, styles.newsBadge]}>
+                  <Text style={styles.notifBadgeText}>{newsUnreadCount}</Text>
+                </View>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.notifBtn}
+            onPress={openNotifs}
+            accessibilityRole="button"
+            accessibilityLabel={language === "ru" ? "Уведомления" : "Notifications"}
+          >
+            <View>
+              <Ionicons name="notifications-outline" size={24} color="#e6eef8" />
+              {unreadCount > 0 && (
+                <View style={styles.notifBadge}>
+                  <Text style={styles.notifBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Tabs + search button */}
@@ -1567,7 +1653,7 @@ export default function Social() {
 
       {/* User profile modal */}
       <Modal visible={!!selectedUser} animationType="slide" onRequestClose={() => { setProfileMenuVisible(false); setSelectedUser(null); }}>
-        <SafeAreaView style={styles.container}>
+        <SafeAreaView style={styles.container} edges={["left", "right", "bottom"]}>
           <FlatList
             data={loadingUserCatches ? [] : userCatches}
             keyExtractor={(i) => i.id}
@@ -1609,7 +1695,7 @@ export default function Social() {
                   <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
                   <View style={styles.catchCounts}>
                     <View style={styles.catchCountBtn}>
-                      <LikeButton isLiked={item._isLiked} count={item._likeCount} onPress={() => toggleLike(item)} size={13} />
+<LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={13} />
                       <Text style={[styles.catchCountText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
                     </View>
                     <TouchableOpacity onPress={() => openUserCatchDetail(item)} style={styles.catchCountBtn}>
@@ -1628,32 +1714,48 @@ export default function Social() {
             }
             ListHeaderComponent={
               <View>
-                <View style={[styles.upHeaderRow, { paddingTop: safeTop + 16 }]}>
-                  <TouchableOpacity onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }} style={styles.upHeaderBtn} hitSlop={8}>
-                    <Ionicons name="arrow-back" size={20} color="#e6eef8" />
-                  </TouchableOpacity>
-                  {selectedUser && selectedUser.id !== user?.id && (
-                    <View>
-                      <TouchableOpacity
-                        onPress={() => setProfileMenuVisible((visible) => !visible)}
-                        style={styles.upHeaderBtn}
-                        hitSlop={8}
-                        accessibilityLabel={language === "ru" ? "Действия с профилем" : "Profile actions"}
-                      >
-                        <Ionicons name="ellipsis-vertical" size={20} color="#e6eef8" />
-                      </TouchableOpacity>
-                    </View>
-                  )}
+                <View style={styles.upBannerContainer}>
+                  <ImageWithLoader
+                    source={selectedUser?.banner
+                      ? { uri: `${pb.baseURL}/api/files/_pb_users_auth_/${selectedUser.id}/${selectedUser.banner}?thumb=1200x400` }
+                      : require("../../assets/images/default-water-banner.png")}
+                    contentFit="cover"
+                    style={styles.upBannerImage}
+                  />
+                  <View style={[styles.upHeaderRow, { paddingTop: safeTop }]}>
+                    <TouchableOpacity onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }} style={styles.upHeaderBtn} hitSlop={8}>
+                      <Ionicons name="arrow-back" size={20} color="#e6eef8" />
+                    </TouchableOpacity>
+                    {selectedUser && selectedUser.id !== user?.id && (
+                      <View>
+                        <TouchableOpacity
+                          onPress={() => setProfileMenuVisible((visible) => !visible)}
+                          style={styles.upHeaderBtn}
+                          hitSlop={8}
+                          accessibilityLabel={language === "ru" ? "Действия с профилем" : "Profile actions"}
+                        >
+                          <Ionicons name="ellipsis-vertical" size={20} color="#e6eef8" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
                 </View>
 
                 <View style={styles.upAvatarWrapper}>
-                  <View style={styles.upAvatar}>
+                  <TouchableOpacity
+                    style={styles.upAvatar}
+                    onPress={() => setAvatarPreviewVisible(true)}
+                    disabled={!selectedAvatarUri}
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel={language === "ru" ? "Открыть фото профиля" : "Open profile photo"}
+                  >
                     {selectedUser?.avatarUrl ? (
                       <ImageWithLoader source={{ uri: selectedUser.avatarUrl }} contentFit="cover" style={styles.upAvatarImage} />
                     ) : (
                       <Ionicons name="person" size={44} color="#94a3b8" />
                     )}
-                  </View>
+                  </TouchableOpacity>
                 </View>
 
                 {/* Name + username */}
@@ -1679,7 +1781,9 @@ export default function Social() {
                 <BadgeChip badges={parseBadges(selectedUser?.badges)} language={language} />
 
                 {selectedUser?.bio ? (
-                  <Text style={styles.upBio}>{selectedUser.bio}</Text>
+                  <View style={styles.upBioCard}>
+                    <Text style={styles.upBio}>{selectedUser.bio}</Text>
+                  </View>
                 ) : null}
 
                 {/* Stats row */}
@@ -1822,7 +1926,7 @@ export default function Social() {
               style={styles.upMenuOverlay}
               onPress={() => setProfileMenuVisible(false)}
             >
-              <View style={[styles.upDropdownMenu, { top: safeTop + 70 }]}>
+              <View style={[styles.upDropdownMenu, { top: safeTop + 62 }]}>
                 <TouchableOpacity
                   style={styles.upDropdownItem}
                   onPress={() => {
@@ -1847,6 +1951,11 @@ export default function Social() {
               </View>
             </TouchableOpacity>
           </Modal>
+          <AvatarPreviewModal
+            visible={avatarPreviewVisible}
+            uri={selectedAvatarUri}
+            onClose={() => setAvatarPreviewVisible(false)}
+          />
         </SafeAreaView>
       </Modal>
 
@@ -1963,9 +2072,21 @@ export default function Social() {
         />
       )}
 
+      <AppNewsModal
+        visible={newsVisible}
+        items={newsItems}
+        language={language}
+        loading={loadingNews}
+        refreshing={refreshingNews}
+        error={newsError}
+        onClose={() => setNewsVisible(false)}
+        onRefresh={refreshNews}
+        onOpenLink={openNewsLink}
+      />
+
       {/* Notifications modal */}
-      <Modal visible={notifVisible} animationType="fade" transparent statusBarTranslucent onRequestClose={() => setNotifVisible(false)}>
-        <View style={styles.notifOverlay}>
+      <Modal visible={notifVisible} animationType="slide" transparent statusBarTranslucent onRequestClose={() => setNotifVisible(false)}>
+        <View style={styles.notifSheetContainer}>
           <View style={styles.notifSheet}>
             <View style={styles.notifSheetHeader}>
               <Text style={styles.notifSheetTitle}>{language === "ru" ? "Уведомления" : "Notifications"}</Text>
@@ -2367,7 +2488,14 @@ const styles = StyleSheet.create({
   lbSpeciesPhoto: { width: 36, height: 36 },
 
   // ── Other-user profile modal ─────────────────────────────────────────────
+  upBannerContainer: { height: 180, backgroundColor: theme.colors.surface, overflow: "hidden" },
+  upBannerImage: { width: "100%", height: "100%" },
   upHeaderRow: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -2402,7 +2530,7 @@ const styles = StyleSheet.create({
   upDropdownItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14 },
   upDropdownItemText: { color: "#cbd5e1", fontSize: 15, fontWeight: "600" },
   upDropdownDivider: { height: 1, backgroundColor: "#1e293b" },
-  upAvatarWrapper: { alignItems: "center", marginTop: 16 },
+  upAvatarWrapper: { alignItems: "center", marginTop: -44 },
   upAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 3, borderColor: "#0f172a" },
   upAvatarImage: { width: 88, height: 88, borderRadius: 44 },
   upAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
@@ -2411,7 +2539,16 @@ const styles = StyleSheet.create({
   upLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 5 },
   upLocationText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
   upJoined: { color: "#64748b", fontSize: 12, textAlign: "center", marginTop: 5 },
-  upBio: { color: "#94a3b8", fontSize: 13, marginTop: 4, lineHeight: 18, textAlign: "center", paddingHorizontal: 20 },
+  upBioCard: {
+    marginHorizontal: 20,
+    marginTop: 14,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.border,
+    borderRadius: theme.radius.card,
+    padding: 14,
+  },
+  upBio: { color: "#cbd5e1", fontSize: 13, lineHeight: 19, textAlign: "center" },
   upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, marginHorizontal: 16, paddingVertical: 10 },
   upStatItem: { flex: 1, alignItems: "center" },
   upStatNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
@@ -2461,11 +2598,13 @@ const styles = StyleSheet.create({
 
   socialHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
   socialHeaderTitle: { color: "#e6eef8", fontSize: 22, fontWeight: "700" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   notifBtn: { padding: 6, position: "relative" },
   notifBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#ef4444", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },
+  newsBadge: { backgroundColor: theme.colors.primaryDark },
   notifBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
-  notifOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  notifSheetContainer: { flex: 1, justifyContent: "flex-end" },
   notifSheet: { backgroundColor: theme.colors.background, borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "80%", paddingBottom: 20 },
   notifSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, borderBottomWidth: 1, borderBottomColor: "#1e293b" },
   notifSheetTitle: { color: "#e6eef8", fontSize: 18, fontWeight: "700" },

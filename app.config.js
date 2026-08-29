@@ -33,7 +33,7 @@ export default {
     version: "1.4.1",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
-    icon: "./assets/images/logo.png",
+    icon: "./assets/images/app-icon.png",
     scheme: "fishingapp",
     userInterfaceStyle: "automatic",
     android: {

@@ -22,7 +22,18 @@ function getRecordBool(record, key) {
   }
 }
 
-function sendExpoPush(token, title, body, data) {
+const MAX_APP_BADGE_COUNT = 99;
+
+function normalizeBadgeCount(value) {
+  const count = Math.floor(Number(value) || 0);
+  return Math.max(0, Math.min(MAX_APP_BADGE_COUNT, count));
+}
+
+function getNextBadgeCount(currentCount) {
+  return normalizeBadgeCount(currentCount + 1);
+}
+
+function sendExpoPush(token, title, body, data, badgeCount) {
   try {
     const response = $http.send({
       method: "POST",
@@ -38,6 +49,9 @@ function sendExpoPush(token, title, body, data) {
         title: title,
         body: body,
         data: data,
+        // Expo forwards this value to APNs as the iOS app-icon badge.
+        // Android launchers derive their badge from active notifications.
+        badge: normalizeBadgeCount(badgeCount),
       }),
     });
 
@@ -88,9 +102,18 @@ function uniquePushTokens(tokens) {
   return result;
 }
 
-function getUserPushTokens(e, userId, fallbackUserRecord) {
-  const tokens = [];
-  if (!userId) return tokens;
+function getRecordNumber(record, key) {
+  try {
+    return Number(record.get(key)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+function getUserPushTokenRecords(e, userId, fallbackUserRecord) {
+  const tokenRecords = [];
+  const seen = {};
+  if (!userId) return tokenRecords;
 
   try {
     const safeUserId = String(userId).replace(/[^A-Za-z0-9_-]/g, "");
@@ -103,7 +126,9 @@ function getUserPushTokens(e, userId, fallbackUserRecord) {
     );
     for (let i = 0; i < records.length; i++) {
       const token = getRecordString(records[i], "token");
-      if (token) tokens.push(token);
+      if (!token || seen[token]) continue;
+      seen[token] = true;
+      tokenRecords.push({ token: token, record: records[i] });
     }
   } catch (err) {
     console.log("[push-tokens] user_push_tokens lookup failed:", err);
@@ -111,21 +136,45 @@ function getUserPushTokens(e, userId, fallbackUserRecord) {
 
   if (fallbackUserRecord) {
     const fallback = getRecordString(fallbackUserRecord, "pushToken");
-    if (fallback) tokens.push(fallback);
+    if (fallback && !seen[fallback]) {
+      tokenRecords.push({ token: fallback, record: null });
+    }
   }
 
-  return uniquePushTokens(tokens);
+  return tokenRecords;
+}
+
+function getUserPushTokens(e, userId, fallbackUserRecord) {
+  return uniquePushTokens(
+    getUserPushTokenRecords(e, userId, fallbackUserRecord).map((entry) => entry.token),
+  );
 }
 
 function sendExpoPushToUser(e, userId, userRecord, title, body, data) {
-  const tokens = getUserPushTokens(e, userId, userRecord);
-  if (tokens.length === 0) return { sent: 0, failed: 0, noToken: 1 };
+  const tokenRecords = getUserPushTokenRecords(e, userId, userRecord);
+  if (tokenRecords.length === 0) return { sent: 0, failed: 0, noToken: 1 };
 
   let sent = 0;
   let failed = 0;
-  for (let i = 0; i < tokens.length; i++) {
-    if (sendExpoPush(tokens[i], title, body, data)) sent += 1;
-    else failed += 1;
+  for (let i = 0; i < tokenRecords.length; i++) {
+    const entry = tokenRecords[i];
+    const nextBadgeCount = getNextBadgeCount(
+      entry.record ? getRecordNumber(entry.record, "badge_count") : 0,
+    );
+
+    if (sendExpoPush(entry.token, title, body, data, nextBadgeCount)) {
+      sent += 1;
+      if (entry.record) {
+        try {
+          entry.record.set("badge_count", nextBadgeCount);
+          e.app.save(entry.record);
+        } catch (err) {
+          console.log("[push-tokens] failed to save badge count:", err);
+        }
+      }
+    } else {
+      failed += 1;
+    }
   }
   return { sent: sent, failed: failed, noToken: 0 };
 }
@@ -407,39 +456,100 @@ function notifyGroupMessage(e) {
       continue;
     }
 
-    const tokens = getUserPushTokens(e, userId, userRecord);
-    if (tokens.length === 0) {
-      skippedNoToken += 1;
-      continue;
-    }
-
     const language = getRecordString(userRecord, "language") || "en";
     const isRussian = language === "ru";
     const fallback = hasImage ? (isRussian ? "отправил фото" : "sent a photo") : (isRussian ? "Новое сообщение" : "New message");
     const body = `${senderName}: ${text || fallback}`;
 
-    for (let i = 0; i < tokens.length; i++) {
-      const ok = sendExpoPush(tokens[i], groupName, body, {
-        type: "group_message",
-        groupId: groupId,
-        messageId: record.id,
-        language: language,
-      });
-      if (ok) sent += 1;
-      else failed += 1;
-    }
+    const result = sendExpoPushToUser(e, userId, userRecord, groupName, body, {
+      type: "group_message",
+      groupId: groupId,
+      messageId: record.id,
+      language: language,
+    });
+    sent += result.sent;
+    failed += result.failed;
+    skippedNoToken += result.noToken;
   }
 
   console.log("[group-notify] message", record.id, "group=", groupId, "recipients=", Object.keys(recipients).length, "sent=", sent, "muted=", skippedMuted, "noToken=", skippedNoToken, "failed=", failed);
 }
 
+function notifyGroupJoinRequest(e) {
+  const record = e.record;
+  const groupId = getRecordString(record, "group_id");
+  const requesterId = getRecordString(record, "user_id");
+  const status = getRecordString(record, "status");
+
+  // Only pending requests need creator review. Creators are automatically
+  // approved by the membership hook and should never notify themselves.
+  if (!groupId || !requesterId || status !== "pending") return;
+
+  let groupRecord;
+  try {
+    groupRecord = e.app.findRecordById("groups", groupId);
+  } catch {
+    return;
+  }
+
+  const creatorId = getRecordString(groupRecord, "creator_id");
+  if (!creatorId || creatorId === requesterId) return;
+
+  // Avoid duplicate pushes if the same member submits a second pending record.
+  try {
+    const safeGroupId = String(groupId).replace(/[^A-Za-z0-9_-]/g, "");
+    const safeRequesterId = String(requesterId).replace(/[^A-Za-z0-9_-]/g, "");
+    const existing = e.app.findRecordsByFilter(
+      "group_members",
+      `group_id = "${safeGroupId}" && user_id = "${safeRequesterId}" && status = "pending"`,
+      "created",
+      2,
+      0,
+    );
+    if (existing.length > 1) return;
+  } catch {}
+
+  let creatorRecord;
+  try {
+    creatorRecord = e.app.findRecordById("users", creatorId);
+  } catch {
+    return;
+  }
+
+  let requesterName = "Someone";
+  try {
+    const requesterRecord = e.app.findRecordById("users", requesterId);
+    requesterName = getRecordString(requesterRecord, "username") || getRecordString(requesterRecord, "name") || requesterName;
+  } catch {}
+
+  const language = getRecordString(creatorRecord, "language") || "en";
+  const groupName = getRecordString(groupRecord, "name") || "Chat";
+  const isRussian = language === "ru";
+  const title = isRussian ? "Запрос в чат" : "Chat join request";
+  const body = isRussian
+    ? `${requesterName} хочет присоединиться к чату «${groupName}»`
+    : `${requesterName} wants to join ${groupName}`;
+
+  sendExpoPushToUser(e, creatorId, creatorRecord, title, body, {
+    type: "group_join_request",
+    groupId: groupId,
+    memberId: record.id,
+    requesterId: requesterId,
+    language: language,
+  });
+}
+
 module.exports = {
   getRecordString,
   getRecordBool,
+  getRecordNumber,
   recordFilePresent,
+  getUserPushTokenRecords,
   getUserPushTokens,
   sendExpoPushToUser,
   sendExpoPush,
+  normalizeBadgeCount,
+  getNextBadgeCount,
   getNotificationCopy,
   notifyCatchOwner,
   notifyFollowedUser,
@@ -447,6 +557,7 @@ module.exports = {
   notifyModerationReport,
   notifyBadgeChange,
   notifyGroupMessage,
+  notifyGroupJoinRequest,
   BADGE_LABELS,
   ADMIN_EMAIL,
   MODERATION_EMAIL,

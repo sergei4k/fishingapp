@@ -1,6 +1,6 @@
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { theme } from '../lib/theme';
-import { getGearLabel, getGearOptions, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON } from "@/lib/gear";
+import { filterGearOptions, getGearLabel, getGearPickerTab, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON, type GearPickerTab } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
 import { isProfane } from "@/lib/profanity";
@@ -8,6 +8,7 @@ import { pb } from "@/lib/pocketbase";
 import { getSpeciesHabitat, getSpeciesLabel, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
 import { Ionicons } from "@expo/vector-icons";
+import FishLoader from "@/components/FishLoader";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
@@ -17,6 +18,34 @@ import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
+
+function CatchPhoto({ uri }: { uri: string }) {
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+  }, [uri]);
+
+  return (
+    <View style={styles.catchPhoto}>
+      <ExpoImage
+        source={{ uri }}
+        placeholder={require("../assets/placeholder.png")}
+        cachePolicy="memory-disk"
+        transition={120}
+        contentFit="cover"
+        style={styles.catchPhotoImage}
+        onLoadEnd={() => setLoading(false)}
+        onError={() => setLoading(false)}
+      />
+      {loading && (
+        <View style={styles.catchPhotoLoader} pointerEvents="none">
+          <FishLoader size={76} />
+        </View>
+      )}
+    </View>
+  );
+}
 
 export type CatchDetail = {
   id: string;
@@ -87,9 +116,10 @@ export default function CatchDetailModal({
   const safeBottom = insets.bottom;
 
   const [photoIndex, setPhotoIndex] = useState(0);
-  const [fullscreenPhotos, setFullscreenPhotos] = useState<string[]>([]);
-  const [fullscreenIndex, setFullscreenIndex] = useState(0);
-  const fullscreenScrollRef = useRef<ScrollView>(null);
+  const [heartPhotoIndex, setHeartPhotoIndex] = useState<number | null>(null);
+  const lastPhotoTapAt = useRef(0);
+  const photoHeartScale = useRef(new Animated.Value(0.6)).current;
+  const photoHeartOpacity = useRef(new Animated.Value(0)).current;
 
   const [likeCount, setLikeCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
@@ -112,6 +142,7 @@ export default function CatchDetailModal({
   const [editSpeciesModal, setEditSpeciesModal] = useState(false);
   const [editSpeciesTab, setEditSpeciesTab] = useState<SpeciesHabitat>("freshwater");
   const [editGearModal, setEditGearModal] = useState(false);
+  const [editGearTab, setEditGearTab] = useState<GearPickerTab>("lure");
   const [editSpeciesSearch, setEditSpeciesSearch] = useState("");
   const [editGearSearch, setEditGearSearch] = useState("");
   const [showMenu, setShowMenu] = useState(false);
@@ -151,18 +182,12 @@ export default function CatchDetailModal({
   }, [comments.length, commentsInitialized, currentCatchId]);
 
   useEffect(() => {
-    if (fullscreenPhotos.length === 0) return;
-    const frame = requestAnimationFrame(() => {
-      fullscreenScrollRef.current?.scrollTo({ x: fullscreenIndex * SCREEN_WIDTH, animated: false });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [fullscreenPhotos.length, fullscreenIndex]);
-
-  useEffect(() => {
     if (!currentCatchId) return;
     const catchId = currentCatchId;
 
     setPhotoIndex(0);
+    setHeartPhotoIndex(null);
+    lastPhotoTapAt.current = 0;
     setLikeCount(0);
     setIsLiked(false);
     setLikeId(null);
@@ -261,6 +286,26 @@ export default function CatchDetailModal({
     ]).start();
   };
 
+  const createLike = async () => {
+    if (!item || !user || isLiked) return;
+
+    const catchId = item.id;
+    pendingOps.current[`${catchId}:create`] = Date.now();
+    setIsLiked(true);
+    setLikeCount((c) => c + 1);
+    onLikeChange?.(catchId, 1, true, null);
+    try {
+      const record = await pb.collection("likes").create({ catch_id: catchId, user_id: user.id });
+      setLikeId(record.id);
+      onLikeChange?.(catchId, 0, true, record.id);
+    } catch {
+      delete pendingOps.current[`${catchId}:create`];
+      setIsLiked(false);
+      setLikeCount((c) => Math.max(0, c - 1));
+      onLikeChange?.(catchId, -1, false, null);
+    }
+  };
+
   const toggleLike = async () => {
     if (!requireAuth()) return;
     if (!item || !user) return;
@@ -282,22 +327,34 @@ export default function CatchDetailModal({
         setLikeId(prevId);
         onLikeChange?.(catchId, 1, true, prevId);
       }
-    } else {
-      pendingOps.current[`${catchId}:create`] = Date.now();
-      setIsLiked(true);
-      setLikeCount((c) => c + 1);
-      onLikeChange?.(catchId, 1, true, null);
-      try {
-        const record = await pb.collection("likes").create({ catch_id: catchId, user_id: user.id });
-        setLikeId(record.id);
-        onLikeChange?.(catchId, 0, true, record.id);
-      } catch {
-        delete pendingOps.current[`${catchId}:create`];
-        setIsLiked(false);
-        setLikeCount((c) => Math.max(0, c - 1));
-        onLikeChange?.(catchId, -1, false, null);
-      }
+    } else await createLike();
+  };
+
+  const animatePhotoLike = (index: number) => {
+    setHeartPhotoIndex(index);
+    photoHeartScale.setValue(0.6);
+    photoHeartOpacity.setValue(0);
+    Animated.parallel([
+      Animated.spring(photoHeartScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }),
+      Animated.sequence([
+        Animated.timing(photoHeartOpacity, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.delay(260),
+        Animated.timing(photoHeartOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      ]),
+    ]).start(() => setHeartPhotoIndex(null));
+  };
+
+  const handlePhotoTap = (index: number) => {
+    const now = Date.now();
+    if (now - lastPhotoTapAt.current > 280) {
+      lastPhotoTapAt.current = now;
+      return;
     }
+
+    lastPhotoTapAt.current = 0;
+    if (!requireAuth() || !item || !user) return;
+    animatePhotoLike(index);
+    if (!isLiked) void createLike();
   };
 
   const deleteComment = async (commentId: string) => {
@@ -421,11 +478,6 @@ export default function CatchDetailModal({
     ...(item?.extraPhotos || []),
   ];
 
-  const openFullscreenPhoto = (index: number) => {
-    setFullscreenIndex(index);
-    setFullscreenPhotos(photos);
-  };
-
   const formatDate = (val?: string) => {
     if (!val) return t("recently");
     const num = Number(val);
@@ -544,20 +596,22 @@ export default function CatchDetailModal({
                   }
                 >
                   {photos.map((uri, i) => (
-                    <Pressable
-                      key={i}
-                      onPress={() => openFullscreenPhoto(i)}
-                      style={{ width: SCREEN_WIDTH, height: 280 }}
-                    >
-                      <ExpoImage
-                        source={{ uri }}
-                        placeholder={require("../assets/placeholder.png")}
-                        cachePolicy="memory-disk"
-                        transition={120}
-                        contentFit="cover"
-                        style={{ width: SCREEN_WIDTH, height: 280 }}
-                      />
-                    </Pressable>
+                    <View key={i} style={styles.catchPhotoPage}>
+                      <Pressable onPress={() => handlePhotoTap(i)} style={styles.catchPhotoPressable}>
+                        <CatchPhoto uri={uri} />
+                        {heartPhotoIndex === i && (
+                          <Animated.View
+                            pointerEvents="none"
+                            style={[
+                              styles.photoLikeHeart,
+                              { opacity: photoHeartOpacity, transform: [{ scale: photoHeartScale }] },
+                            ]}
+                          >
+                            <Ionicons name="heart" size={84} color="#ffffff" />
+                          </Animated.View>
+                        )}
+                      </Pressable>
+                    </View>
                   ))}
                 </ScrollView>
                 {photos.length > 1 && (
@@ -676,7 +730,7 @@ export default function CatchDetailModal({
                     </View>
                     <Ionicons name="chevron-forward" size={14} color="#475569" />
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.editPickerRow} onPress={() => setEditGearModal(true)}>
+                  <TouchableOpacity style={styles.editPickerRow} onPress={() => { setEditGearTab(getGearPickerTab(editGear)); setEditGearModal(true); }}>
                     {editGear && gearPhotos[editGear] && (
                       <ExpoImage source={gearPhotos[editGear]} style={styles.editPickerThumb} contentFit="contain" />
                     )}
@@ -909,12 +963,23 @@ export default function CatchDetailModal({
                 clearButtonMode="while-editing"
               />
             </View>
+            <View style={styles.speciesTabRow} accessibilityRole="tablist">
+              {(["lure", "bait"] as GearPickerTab[]).map((tab) => (
+                <TouchableOpacity
+                  key={tab}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: editGearTab === tab }}
+                  style={[styles.speciesTabBtn, editGearTab === tab && styles.speciesTabBtnActive]}
+                  onPress={() => setEditGearTab(tab)}
+                >
+                  <Text style={[styles.speciesTabText, editGearTab === tab && styles.speciesTabTextActive]}>
+                    {t(tab === "lure" ? "gearCategoryLure" : "gearCategoryBait")}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <FlatList
-              data={getGearOptions(language).filter(g => {
-                if (!editGearSearch.trim()) return true;
-                const q = editGearSearch.toLowerCase();
-                return g.labelRu.toLowerCase().includes(q) || g.labelEn.toLowerCase().includes(q);
-              })}
+              data={filterGearOptions(language, editGearTab, editGearSearch)}
               keyExtractor={g => g.id}
               keyboardShouldPersistTaps="handled"
               renderItem={({ item: g }) => (
@@ -932,9 +997,6 @@ export default function CatchDetailModal({
                     )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.pickerItemText}>{g.label}</Text>
-                      <Text style={[styles.pickerItemSub, { color: GEAR_CATEGORY_COLOR[g.category] }]}>
-                        {t(g.category === "lure" ? "gearCategoryLure" : g.category === "bait" ? "gearCategoryBait" : "gearCategoryRig")}
-                      </Text>
                     </View>
                   </View>
                 </Pressable>
@@ -943,51 +1005,6 @@ export default function CatchDetailModal({
           </SafeAreaView>
         </Modal>
 
-        {/* Fullscreen photo viewer */}
-        <Modal visible={fullscreenPhotos.length > 0} transparent animationType="none" onRequestClose={() => setFullscreenPhotos([])}>
-          <View style={{ flex: 1, backgroundColor: "#000" }}>
-            <ScrollView
-              ref={fullscreenScrollRef}
-              horizontal
-              pagingEnabled
-              contentOffset={{ x: fullscreenIndex * SCREEN_WIDTH, y: 0 }}
-              showsHorizontalScrollIndicator={false}
-              scrollEventThrottle={16}
-              style={{ width: SCREEN_WIDTH, flex: 1 }}
-              onMomentumScrollEnd={(e) =>
-                setFullscreenIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-              }
-            >
-              {fullscreenPhotos.map((uri, i) => (
-                <Pressable
-                  key={i}
-                  style={{ width: SCREEN_WIDTH, flex: 1, justifyContent: "center" }}
-                  onPress={() => setFullscreenPhotos([])}
-                >
-                  <ExpoImage source={{ uri }} contentFit="contain" style={{ width: SCREEN_WIDTH, height: "100%" }} />
-                </Pressable>
-              ))}
-            </ScrollView>
-            {fullscreenPhotos.length > 1 && (
-              <View style={{ position: "absolute", bottom: safeBottom + 24, width: "100%", flexDirection: "row", justifyContent: "center", gap: 6 }}>
-                {fullscreenPhotos.map((_, i) => (
-                  <View
-                    key={i}
-                    style={{
-                      width: i === fullscreenIndex ? 16 : 6,
-                      height: 6,
-                      borderRadius: 3,
-                      backgroundColor: i === fullscreenIndex ? "#fff" : "rgba(255,255,255,0.35)",
-                    }}
-                  />
-                ))}
-              </View>
-            )}
-            <Pressable onPress={() => setFullscreenPhotos([])} style={{ position: "absolute", top: safeTop + 12, right: 16, width: 44, height: 44, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="close" size={22} color="#fff" />
-            </Pressable>
-          </View>
-        </Modal>
       </Modal>
 
     </>
@@ -996,6 +1013,21 @@ export default function CatchDetailModal({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
+  catchPhotoPage: { width: SCREEN_WIDTH, height: 280 },
+  catchPhotoPressable: { flex: 1 },
+  catchPhoto: { flex: 1, backgroundColor: theme.colors.surface, overflow: "hidden" },
+  catchPhotoImage: { width: "100%", height: "100%" },
+  photoLikeHeart: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  catchPhotoLoader: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface,
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",

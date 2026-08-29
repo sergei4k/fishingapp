@@ -1,11 +1,10 @@
 import { useEffect } from 'react';
 import { theme } from '../lib/theme';
 import { View, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 
 // Handles fishingapp://oauth2?code=xxx redirect from OAuth providers
 export default function OAuth2Redirect() {
-  const params = useLocalSearchParams();
   const router = useRouter();
 
   useEffect(() => {

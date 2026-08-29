@@ -177,7 +177,7 @@ function smoothPath(pts: { x: number; y: number }[]): string {
   return d;
 }
 
-function HourlyChart({ hourly, utcOffsetSeconds, t, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; t: (k: any) => string; language: string }) {
+function HourlyChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; language: string }) {
   // Compute the current local time AT THE LOCATION using the API-supplied UTC offset.
   // This is correct regardless of what timezone the device is set to.
   const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
@@ -894,7 +894,7 @@ export default function Weather() {
 
         {/* Hourly chart: temperature + precipitation */}
         <Text style={styles.sectionTitle}>{t("hourlyForecast")}</Text>
-        <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} t={t} language={language} />
+        <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} language={language} />
 
         {/* Hourly wind chart */}
         <Text style={styles.sectionTitle}>{t("windForecast")}</Text>

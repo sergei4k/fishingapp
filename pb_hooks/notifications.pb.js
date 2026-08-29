@@ -48,6 +48,15 @@ onRecordAfterCreateSuccess((e) => {
 
 onRecordAfterCreateSuccess((e) => {
   try {
+    require(`${__hooks}/notify_utils.js`).notifyGroupJoinRequest(e);
+  } catch (err) {
+    console.log("group join request notification error:", err);
+  }
+  e.next();
+}, "group_members");
+
+onRecordAfterCreateSuccess((e) => {
+  try {
     require(`${__hooks}/notify_utils.js`).notifyNewUser(e);
   } catch (err) {
     console.log("new-user admin alert error:", err);

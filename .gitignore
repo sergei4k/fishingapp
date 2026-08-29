@@ -36,6 +36,9 @@ yarn-error.*
 # local env files
 .env
 
+# agent worktrees
+.claude/worktrees/
+
 
 
 # EAS local credentials
@@ -82,4 +85,5 @@ app-example
 pocketbase
 pocketbase.exe
 pb_data/
-pb_migrations/
+# Keep pb_migrations/ version-controlled so schema and access-rule changes
+# can be reviewed and reproduced across environments.
