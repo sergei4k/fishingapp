@@ -2,32 +2,34 @@
 import "react-native-gesture-handler";
 import { theme } from '../../lib/theme';
 
-import { useLanguage } from "@/lib/language";
-import { getSpeciesLabel } from "@/lib/species";
-import { getGearLabel } from "@/lib/gear";
-import { pocketbaseThumbUrl } from "@/lib/imageUrls";
-import gearPhotos from "@/lib/gearPhotos";
+import { Text, TextInput } from "@/components/AppText";
 import CatchDetailModal from "@/components/CatchDetailModal";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import SpotDetailModal, { type Spot } from "@/components/SpotDetailModal";
-import { getCatches } from "@/lib/storage";
-import { pb, isNetworkError } from "@/lib/pocketbase";
 import { useAuth, useRequireAuth } from "@/lib/auth";
+import { getGearLabel } from "@/lib/gear";
+import gearPhotos from "@/lib/gearPhotos";
+import { pocketbaseThumbUrl } from "@/lib/imageUrls";
+import { useLanguage } from "@/lib/language";
+import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
+import { isNetworkError, pb } from "@/lib/pocketbase";
+import { getSpeciesLabel } from "@/lib/species";
+import { getCatches } from "@/lib/storage";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import MapboxGL from "@rnmapbox/maps";
+import { Image as ExpoImage } from "expo-image";
 import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image as ExpoImage } from "expo-image";
-import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
-import { Text, TextInput } from "@/components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
 const PREVIEW_THUMB_SIZE = "300x300";
 const CATCH_VIEW_FADE = { duration: 240, delay: 0 };
 const VIEW_TOGGLE_THUMB_WIDTH = 104;
+const WELCOME_CARD_STORAGE_PREFIX = "@welcome_add_catch_pending:";
 
 
 const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
@@ -83,6 +85,8 @@ export default function Map() {
   const [markersVisible, setMarkersVisible] = useState(true);
   const mapViewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mapViewSlider = useRef(new Animated.Value(0)).current;
+  const welcomeGuideOffset = useRef(new Animated.Value(0)).current;
+  const [showWelcomeCard, setShowWelcomeCard] = useState(false);
 
   const [spots, setSpots] = useState<Spot[]>([]);
   const [publicSpots, setPublicSpots] = useState<Spot[]>([]);
@@ -118,6 +122,65 @@ export default function Map() {
   useEffect(() => () => {
     if (mapViewTimer.current) clearTimeout(mapViewTimer.current);
   }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    if (!user) {
+      setShowWelcomeCard(false);
+      return () => { isActive = false; };
+    }
+
+    void (async () => {
+      const pending = await AsyncStorage.getItem(`${WELCOME_CARD_STORAGE_PREFIX}${user.id}`);
+      if (pending !== "true") return;
+
+      const [catches, remoteCatches] = await Promise.all([
+        getCatches(),
+        pb.collection("catches").getList(1, 1, {
+          filter: pb.filter("user_id = {:userId}", { userId: user.id }),
+          requestKey: null,
+        }),
+      ]);
+      const hasCatches = catches.length > 0 || remoteCatches.totalItems > 0;
+      if (hasCatches) {
+        await AsyncStorage.removeItem(`${WELCOME_CARD_STORAGE_PREFIX}${user.id}`);
+      }
+
+      if (isActive) setShowWelcomeCard(!hasCatches);
+    })().catch(() => {
+      if (isActive) setShowWelcomeCard(false);
+    });
+
+    return () => { isActive = false; };
+  }, [user]);
+
+  const dismissWelcomeCard = useCallback(() => {
+    setShowWelcomeCard(false);
+    if (user) void AsyncStorage.removeItem(`${WELCOME_CARD_STORAGE_PREFIX}${user.id}`);
+  }, [user]);
+
+  useEffect(() => {
+    if (!showWelcomeCard) return;
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(welcomeGuideOffset, { toValue: 10, duration: 560, useNativeDriver: true }),
+        Animated.timing(welcomeGuideOffset, { toValue: 0, duration: 560, useNativeDriver: true }),
+      ])
+    );
+    animation.start();
+
+    return () => {
+      animation.stop();
+      welcomeGuideOffset.setValue(0);
+    };
+  }, [showWelcomeCard, welcomeGuideOffset]);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener("firstCatchOnboardingAddPressed", dismissWelcomeCard);
+    return () => subscription.remove();
+  }, [dismissWelcomeCard]);
 
   // ─── Location ────────────────────────────────────────────────────────────────
 
@@ -705,7 +768,7 @@ export default function Map() {
       </View>
 
       {/* Bottom-left controls: heatmap + location */}
-      <View style={[styles.controls, newSpotCoord ? { bottom: 380 } : null]}>
+      <View style={[styles.controls, showWelcomeCard && styles.controlsWithWelcome, newSpotCoord ? { bottom: 380 } : null]}>
         <Pressable
           style={[styles.controlBtn, showHeatmap && { borderWidth: 4, borderColor: "#0ea5e9" }]}
           onPress={() => setShowHeatmap(v => !v)}
@@ -724,7 +787,7 @@ export default function Map() {
 
 
       {/* Empty state — shown only after catches are confirmed to be empty */}
-      {catchesLoaded && catchesGeoJSON.features.length === 0 && !previewCatch && !newSpotCoord && (
+      {catchesLoaded && catchesGeoJSON.features.length === 0 && !showWelcomeCard && !previewCatch && !newSpotCoord && (
         <View style={styles.emptyCard}>
           <Text style={styles.emptyCardTitle}>{t("noCatchesYet")}</Text>
           <Text style={styles.emptyCardSub}>{t("noCatchesMapSub")}</Text>
@@ -732,6 +795,42 @@ export default function Map() {
             <Text style={styles.emptyCardBtnText}>{t("addFirstCatch")}</Text>
           </TouchableOpacity>
         </View>
+      )}
+
+      {showWelcomeCard && (
+        <>
+          <View style={styles.welcomeBackdrop} pointerEvents="auto" />
+          <View style={[styles.welcomeCard, { top: 0, bottom: 0 }]} accessibilityLiveRegion="polite">
+            <ExpoImage source={require("../../assets/images/default-water-banner.png")} style={styles.welcomeBackgroundImage} contentFit="cover" />
+            <View style={styles.welcomeBackgroundScrim} />
+            <TouchableOpacity
+              style={[styles.welcomeCardClose, { top: safeTop + 12 }]}
+              onPress={dismissWelcomeCard}
+              accessibilityRole="button"
+              accessibilityLabel={language === "ru" ? "Закрыть приветствие" : "Dismiss welcome message"}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={20} color="#ffffff" />
+            </TouchableOpacity>
+            <View style={styles.welcomeCardContent}>
+              <Text style={styles.welcomeCardTitle}>{language === "ru" ? "Добро пожаловать" : "Welcome"}</Text>
+              <Text style={styles.welcomeCardMessage}>
+                {language === "ru"
+                  ? "Добавь свой первый улов"
+                  : "Add your first catch"}
+              </Text>
+            </View>
+            <Animated.View
+              pointerEvents="none"
+              style={[styles.welcomeAddCatchGuide, { transform: [{ translateY: welcomeGuideOffset }] }]}
+            >
+              <Text style={styles.welcomeAddCatchGuideText}>
+                {language === "ru" ? "Нажми «Добавить»" : "Click Add Catch"}
+              </Text>
+              <Ionicons name="arrow-down" size={56} color="#ffffff" />
+            </Animated.View>
+          </View>
+        </>
       )}
 
       {/* Preview card */}
@@ -915,6 +1014,9 @@ const styles = StyleSheet.create({
     bottom: 100,
     alignItems: "center",
     zIndex: 9999,
+  },
+  controlsWithWelcome: {
+    bottom: 244,
   },
   viewToggleWrap: {
     position: "absolute",
@@ -1365,5 +1467,70 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
     fontSize: 14,
+  },
+  welcomeCard: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    overflow: "hidden",
+    backgroundColor: theme.colors.background,
+    zIndex: 10001,
+  },
+  welcomeBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.58)",
+    zIndex: 10000,
+  },
+  welcomeCardClose: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(2, 12, 27, 0.46)",
+    zIndex: 1,
+  },
+  welcomeBackgroundImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  welcomeBackgroundScrim: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(2, 12, 27, 0.62)",
+  },
+  welcomeCardTitle: {
+    color: "#ffffff",
+    fontFamily: theme.fonts.displayBold,
+    fontSize: 30,
+    lineHeight: 36,
+  },
+  welcomeCardContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+  },
+  welcomeCardMessage: {
+    color: "#e2e8f0",
+    fontFamily: theme.fonts.bodyMedium,
+    fontSize: 17,
+    lineHeight: 24,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  welcomeAddCatchGuide: {
+    position: "absolute",
+    bottom: 2,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  welcomeAddCatchGuideText: {
+    color: "#ffffff",
+    fontFamily: theme.fonts.bodyBold,
+    fontSize: 15,
+    marginBottom: 0
   },
 });

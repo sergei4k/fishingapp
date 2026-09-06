@@ -120,37 +120,46 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
   }
 
   const uniqueUserIds = [...new Set(items.map((c) => c.user_id).filter((id) => id && !userMap[id]))] as string[];
-  if (uniqueUserIds.length > 0) {
-    try {
-      const filter = uniqueUserIds.map((id) => `id = "${id}"`).join(" || ");
-      const users = await pb.collection("users").getList(1, uniqueUserIds.length + 5, {
-        filter,
+  const userRequest = uniqueUserIds.length > 0
+    ? pb.collection("users").getList(1, uniqueUserIds.length + 5, {
+        filter: uniqueUserIds.map((id) => `id = "${id}"`).join(" || "),
+        fields: "id,username,name,avatar,badges",
         requestKey: null,
-      });
-      for (const u of users.items) {
-        userMap[u.id] = {
-          username: u.username || u.name || "",
-          avatarUrl: u.avatar
-            ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100`
-            : null,
-          badges: parseBadges(u.badges),
-        };
-      }
-    } catch (e) {
-      console.warn("enrichCatches: user fetch failed", e);
-    }
-  }
+      })
+    : Promise.resolve({ items: [] as any[] });
 
   const ids = items.map((c) => c.id);
   const idFilter = ids.map((id) => `catch_id = "${id}"`).join(" || ");
 
-  const [allLikes, allComments] = await Promise.all([
-    pb.collection("likes").getFullList({ filter: idFilter, requestKey: null }),
-    pb.collection("comments").getFullList({ filter: idFilter, requestKey: null }),
+  const [users, allLikes, allComments] = await Promise.all([
+    userRequest,
+    pb.collection("likes").getFullList({ filter: idFilter, fields: "id,catch_id,user_id", requestKey: null }),
+    pb.collection("comments").getFullList({ filter: idFilter, fields: "catch_id", requestKey: null }),
   ]);
+  for (const u of users.items) {
+    userMap[u.id] = {
+      username: u.username || u.name || "",
+      avatarUrl: u.avatar
+        ? `${pb.baseURL}/api/files/_pb_users_auth_/${u.id}/${u.avatar}?thumb=100x100`
+        : null,
+      badges: parseBadges(u.badges),
+    };
+  }
+
+  const likeStats = new Map<string, { count: number; myLike: any | null }>();
+  for (const like of allLikes as any[]) {
+    const stats = likeStats.get(like.catch_id) ?? { count: 0, myLike: null };
+    stats.count += 1;
+    if (like.user_id === userId) stats.myLike = like;
+    likeStats.set(like.catch_id, stats);
+  }
+  const commentCounts = new Map<string, number>();
+  for (const comment of allComments as any[]) {
+    commentCounts.set(comment.catch_id, (commentCounts.get(comment.catch_id) ?? 0) + 1);
+  }
 
   return items.map((c) => {
-    const myLike = userId ? allLikes.find((l: any) => l.catch_id === c.id && l.user_id === userId) : null;
+    const likes = likeStats.get(c.id) ?? { count: 0, myLike: null };
     const owner = userMap[c.user_id] ?? { username: "", avatarUrl: null };
     return {
       ...c,
@@ -158,10 +167,10 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
       _username: owner.username,
       _avatarUrl: owner.avatarUrl,
       _badges: owner.badges ?? [],
-      _likeCount: allLikes.filter((l: any) => l.catch_id === c.id).length,
-      _commentCount: allComments.filter((cm: any) => cm.catch_id === c.id).length,
-      _isLiked: !!myLike,
-      _likeId: myLike?.id ?? null,
+      _likeCount: likes.count,
+      _commentCount: commentCounts.get(c.id) ?? 0,
+      _isLiked: !!likes.myLike,
+      _likeId: likes.myLike?.id ?? null,
       image_uri: c.image
         ? `${pb.baseURL}/api/files/${c.collectionId}/${c.id}/${c.image}?thumb=600x600`
         : c.image_uri ?? null,
@@ -491,6 +500,9 @@ export default function Social() {
   const [myFollows, setMyFollows] = useState<any[]>([]);
   const [feedItems, setFeedItems] = useState<CatchItem[]>([]);
   const [loadingFeed, setLoadingFeed] = useState(false);
+  const [loadingMoreFeed, setLoadingMoreFeed] = useState(false);
+  const [feedPage, setFeedPage] = useState(1);
+  const [feedHasMore, setFeedHasMore] = useState(true);
 
   // User profile modal
   const [selectedUser, setSelectedUser] = useState<any>(null);
@@ -949,28 +961,40 @@ export default function Social() {
     }, [loadDiscover, loadFollows, loadNews])
   );
 
-  const loadFeed = useCallback(async () => {
-    if (!user || myFollows.length === 0) { setFeedItems([]); return; }
-    setLoadingFeed(true);
+  const loadFeed = useCallback(async (page = 1) => {
+    if (!user || myFollows.length === 0) {
+      setFeedItems([]);
+      setFeedHasMore(false);
+      return;
+    }
+    if (page === 1) setLoadingFeed(true);
+    else setLoadingMoreFeed(true);
     try {
       const visibleFollows = myFollows.filter((f) => !blockedUserIdSet.has(f.following_id));
       if (visibleFollows.length === 0) {
         setFeedItems([]);
+        setFeedHasMore(false);
         return;
       }
       const filterStr = visibleFollows.map((f) => `user_id = "${f.following_id}"`).join(" || ");
-      const records = await pb.collection("catches").getFullList({
+      const result = await pb.collection("catches").getList(page, PAGE_SIZE, {
         filter: `is_public = true && (${filterStr})`,
         sort: "-created_at",
         requestKey: null,
       });
-      setFeedItems(await enrichCatches(records.filter((item: any) => !blockedUserIdSet.has(item.user_id)), user.id));
+      const enriched = await enrichCatches(result.items.filter((item: any) => !blockedUserIdSet.has(item.user_id)), user.id);
+      setFeedItems((prev) => page === 1 ? enriched : [...prev, ...enriched]);
+      setFeedPage(page);
+      setFeedHasMore(page < result.totalPages);
     } catch (e) { console.warn("loadFeed error:", e); }
-    finally { setLoadingFeed(false); }
+    finally {
+      setLoadingFeed(false);
+      setLoadingMoreFeed(false);
+    }
   }, [blockedUserIdSet, user, myFollows]);
 
   useEffect(() => {
-    if (activeTab === "feed") loadFeed();
+    if (activeTab === "feed") loadFeed(1);
   }, [activeTab, myFollows, loadFeed]);
 
   // ── Angler search ─────────────────────────────────────────────────────────
@@ -1084,15 +1108,31 @@ export default function Social() {
     if (!user) return;
     if (targetUser.id === user.id) return; // can't follow yourself
     if (followInFlight.current.has(targetUser.id)) return;
-    followInFlight.current.add(targetUser.id);
     const existing = myFollows.find((f) => f.following_id === targetUser.id);
     if (existing) {
-      try {
-        await pb.collection("follows").delete(existing.id);
-        setMyFollows((prev) => prev.filter((f) => f.id !== existing.id));
-      } catch { console.warn("unfollow error"); }
-      finally { followInFlight.current.delete(targetUser.id); }
+      Alert.alert(
+        t("unfollowConfirmTitle"),
+        t("unfollowConfirmMessage"),
+        [
+          { text: t("cancel"), style: "cancel" },
+          {
+            text: t("unfollow"),
+            style: "destructive",
+            onPress: async () => {
+              if (followInFlight.current.has(targetUser.id)) return;
+              followInFlight.current.add(targetUser.id);
+              try {
+                await pb.collection("follows").delete(existing.id);
+                setMyFollows((prev) => prev.filter((f) => f.id !== existing.id));
+              } catch { console.warn("unfollow error"); }
+              finally { followInFlight.current.delete(targetUser.id); }
+            },
+          },
+        ],
+      );
+      return;
     } else {
+      followInFlight.current.add(targetUser.id);
       try {
         const record = await pb.collection("follows").create({
           follower_id: user.id,
@@ -1414,9 +1454,8 @@ export default function Social() {
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
-      {/* Header row: title + news + notifications */}
+      {/* News and notifications */}
       <View style={styles.socialHeader}>
-        <Text style={styles.socialHeaderTitle}>{language === "ru" ? "Сообщество" : "Community"}</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.notifBtn}
@@ -1542,6 +1581,13 @@ export default function Social() {
             keyExtractor={(i) => i.id}
             renderItem={renderListCard}
             contentContainerStyle={styles.listContent}
+            onEndReached={() => {
+              if (!loadingMoreFeed && feedHasMore) loadFeed(feedPage + 1);
+            }}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={
+              loadingMoreFeed ? <ActivityIndicator color="#ffffff" style={{ marginVertical: 16 }} /> : null
+            }
           />
         )
       )}
@@ -2596,8 +2642,7 @@ const styles = StyleSheet.create({
   followListUserName: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
   followListUserHandle: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
 
-  socialHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
-  socialHeaderTitle: { color: "#e6eef8", fontSize: 22, fontWeight: "700" },
+  socialHeader: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end", paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10 },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 4 },
   notifBtn: { padding: 6, position: "relative" },
   notifBadge: { position: "absolute", top: -4, right: -4, backgroundColor: "#ef4444", borderRadius: 8, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", paddingHorizontal: 3 },

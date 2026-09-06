@@ -849,51 +849,40 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
           ) : null}
         </View>
 
-        <View style={styles.groupBlock}>
-          <TouchableOpacity onPress={editing ? handlePickAvatar : undefined} style={styles.avatarWrap} activeOpacity={editing ? 0.7 : 1}>
-            {avatarUrl ? (
-              <ExpoImage source={{ uri: avatarUrl }} contentFit="cover" style={styles.avatar} />
-            ) : (
-              <Ionicons name="chatbubbles" size={32} color="#94a3b8" />
-            )}
-            {editing ? (
+        {editing ? (
+          <View style={styles.groupBlock}>
+            <TouchableOpacity onPress={handlePickAvatar} style={styles.avatarWrap} activeOpacity={0.7}>
+              {avatarUrl ? (
+                <ExpoImage source={{ uri: avatarUrl }} contentFit="cover" style={styles.avatar} />
+              ) : (
+                <Ionicons name="chatbubbles" size={32} color="#94a3b8" />
+              )}
               <View style={styles.avatarEditBadge}>
                 <Ionicons name="camera-outline" size={11} color="#fff" />
               </View>
-            ) : null}
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          <View style={styles.groupMeta}>
-            {editing ? (
-              <>
-                <TextInput
-                  style={styles.editNameInput}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder={ru ? "Название чата" : "Chat name"}
-                  placeholderTextColor="#475569"
-                  maxLength={60}
-                />
-                <TextInput
-                  style={styles.editDescInput}
-                  value={editDesc}
-                  onChangeText={setEditDesc}
-                  placeholder={ru ? "Описание..." : "Description..."}
-                  placeholderTextColor="#475569"
-                  multiline
-                  maxLength={200}
-                />
-              </>
-            ) : (
-              <>
-                {liveGroup.description ? <Text style={styles.groupDesc}>{liveGroup.description}</Text> : null}
-                <Text style={styles.memberCountText}>
-                  {memberCount} {ru ? "участников" : "members"}
-                </Text>
-              </>
-            )}
+            <View style={styles.groupMeta}>
+              <TextInput
+                style={styles.editNameInput}
+                value={editName}
+                onChangeText={setEditName}
+                placeholder={ru ? "Название чата" : "Chat name"}
+                placeholderTextColor="#475569"
+                maxLength={60}
+              />
+              <TextInput
+                style={styles.editDescInput}
+                value={editDesc}
+                onChangeText={setEditDesc}
+                placeholder={ru ? "Описание..." : "Description..."}
+                placeholderTextColor="#475569"
+                multiline
+                maxLength={200}
+              />
+            </View>
           </View>
-        </View>
+        ) : null}
 
         {!isCreator && currentUserId && !editing && !canChat ? (
           <View style={styles.joinRow}>
@@ -1001,6 +990,21 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
               <TouchableOpacity onPress={() => setSettingsVisible(false)} style={styles.settingsCloseBtn}>
                 <Ionicons name="close" size={22} color="#e6eef8" />
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.settingsChatInfo}>
+              <View style={styles.settingsAvatar}>
+                {avatarUrl ? (
+                  <ExpoImage source={{ uri: avatarUrl }} contentFit="cover" style={styles.settingsAvatarImage} />
+                ) : (
+                  <Ionicons name="chatbubbles" size={24} color="#94a3b8" />
+                )}
+              </View>
+              <View style={styles.settingsChatMeta}>
+                <Text style={styles.settingsChatName} numberOfLines={1}>{liveGroup.name}</Text>
+                {liveGroup.description ? <Text style={styles.settingsChatDescription}>{liveGroup.description}</Text> : null}
+                <Text style={styles.settingsChatMembers}>{memberCount} {ru ? "участников" : "members"}</Text>
+              </View>
             </View>
 
             {canChat ? (
@@ -1271,10 +1275,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "#1e293b",
   },
-  settingsHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
-  settingsTitle: { flex: 1, color: "#e6eef8", fontSize: 17, fontWeight: "800" },
-  settingsCloseBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface },
-  settingsActionRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
+      settingsHeader: { flexDirection: "row", alignItems: "center", marginBottom: 10 },
+      settingsTitle: { flex: 1, color: "#e6eef8", fontSize: 17, fontWeight: "800" },
+      settingsCloseBtn: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface },
+      settingsChatInfo: { flexDirection: "row", gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1e293b" },
+      settingsAvatar: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface, overflow: "hidden" },
+      settingsAvatarImage: { width: 56, height: 56, borderRadius: 28 },
+      settingsChatMeta: { flex: 1, justifyContent: "center" },
+      settingsChatName: { color: "#e6eef8", fontSize: 16, fontWeight: "700" },
+      settingsChatDescription: { color: "#94a3b8", fontSize: 13, lineHeight: 18, marginTop: 2 },
+      settingsChatMembers: { color: "#64748b", fontSize: 12, marginTop: 4 },
+      settingsActionRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
   settingsActionIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface },
   settingsActionTextWrap: { flex: 1 },
   settingsActionTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700" },

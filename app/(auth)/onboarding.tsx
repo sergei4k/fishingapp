@@ -1,4 +1,4 @@
-import { TextInput } from "@/components/AppText";
+import { Text as AppText, TextInput } from "@/components/AppText";
 import { SelectableOption } from "@/components/onboarding/SelectableOption";
 import { useAuth } from "@/lib/auth";
 import { useLanguage } from "@/lib/language";
@@ -24,7 +24,6 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -275,8 +274,8 @@ export default function Onboarding() {
           <View style={screenStyles.progressRow} accessibilityLabel={`${step + 1} / 3`}>
             {[0, 1, 2].map((index) => <View key={index} style={[screenStyles.progressPill, index <= step && screenStyles.progressPillFilled]} />)}
           </View>
-          <Text style={screenStyles.title}>{title}</Text>
-          <Text style={screenStyles.subtitle}>{subtitle}</Text>
+          <AppText style={screenStyles.title}>{title}</AppText>
+          <AppText style={screenStyles.subtitle}>{subtitle}</AppText>
         </View>
 
         <View style={screenStyles.content}>
@@ -312,7 +311,7 @@ export default function Onboarding() {
               {location ? (
                 <View style={screenStyles.selectedLocation}>
                   <Ionicons name="location-sharp" size={20} color={theme.colors.primary} />
-                  <Text style={screenStyles.selectedLocationText} numberOfLines={2}>{location.label}</Text>
+                  <AppText style={screenStyles.selectedLocationText} numberOfLines={2}>{location.label}</AppText>
                   <Pressable onPress={() => { setLocation(null); setLocationQuery(""); }} hitSlop={8} accessibilityLabel={ru ? "Убрать место" : "Remove location"}>
                     <Ionicons name="close-circle" size={22} color={theme.colors.text.muted} />
                   </Pressable>
@@ -331,8 +330,8 @@ export default function Onboarding() {
                       {({ pressed }) => (
                         <View style={[screenStyles.resultCard, pressed && screenStyles.resultPressed]}>
                           <View style={screenStyles.resultCopy}>
-                            <Text style={screenStyles.resultTitle}>{item.city || item.region}</Text>
-                            <Text style={screenStyles.resultSubtitle} numberOfLines={1}>{item.subtitle}</Text>
+                            <AppText style={screenStyles.resultTitle}>{item.city || item.region}</AppText>
+                            <AppText style={screenStyles.resultSubtitle} numberOfLines={1}>{item.subtitle}</AppText>
                           </View>
                         </View>
                       )}
@@ -364,13 +363,13 @@ export default function Onboarding() {
 
               <Pressable style={screenStyles.choosePhotoButton} onPress={pickAvatar} accessibilityRole="button">
                 <Ionicons name="image-outline" size={20} color={theme.colors.primary} />
-                <Text style={screenStyles.choosePhotoText}>
+                <AppText style={screenStyles.choosePhotoText}>
                   {avatarPreviewUri ? (ru ? "Изменить фото" : "Change photo") : (ru ? "Выбрать фото" : "Choose photo")}
-                </Text>
+                </AppText>
               </Pressable>
-              <Text style={screenStyles.avatarPrivacyText}>
+              <AppText style={screenStyles.avatarPrivacyText}>
                 {ru ? "Фото будет видно другим пользователям в вашем профиле и публикациях." : "Other anglers will see this photo on your profile and posts."}
-              </Text>
+              </AppText>
             </View>
           )}
         </View>
@@ -379,7 +378,7 @@ export default function Onboarding() {
           {step > 0 ? (
             <Pressable style={screenStyles.backButton} onPress={() => setStep((current) => current - 1)} disabled={saving}>
               <Ionicons name="arrow-back" size={20} color={theme.colors.text.secondary} />
-              <Text style={screenStyles.backText}>{ru ? "Назад" : "Back"}</Text>
+              <AppText style={screenStyles.backText}>{ru ? "Назад" : "Back"}</AppText>
             </Pressable>
           ) : <View />}
           <Pressable
@@ -389,7 +388,7 @@ export default function Onboarding() {
           >
             {saving ? <ActivityIndicator color="#ffffff" /> : (
               <>
-                <Text style={screenStyles.continueText}>{step === 2 ? (ru ? "Готово" : "Finish") : (ru ? "Продолжить" : "Continue")}</Text>
+                <AppText style={screenStyles.continueText}>{step === 2 ? (ru ? "Готово" : "Finish") : (ru ? "Продолжить" : "Continue")}</AppText>
                 <Ionicons name={step === 2 ? "checkmark" : "arrow-forward"} size={20} color="#ffffff" />
               </>
             )}
@@ -408,7 +407,7 @@ const screenStyles = StyleSheet.create({
   progressPill: { flex: 1, height: 4, borderRadius: 2, backgroundColor: theme.colors.surfaceRaised },
   progressPillFilled: { backgroundColor: theme.colors.primary },
   title: { color: theme.colors.text.primary, fontFamily: theme.fonts.displaySemibold, fontSize: 30, lineHeight: 36 },
-  subtitle: { color: theme.colors.text.secondary, fontSize: 14, lineHeight: 21, marginTop: 8 },
+  subtitle: { color: theme.colors.text.secondary, fontFamily: theme.fonts.body, fontSize: 14, lineHeight: 21, marginTop: 8 },
   content: { flex: 1, paddingHorizontal: 24 },
   optionList: {
     width: "100%",

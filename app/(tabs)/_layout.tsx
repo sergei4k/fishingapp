@@ -27,6 +27,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 
         const onPress = () => {
           const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+          if (route.name === 'add') DeviceEventEmitter.emit('firstCatchOnboardingAddPressed');
           if (!isFocused && !event.defaultPrevented) navigation.navigate(route.name);
         };
 

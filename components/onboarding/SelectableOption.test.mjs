@@ -34,8 +34,10 @@ test("chip resize animation is local and cannot affect the next onboarding scree
   assert.doesNotMatch(optionSource, /LayoutAnimation|AnimatedPressable|layout=|LinearTransition|entering=|exiting=/);
 });
 
-test("the onboarding question uses the native text renderer", () => {
-  assert.match(onboardingSource, /Text,\s*View[\s\S]*from "react-native"/);
+test("onboarding copy uses the app text renderer and an app body font", () => {
+  assert.match(onboardingSource, /import \{ Text as AppText, TextInput \} from "@\/components\/AppText"/);
+  assert.match(onboardingSource, /<AppText style=\{screenStyles\.subtitle\}>\{subtitle\}<\/AppText>/);
+  assert.match(onboardingSource, /subtitle:\s*\{[^}]*fontFamily:\s*theme\.fonts\.body/);
 });
 
 test("the reusable option supports both selection roles while onboarding uses multi-choice styles", () => {

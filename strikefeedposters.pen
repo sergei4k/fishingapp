@@ -52,7 +52,7 @@
           "x": 141,
           "y": 1124,
           "fill": "#ffffff",
-          "content": "Просоединяйся и открой 100+ точек где клюет ",
+          "content": "Присоединяйся и открой 100+ точек, где клюёт",
           "fontFamily": "Inter",
           "fontSize": 34,
           "fontWeight": "normal"
@@ -196,40 +196,2142 @@
       ]
     },
     {
-      "type": "path",
-      "id": "eCQNw",
-      "x": -597,
-      "y": 1671,
-      "geometry": "M0 945.5l1468 0 0 607.5-1468 0 0-607.5z",
-      "fill": {
-        "type": "shader",
-        "opacity": 0.1,
-        "enabled": true,
-        "url": "dither-image.glsl",
-        "uniforms": {
-          "u_image": "images/image.png",
-          "u_cellSize": 5.64,
-          "u_brightness": 0.8,
-          "u_contrast": 1.41,
-          "u_darkColor": "#232d3d",
-          "u_lightColor": "#ffffff00",
-          "u_keepColor": 0
-        }
-      },
-      "width": 1468,
-      "height": 607.5
-    },
-    {
       "type": "frame",
       "id": "Dwh8I",
       "x": 1432,
-      "y": 302,
+      "y": 285.0000000000002,
+      "name": "Pike Guide Instagram Post",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#071E2C",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "sjZ96",
+          "x": 0,
+          "y": 0,
+          "name": "Pike Hero Photo",
+          "metadata": {
+            "type": "unsplash",
+            "username": "jimcrowleyoutdoors",
+            "link": "https://unsplash.com/@jimcrowleyoutdoors",
+            "author": "Jim Crowley"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1763047176928-1a80d696836a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODgwNTc1OTB8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "s9kkZN",
+          "x": 0,
+          "y": 0,
+          "name": "Deep Water Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#031A26EE",
+                "position": 0
+              },
+              {
+                "color": "#031A2688",
+                "position": 0.48
+              },
+              {
+                "color": "#031A26F2",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "Qqd0m",
+          "x": 62,
+          "y": 370,
+          "name": "Pike Guide Headline",
+          "fill": "#F4F0DD",
+          "textGrowth": "fixed-width-height",
+          "width": 880,
+          "height": 210,
+          "content": "ПЕРВАЯ\nЩУКА",
+          "lineHeight": 0.88,
+          "fontFamily": "Oswald",
+          "fontSize": 132,
+          "fontWeight": "700",
+          "letterSpacing": -1
+        },
+        {
+          "type": "text",
+          "id": "mAYYD",
+          "x": 64,
+          "y": 858,
+          "name": "Pike Guide Description",
+          "fill": "#D8E4DE",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "Щука - это зубастый хищник, который водится почти во всех крупных водоёмах Евразии.\n\nПогода, температура и время суток решают всё. Знай её привычки и получишь поклёвку.",
+          "lineHeight": 1.2,
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "500"
+        },
+        {
+          "type": "text",
+          "id": "LR7rY",
+          "x": 64,
+          "y": 65,
+          "name": "StrikeFeed Brand",
+          "fill": "#DDF6E5",
+          "content": "STRIKEFEED",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "qURdM",
+          "x": 64,
+          "y": 300,
+          "name": "Guide Category",
+          "fill": "#A7DDB8",
+          "content": "ГИД ДЛЯ НАЧИНАЮЩИХ  /  01",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "rectangle",
+          "id": "tEtFM",
+          "x": 64,
+          "y": 626,
+          "name": "Headline Divider",
+          "fill": "#B4E45E",
+          "width": 215,
+          "height": 8
+        },
+        {
+          "type": "frame",
+          "id": "uiJgD",
+          "x": 64,
+          "y": 692,
+          "name": "Pike Tip Badge",
+          "width": 460,
+          "height": 90,
+          "fill": "#D7F06C",
+          "gap": 12,
+          "padding": 18,
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "T96Di",
+              "name": "Tip Label",
+              "fill": "#092430",
+              "content": "ПОДСКАЗКА",
+              "fontFamily": "Inter",
+              "fontSize": 16,
+              "fontWeight": "700",
+              "letterSpacing": 1
+            },
+            {
+              "type": "text",
+              "id": "REUDw",
+              "name": "Tip Value",
+              "fill": "#092430",
+              "content": "РАССВЕТ + КАМЫШ",
+              "fontFamily": "Oswald",
+              "fontSize": 28,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "rectangle",
+          "id": "p799J",
+          "x": 64,
+          "y": 1228,
+          "name": "Footer Rule",
+          "fill": "#B7E0D0AA",
+          "width": 952,
+          "height": 2
+        },
+        {
+          "type": "text",
+          "id": "EBDtc",
+          "x": 64,
+          "y": 1260,
+          "name": "Swipe Call To Action",
+          "fill": "#E7F7ED",
+          "content": "БОЛЬШЕ РЫБЫ. МЕНЬШЕ ДОГАДОК.  →",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 1.2
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "FtaNi",
+      "x": 2712,
+      "y": 285,
+      "name": "Pike Guide 02 — Where to Find Pike",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#08222E",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "sKhF4",
+          "x": 0,
+          "y": 0,
+          "name": "Riverbank Structure Photo",
+          "metadata": {
+            "type": "unsplash",
+            "username": "hamburgmeinefreundin",
+            "link": "https://unsplash.com/@hamburgmeinefreundin",
+            "author": "Wolfgang Weiser"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1763465082638-844d845c254b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODgwNTc4Mzh8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "AZ62X",
+          "x": 0,
+          "y": 0,
+          "name": "Where Dark Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#031A26F4",
+                "position": 0
+              },
+              {
+                "color": "#031A2633",
+                "position": 0.52
+              },
+              {
+                "color": "#031A26F0",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "dPF5D",
+          "x": 64,
+          "y": 65,
+          "name": "Where Brand",
+          "fill": "#DDF6E5",
+          "content": "STRIKEFEED",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "tz66c",
+          "x": 64,
+          "y": 126,
+          "name": "Where Index",
+          "fill": "#A7DDB8",
+          "content": "ГИД ДЛЯ НАЧИНАЮЩИХ  /  02",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "fTBOW",
+          "x": 64,
+          "y": 318,
+          "name": "Where Title",
+          "fill": "#F4F0DD",
+          "textGrowth": "fixed-width-height",
+          "width": 850,
+          "height": 220,
+          "content": "ГДЕ ИСКАТЬ\nЩУКУ",
+          "lineHeight": 0.9,
+          "fontFamily": "Oswald",
+          "fontSize": 116,
+          "fontWeight": "700"
+        },
+        {
+          "type": "rectangle",
+          "id": "U3sZxK",
+          "x": 64,
+          "y": 580,
+          "name": "Where Accent",
+          "fill": "#B4E45E",
+          "width": 220,
+          "height": 8
+        },
+        {
+          "type": "frame",
+          "id": "z5VL2r",
+          "x": 64,
+          "y": 690,
+          "name": "Where To Look List",
+          "width": 820,
+          "height": 290,
+          "layout": "vertical",
+          "gap": 18,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Klktc",
+              "name": "Where 01",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "UPcwI",
+                  "name": "Where 01 Number",
+                  "fill": "#B4E45E",
+                  "content": "01",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "Wctvj",
+                  "name": "Where 01 Text",
+                  "fill": "#F0F7EF",
+                  "content": "У ПОВАЛЕННЫХ БРЁВЕН",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "adrAv",
+              "name": "Where 02",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "HYN79",
+                  "name": "Where 02 Number",
+                  "fill": "#B4E45E",
+                  "content": "02",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "b3KF5D",
+                  "name": "Where 02 Text",
+                  "fill": "#F0F7EF",
+                  "content": "ВДОЛЬ БЕРЕГОВОЙ БРОВКИ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "dbayR",
+              "name": "Where 03",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "JfEou",
+                  "name": "Where 03 Number",
+                  "fill": "#B4E45E",
+                  "content": "03",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "tcCDE",
+                  "name": "Where 03 Text",
+                  "fill": "#F0F7EF",
+                  "content": "В СТРУКТУРЕ — ЩУКА В ЗАСАДЕ",
+                  "fontFamily": "Inter",
+                  "fontSize": 26,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "nKe6N",
+          "x": 64,
+          "y": 1230,
+          "name": "Where Footer",
+          "fill": "#E7F7ED",
+          "content": "ИЩИ УКРЫТИЯ. ЖДИ УДАР.  →",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 1.2
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "eG18A",
+      "x": 3992,
+      "y": 285,
+      "name": "Pike Guide 03 — Lures",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#08222E",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "J18MUv",
+          "x": 0,
+          "y": 0,
+          "name": "Pike Lures Photo",
+          "metadata": {
+            "type": "unsplash",
+            "username": "claybanks",
+            "link": "https://unsplash.com/@claybanks",
+            "author": "Clay Banks"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1614000403069-8b368185db9f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODgwNTc5MzB8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "F3OUc",
+          "x": 0,
+          "y": 0,
+          "name": "Lures Dark Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#071D2AF2",
+                "position": 0
+              },
+              {
+                "color": "#071D2A44",
+                "position": 0.52
+              },
+              {
+                "color": "#071D2AF0",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "z66uT",
+          "x": 64,
+          "y": 65,
+          "name": "Lures Brand",
+          "fill": "#DDF6E5",
+          "content": "STRIKEFEED",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "b49i41",
+          "x": 64,
+          "y": 126,
+          "name": "Lures Index",
+          "fill": "#A7DDB8",
+          "content": "ГИД ДЛЯ НАЧИНАЮЩИХ  /  03",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "gxuPe",
+          "x": 64,
+          "y": 318,
+          "name": "Lures Title",
+          "fill": "#F4F0DD",
+          "textGrowth": "fixed-width-height",
+          "width": 880,
+          "height": 220,
+          "content": "ВЫБОР\nПРИМАНКИ",
+          "lineHeight": 0.9,
+          "fontFamily": "Oswald",
+          "fontSize": 116,
+          "fontWeight": "700"
+        },
+        {
+          "type": "rectangle",
+          "id": "q18ofd",
+          "x": 64,
+          "y": 580,
+          "name": "Lures Accent",
+          "fill": "#FF6B4A",
+          "width": 220,
+          "height": 8
+        },
+        {
+          "type": "frame",
+          "id": "JEOgu",
+          "x": 64,
+          "y": 690,
+          "name": "Lure Rules",
+          "width": 820,
+          "height": 290,
+          "layout": "vertical",
+          "gap": 18,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Eu7CJ",
+              "name": "Lure 01",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#FFF1DF66",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "j9xKJ",
+                  "name": "Lure 01 Number",
+                  "fill": "#FF8A70",
+                  "content": "01",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "qrQla",
+                  "name": "Lure 01 Name",
+                  "fill": "#FDF4E7",
+                  "content": "ЯРКО",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "X6eY2",
+                  "name": "Lure 01 Note",
+                  "fill": "#FFF4EA",
+                  "content": "Контраст помогает в мутной воде",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "tHEbW",
+              "name": "Lure 02",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#FFF1DF66",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "AuP1f",
+                  "name": "Lure 02 Number",
+                  "fill": "#FF8A70",
+                  "content": "02",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "CJ4Uo",
+                  "name": "Lure 02 Name",
+                  "fill": "#FDF4E7",
+                  "content": "ЦВЕТНО",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "uxrzk",
+                  "name": "Lure 02 Note",
+                  "fill": "#FFF4EA",
+                  "content": "Подбирай под свет и глубину",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "WtsS6",
+              "name": "Lure 03",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#FFF1DF66",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "R6TXJ5",
+                  "name": "Lure 03 Number",
+                  "fill": "#FF8A70",
+                  "content": "03",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "bqXig",
+                  "name": "Lure 03 Name",
+                  "fill": "#FDF4E7",
+                  "content": "ШУМНО",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "dVrXO",
+                  "name": "Lure 03 Note",
+                  "fill": "#FFF4EA",
+                  "content": "Вибрация и звук провоцируют удар",
+                  "fontFamily": "Inter",
+                  "fontSize": 24,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "KEphC",
+          "x": 64,
+          "y": 1230,
+          "name": "Lures Footer",
+          "fill": "#FFF4EA",
+          "content": "ДАЙ ЩУКЕ ПОВОД АТАКОВАТЬ.  →",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 1.2
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "IRNox",
+      "x": 6552,
+      "y": 285,
+      "name": "Pike Guide 05 — Fish Responsibly",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#08222E",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "bWWg2",
+          "x": 0,
+          "y": 0,
+          "name": "Healthy Pike Photo",
+          "metadata": {
+            "type": "unsplash",
+            "username": "sailorgreg123",
+            "link": "https://unsplash.com/@sailorgreg123",
+            "author": "Greg Sellentin"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1747290005812-65f0092627dc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODgwNTc4NDB8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "z3yuMG",
+          "x": 0,
+          "y": 0,
+          "name": "Care Dark Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#082B25F2",
+                "position": 0
+              },
+              {
+                "color": "#082B2566",
+                "position": 0.54
+              },
+              {
+                "color": "#082B25F4",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "fNecH",
+          "x": 64,
+          "y": 65,
+          "name": "Care Brand",
+          "fill": "#E2F4D7",
+          "content": "STRIKEFEED",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "A6l5Zn",
+          "x": 64,
+          "y": 126,
+          "name": "Care Index",
+          "fill": "#BFE7AD",
+          "content": "ГИД ДЛЯ НАЧИНАЮЩИХ  /  05",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "vixPK",
+          "x": 64,
+          "y": 292,
+          "name": "Care Title",
+          "fill": "#F3F6DE",
+          "textGrowth": "fixed-width-height",
+          "width": 880,
+          "height": 200,
+          "content": "РЫБА ДЛЯ\nЗАВТРА",
+          "lineHeight": 0.9,
+          "fontFamily": "Oswald",
+          "fontSize": 108,
+          "fontWeight": "700"
+        },
+        {
+          "type": "frame",
+          "id": "XCZQO",
+          "x": 64,
+          "y": 570,
+          "name": "Moscow Pike Size Limit",
+          "width": 416,
+          "height": 228,
+          "fill": "#D7F06C",
+          "layout": "vertical",
+          "gap": 2,
+          "padding": [
+            22,
+            28
+          ],
+          "children": [
+            {
+              "type": "text",
+              "id": "gC1RI",
+              "name": "Moscow Label",
+              "fill": "#0A352B",
+              "content": "МОСКВА И МО",
+              "fontFamily": "Inter",
+              "fontSize": 25,
+              "fontWeight": "700",
+              "letterSpacing": 1.4
+            },
+            {
+              "type": "text",
+              "id": "u2kl7",
+              "layoutPosition": "absolute",
+              "x": 28,
+              "y": 153,
+              "name": "Pike Size Rule",
+              "fill": "#0A352B",
+              "content": "минимальный размер щуки",
+              "fontFamily": "Inter",
+              "fontSize": 25,
+              "fontWeight": "700"
+            },
+            {
+              "type": "text",
+              "id": "mH0Vt",
+              "layoutPosition": "absolute",
+              "x": 28,
+              "y": 58,
+              "name": "Pike Size",
+              "fill": "#0A352B",
+              "content": "32 СМ",
+              "lineHeight": 0.85,
+              "fontFamily": "Oswald",
+              "fontSize": 102,
+              "fontWeight": "700"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "Qt5CW",
+          "x": 64,
+          "y": 865,
+          "name": "Sustainable Fishing Rules",
+          "width": 860,
+          "height": 228,
+          "layout": "vertical",
+          "gap": 16,
+          "children": [
+            {
+              "type": "frame",
+              "id": "m7DWK",
+              "name": "МЕНЬШЕ 32 СМ — АККУРАТНО ОТПУСТИ",
+              "width": "fill_container",
+              "height": 56,
+              "stroke": "#DBF3D866",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 16,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "ellipse",
+                  "id": "q2XlQi",
+                  "name": "МЕНЬШЕ 32 СМ — АККУРАТНО ОТПУСТИ Marker",
+                  "fill": "#B4E45E",
+                  "width": 14,
+                  "height": 14
+                },
+                {
+                  "type": "text",
+                  "id": "zVdHP",
+                  "name": "МЕНЬШЕ 32 СМ — АККУРАТНО ОТПУСТИ Text",
+                  "fill": "#F0F7EF",
+                  "content": "МЕНЬШЕ 32 СМ — АККУРАТНО ОТПУСТИ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "j8OF3Y",
+              "name": "СМОЧИ РУКИ ПЕРЕД КОНТАКТОМ С РЫБОЙ",
+              "width": "fill_container",
+              "height": 56,
+              "stroke": "#DBF3D866",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 16,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "ellipse",
+                  "id": "C1zHh",
+                  "name": "СМОЧИ РУКИ ПЕРЕД КОНТАКТОМ С РЫБОЙ Marker",
+                  "fill": "#B4E45E",
+                  "width": 14,
+                  "height": 14
+                },
+                {
+                  "type": "text",
+                  "id": "VZcLU",
+                  "name": "СМОЧИ РУКИ ПЕРЕД КОНТАКТОМ С РЫБОЙ Text",
+                  "fill": "#F0F7EF",
+                  "content": "СМОЧИ РУКИ ПЕРЕД КОНТАКТОМ С РЫБОЙ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "J3PdP",
+              "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ",
+              "width": "fill_container",
+              "height": 56,
+              "stroke": "#DBF3D866",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 16,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "ellipse",
+                  "id": "I1PVjH",
+                  "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ Marker",
+                  "fill": "#B4E45E",
+                  "width": 14,
+                  "height": 14
+                },
+                {
+                  "type": "text",
+                  "id": "EE3UV",
+                  "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ Text",
+                  "fill": "#F0F7EF",
+                  "content": "ПРОВЕРЯЙ ЗАПРЕТЫ ДЛЯ ВОДОЁМА",
+                  "fontFamily": "Inter",
+                  "fontSize": 23,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "UKRSO",
+              "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ",
+              "width": "fill_container",
+              "height": 56,
+              "stroke": "#DBF3D866",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 16,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "ellipse",
+                  "id": "zkKnf",
+                  "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ Marker",
+                  "fill": "#B4E45E",
+                  "width": 14,
+                  "height": 14
+                },
+                {
+                  "type": "text",
+                  "id": "f5BXv",
+                  "name": "ПРОВЕРЯЙ СЕЗОННЫЕ ЗАПРЕТЫ И ВОДОЁМ Text",
+                  "fill": "#F0F7EF",
+                  "content": "ДОБАВЬ СВОЙ УЛОВ В STRIKEFEED",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "uEGNU",
+          "x": 64,
+          "y": 1230,
+          "name": "Care Footer",
+          "fill": "#D8F0D7",
+          "content": "СВЕРЬ ПРАВИЛА ДЛЯ КОНКРЕТНОГО ВОДОЁМА  →",
+          "fontFamily": "Inter",
+          "fontSize": 21,
+          "fontWeight": "700",
+          "letterSpacing": 0.8
+        },
+        {
+          "type": "text",
+          "id": "yroCS",
+          "x": 556,
+          "y": 570,
+          "name": "МЕНЬШЕ 32 СМ — АККУРАТНО ОТПУСТИ Text",
+          "fill": "#F0F7EF",
+          "textGrowth": "fixed-width",
+          "width": 415,
+          "content": "Измеряй и отпускай, чтобы и твои дети могли ловить",
+          "fontFamily": "Inter",
+          "fontSize": 46,
+          "fontWeight": "700"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "orChU",
+      "x": 5272,
+      "y": 285,
+      "name": "Pike Guide 04 — Best Time",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#08222E",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "qHxWd",
+          "x": 0,
+          "y": 0,
+          "name": "Riverbank Structure Photo",
+          "metadata": {
+            "type": "unsplash",
+            "username": "bigeruta",
+            "link": "https://unsplash.com/@bigeruta",
+            "author": "Elton Sa"
+          },
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "https://images.unsplash.com/photo-1575927699334-7bfc5ed18f80?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w4NDM0ODN8MHwxfHJhbmRvbXx8fHx8fHx8fDE3ODgwNTgyMzR8&ixlib=rb-4.1.0&q=80&w=1080",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "Zum26",
+          "x": 0,
+          "y": 0,
+          "name": "Where Dark Overlay",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#031A26F4",
+                "position": 0
+              },
+              {
+                "color": "#031A2633",
+                "position": 0.52
+              },
+              {
+                "color": "#031A26F0",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "X3l5zT",
+          "x": 64,
+          "y": 65,
+          "name": "Where Brand",
+          "fill": "#DDF6E5",
+          "content": "STRIKEFEED",
+          "fontFamily": "Inter",
+          "fontSize": 28,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "fl02x",
+          "x": 64,
+          "y": 126,
+          "name": "Where Index",
+          "fill": "#A7DDB8",
+          "content": "ГИД ДЛЯ НАЧИНАЮЩИХ / 04",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 2
+        },
+        {
+          "type": "text",
+          "id": "Vp9bl",
+          "x": 64,
+          "y": 318,
+          "name": "Where Title",
+          "fill": "#F4F0DD",
+          "textGrowth": "fixed-width-height",
+          "width": 850,
+          "height": 220,
+          "content": "КОГДА\nЛОВИТЬ",
+          "lineHeight": 0.9,
+          "fontFamily": "Oswald",
+          "fontSize": 116,
+          "fontWeight": "700"
+        },
+        {
+          "type": "rectangle",
+          "id": "VeT6z",
+          "x": 64,
+          "y": 580,
+          "name": "Where Accent",
+          "fill": "#B4E45E",
+          "width": 220,
+          "height": 8
+        },
+        {
+          "type": "frame",
+          "id": "uEkN0",
+          "x": 64,
+          "y": 690,
+          "name": "Where To Look List",
+          "width": 820,
+          "height": 290,
+          "layout": "vertical",
+          "gap": 18,
+          "children": [
+            {
+              "type": "frame",
+              "id": "OcUzn",
+              "name": "Where 01",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "OgowJ",
+                  "name": "Where 01 Number",
+                  "fill": "#B4E45E",
+                  "content": "01",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "PWb5f",
+                  "name": "Where 01 Text",
+                  "fill": "#F0F7EF",
+                  "content": "НА РАССВЕТЕ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "YVxJm",
+              "name": "Where 02",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "Hr3bu",
+                  "name": "Where 02 Number",
+                  "fill": "#B4E45E",
+                  "content": "02",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "lOIOk",
+                  "name": "Where 02 Text",
+                  "fill": "#F0F7EF",
+                  "content": "НА ЗАКАТЕ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "I1OWQL",
+              "name": "Where 03",
+              "width": "fill_container",
+              "height": 72,
+              "stroke": "#D9F2E166",
+              "strokeWidth": {
+                "bottom": 1
+              },
+              "gap": 22,
+              "alignItems": "center",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "AMv2Q",
+                  "name": "Where 03 Number",
+                  "fill": "#B4E45E",
+                  "content": "03",
+                  "fontFamily": "Oswald",
+                  "fontSize": 32,
+                  "fontWeight": "700"
+                },
+                {
+                  "type": "text",
+                  "id": "sqUwr",
+                  "name": "Where 03 Text",
+                  "fill": "#F0F7EF",
+                  "content": "ДНЁМ — В ТЕНЬ. РЫБЕ ТОЖЕ ЖАРКО И ЛЕНИВО В ПОЛДЕНЬ",
+                  "fontFamily": "Inter",
+                  "fontSize": 28,
+                  "fontWeight": "700"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "id": "r7o43q",
+          "x": 64,
+          "y": 1230,
+          "name": "Where Footer",
+          "fill": "#E7F7ED",
+          "content": "ЛЕТОМ ИЗБЕГАЙ ПОЛУДЕННОЙ ЖАРЫ →",
+          "fontFamily": "Inter",
+          "fontSize": 24,
+          "fontWeight": "700",
+          "letterSpacing": 1.2
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "Vb7Y1",
+      "x": -39,
+      "y": 2108,
       "name": "Frame 1",
       "clip": true,
       "width": 1080,
       "height": 1350,
       "fill": "#FFFFFF",
-      "layout": "none"
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "JUEAg",
+          "x": 154,
+          "y": 76,
+          "fill": "#000000",
+          "content": "Редкие и неожыданные уловы в Москве реке ",
+          "fontFamily": "Sirin Stencil",
+          "fontSize": 34,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "nSkR2",
+          "x": 154,
+          "y": 300,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-7.png",
+            "mode": "fill"
+          },
+          "width": 811,
+          "height": 437
+        },
+        {
+          "type": "rectangle",
+          "id": "P1cjHB",
+          "x": 152,
+          "y": 790,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-8.png",
+            "mode": "fill"
+          },
+          "width": 813,
+          "height": 504
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "gGY1I",
+      "x": -41,
+      "y": 3802,
+      "name": "Frame 1",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#e8d6b0ff",
+      "layout": "none",
+      "children": [
+        {
+          "type": "text",
+          "id": "B9uBz",
+          "x": 437,
+          "y": 74,
+          "fill": "#000000",
+          "content": "Стерлядь",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 44,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "U6IjaG",
+          "x": 136,
+          "y": 392,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-8.png",
+            "mode": "fill"
+          },
+          "width": 672,
+          "height": 419,
+          "stroke": "#ffffffff",
+          "strokeWidth": 6,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "text",
+          "id": "Kx0Qk",
+          "x": 164,
+          "y": 195,
+          "fill": "#000000",
+          "textGrowth": "fixed-width-height",
+          "width": 852,
+          "height": 129,
+          "content": "Сегодня, встретить эту рыбу можно почти исключительно в платных прудах. Но в ",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 36,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "C3KZhh",
+          "x": 673,
+          "y": 389.0511581728115,
+          "name": "Corner Tape Right",
+          "rotation": 8,
+          "fill": "#D2B778CC",
+          "width": 180,
+          "height": 48
+        },
+        {
+          "type": "rectangle",
+          "id": "n2RBwu",
+          "x": 115,
+          "y": 388.324949201643,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 697,
+          "height": 451
+        },
+        {
+          "type": "rectangle",
+          "id": "nBgJ6",
+          "x": 192.09835615961128,
+          "y": 392.6399185434375,
+          "name": "Corner Tape Right",
+          "rotation": -172,
+          "fill": "#D2B778CC",
+          "width": 108,
+          "height": 37
+        },
+        {
+          "type": "text",
+          "id": "NVV6a",
+          "x": 60,
+          "y": 86,
+          "fill": "#000000",
+          "content": "StrikeFeed App ",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 24,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "H74jj",
+          "x": 164,
+          "y": 935,
+          "fill": "#000000",
+          "textGrowth": "fixed-width-height",
+          "width": 852,
+          "height": 129,
+          "content": "Фото примерно ",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 36,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "b8EMM",
+      "x": 1574,
+      "y": 2092,
+      "name": "Frame 2",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#e8d6aeff",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "CdMYZ",
+          "x": 134,
+          "y": 414,
+          "fill": [
+            {
+              "type": "image",
+              "enabled": true,
+              "url": "image-7.png",
+              "mode": "fill"
+            },
+            {
+              "type": "color",
+              "color": "#808080",
+              "enabled": true,
+              "blendMode": "saturation"
+            }
+          ],
+          "width": 811,
+          "height": 437,
+          "stroke": "#ffffffff",
+          "strokeWidth": 6,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "text",
+          "id": "Jv04V",
+          "x": 323,
+          "y": 81,
+          "fill": "#000000",
+          "textGrowth": "fixed-width-height",
+          "width": 456,
+          "height": 42,
+          "content": "Толстолобик",
+          "fontFamily": "Inter",
+          "fontSize": 44,
+          "fontWeight": "normal"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "bjkBw",
+      "x": 3900,
+      "y": 0,
+      "name": "Rare Catch 01 — Giant Pike",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#1F241D",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "nVGsq",
+          "x": 0,
+          "y": 0,
+          "name": "Photo — Giant Pike",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-2.png",
+            "mode": "fill"
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "nIJSv",
+          "x": 0,
+          "y": 0,
+          "name": "Charcoal Photo Wash",
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "enabled": true,
+            "rotation": 180,
+            "size": {
+              "height": 1
+            },
+            "colors": [
+              {
+                "color": "#111C1DEB",
+                "position": 0
+              },
+              {
+                "color": "#1024262E",
+                "position": 0.47
+              },
+              {
+                "color": "#182014C7",
+                "position": 1
+              }
+            ]
+          },
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "d06Fy",
+          "x": 0,
+          "y": 0,
+          "name": "Weathered Left Binding",
+          "fill": "#D8BE82",
+          "width": 36,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "G8PupX",
+          "x": 36,
+          "y": 0,
+          "name": "Binding Shadow",
+          "fill": "#392D1B99",
+          "width": 9,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "GtY3F",
+          "x": 72,
+          "y": 66,
+          "name": "Series Label",
+          "fill": "#F4E8CA",
+          "textGrowth": "fixed-width",
+          "width": 700,
+          "content": "STRIKEFEED  /  RARE CATCHES  /  FIELD NOTE 01",
+          "fontFamily": "Special Elite",
+          "fontSize": 23,
+          "letterSpacing": 1.1
+        },
+        {
+          "type": "rectangle",
+          "id": "L8D3t",
+          "x": 72,
+          "y": 111,
+          "name": "Top Rule",
+          "fill": "#D8BE82",
+          "width": 510,
+          "height": 3
+        },
+        {
+          "type": "text",
+          "id": "bHZZ1",
+          "x": 72,
+          "y": 168,
+          "name": "Catch Category",
+          "fill": "#E4C77F",
+          "textGrowth": "fixed-width",
+          "width": 470,
+          "content": "NORTHERN PIKE",
+          "fontFamily": "Special Elite",
+          "fontSize": 26,
+          "letterSpacing": 2.6
+        },
+        {
+          "type": "text",
+          "id": "y0BPT",
+          "x": 70,
+          "y": 865,
+          "name": "Pike Headline",
+          "fill": "#FFF2D0",
+          "textGrowth": "fixed-width",
+          "width": 850,
+          "content": "THE OLD\nGHOST",
+          "lineHeight": 0.9,
+          "fontFamily": "Rye",
+          "fontSize": 110,
+          "letterSpacing": 1.2
+        },
+        {
+          "type": "rectangle",
+          "id": "dAOok",
+          "x": 74,
+          "y": 1095,
+          "name": "Headline Underline",
+          "fill": "#D8BE82",
+          "width": 310,
+          "height": 8
+        },
+        {
+          "type": "text",
+          "id": "U2CAA6",
+          "x": 74,
+          "y": 1135,
+          "name": "Pike Caption",
+          "fill": "#F1E4C1",
+          "textGrowth": "fixed-width",
+          "width": 730,
+          "content": "A fish with the look of a relic—\nand the pull of a freight train.",
+          "lineHeight": 1.32,
+          "fontFamily": "Special Elite",
+          "fontSize": 28
+        },
+        {
+          "type": "ellipse",
+          "id": "FA4XH",
+          "x": 830,
+          "y": 1075,
+          "name": "Archive Stamp Ring",
+          "fill": "#26362A55",
+          "width": 178,
+          "height": 178,
+          "stroke": "#E0C57D",
+          "strokeWidth": 3
+        },
+        {
+          "type": "text",
+          "id": "ga67a",
+          "x": 847,
+          "y": 1112,
+          "name": "Archive Stamp",
+          "fill": "#F4E8CA",
+          "textGrowth": "fixed-width",
+          "width": 145,
+          "content": "HANDLE\nWITH\nRESPECT",
+          "lineHeight": 1.05,
+          "textAlign": "center",
+          "fontFamily": "Special Elite",
+          "fontSize": 18
+        },
+        {
+          "type": "text",
+          "id": "o98nN7",
+          "x": 74,
+          "y": 1280,
+          "name": "Post Footer",
+          "fill": "#D8BE82",
+          "textGrowth": "fixed-width",
+          "width": 800,
+          "content": "FIND THE WATER. KEEP THE STORY.",
+          "fontFamily": "Special Elite",
+          "fontSize": 20,
+          "letterSpacing": 1.7
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "K9vlp",
+      "x": 5120,
+      "y": 0,
+      "name": "Rare Catch 02 — The Long One",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#E8D7B1",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "UQYWs",
+          "x": 0,
+          "y": 0,
+          "name": "Aged Paper Ground",
+          "fill": "#E8D7B1",
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "AjopA",
+          "x": 0,
+          "y": 1030,
+          "name": "Bottom Ink Block",
+          "fill": "#223027",
+          "width": 1080,
+          "height": 320
+        },
+        {
+          "type": "text",
+          "id": "n5ictC",
+          "x": 70,
+          "y": 70,
+          "name": "Field Note Label",
+          "fill": "#3D3527",
+          "textGrowth": "fixed-width",
+          "width": 800,
+          "content": "STRIKEFEED  /  THE UNCOMMON CATCH FILES",
+          "fontFamily": "Special Elite",
+          "fontSize": 24,
+          "letterSpacing": 1.4
+        },
+        {
+          "type": "text",
+          "id": "ACJcd",
+          "x": 910,
+          "y": 68,
+          "name": "Post Number",
+          "fill": "#8A6840",
+          "textGrowth": "fixed-width",
+          "width": 100,
+          "content": "02",
+          "textAlign": "right",
+          "fontFamily": "Rye",
+          "fontSize": 42
+        },
+        {
+          "type": "rectangle",
+          "id": "q3dGVj",
+          "x": 70,
+          "y": 122,
+          "name": "Field Note Rule",
+          "fill": "#78613D",
+          "width": 940,
+          "height": 3
+        },
+        {
+          "type": "rectangle",
+          "id": "LAsAN",
+          "x": 72,
+          "y": 215,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 936,
+          "height": 744
+        },
+        {
+          "type": "rectangle",
+          "id": "Cxi8m",
+          "x": 64,
+          "y": 196,
+          "name": "Photo Mount",
+          "rotation": -1,
+          "fill": "#F7EBCF",
+          "width": 936,
+          "height": 744
+        },
+        {
+          "type": "rectangle",
+          "id": "KBnCn",
+          "x": 88,
+          "y": 222,
+          "name": "Photo — Boat Pike",
+          "rotation": -1,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-3.png",
+            "mode": "fill"
+          },
+          "width": 888,
+          "height": 690
+        },
+        {
+          "type": "rectangle",
+          "id": "o4jAP",
+          "x": 88,
+          "y": 222,
+          "name": "Photo Sepia Veil",
+          "rotation": -1,
+          "fill": "#674A2166",
+          "width": 888,
+          "height": 690
+        },
+        {
+          "type": "rectangle",
+          "id": "V2dh3",
+          "x": 115,
+          "y": 191,
+          "name": "Corner Tape Left",
+          "rotation": -8,
+          "fill": "#D2B778CC",
+          "width": 180,
+          "height": 48
+        },
+        {
+          "type": "rectangle",
+          "id": "daoWh",
+          "x": 792,
+          "y": 190,
+          "name": "Corner Tape Right",
+          "rotation": 8,
+          "fill": "#D2B778CC",
+          "width": 180,
+          "height": 48
+        },
+        {
+          "type": "text",
+          "id": "IvXEk",
+          "x": 67,
+          "y": 1045,
+          "name": "Long One Headline",
+          "fill": "#F7EBCF",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "THE LONG ONE",
+          "fontFamily": "Rye",
+          "fontSize": 76,
+          "letterSpacing": 1.2
+        },
+        {
+          "type": "text",
+          "id": "wSmQY",
+          "x": 70,
+          "y": 1142,
+          "name": "Long One Caption",
+          "fill": "#E9D7AB",
+          "textGrowth": "fixed-width",
+          "width": 875,
+          "content": "An old-school kind of catch: big shoulders,\nbad attitude, no easy second chance.",
+          "lineHeight": 1.28,
+          "fontFamily": "Special Elite",
+          "fontSize": 27
+        },
+        {
+          "type": "rectangle",
+          "id": "M1RimF",
+          "x": 70,
+          "y": 1250,
+          "name": "Bottom Rule",
+          "fill": "#D3B977",
+          "width": 940,
+          "height": 2
+        },
+        {
+          "type": "text",
+          "id": "oVRQ3",
+          "x": 70,
+          "y": 1279,
+          "name": "Catch Ethics",
+          "fill": "#D3B977",
+          "textGrowth": "fixed-width",
+          "width": 850,
+          "content": "ADMIRE IT. PHOTOGRAPH IT. LET IT SWIM.",
+          "fontFamily": "Special Elite",
+          "fontSize": 21,
+          "letterSpacing": 1.5
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "pXcUj",
+      "x": 6340,
+      "y": 0,
+      "name": "Rare Catch 03 — Water Wolf",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#283025",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "F9zcKP",
+          "x": 0,
+          "y": 0,
+          "name": "Deep Green Ground",
+          "fill": "#283025",
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "rectangle",
+          "id": "EJPRO",
+          "x": 36,
+          "y": 36,
+          "name": "Weathered Inner Border",
+          "fill": "#283025",
+          "width": 1008,
+          "height": 1278,
+          "stroke": "#D5BB7E",
+          "strokeWidth": 3
+        },
+        {
+          "type": "text",
+          "id": "nhpwH",
+          "x": 74,
+          "y": 74,
+          "name": "Top Brand Mark",
+          "fill": "#EADBB8",
+          "textGrowth": "fixed-width",
+          "width": 500,
+          "content": "STRIKEFEED // WATERSIDE ARCHIVE",
+          "fontFamily": "Special Elite",
+          "fontSize": 23,
+          "letterSpacing": 1.3
+        },
+        {
+          "type": "text",
+          "id": "e7JCR",
+          "x": 855,
+          "y": 72,
+          "name": "Archive Index",
+          "fill": "#D5BB7E",
+          "textGrowth": "fixed-width",
+          "width": 150,
+          "content": "NO. 03",
+          "textAlign": "right",
+          "fontFamily": "Special Elite",
+          "fontSize": 23,
+          "letterSpacing": 1.2
+        },
+        {
+          "type": "rectangle",
+          "id": "wAgJE",
+          "x": 74,
+          "y": 119,
+          "name": "Top Divider",
+          "fill": "#BFA56B",
+          "width": 932,
+          "height": 2
+        },
+        {
+          "type": "ellipse",
+          "id": "k9K83",
+          "x": 750,
+          "y": 160,
+          "name": "Faded Sun Disc",
+          "fill": "#B6955B22",
+          "width": 250,
+          "height": 250,
+          "stroke": "#BFA56B66",
+          "strokeWidth": 2
+        },
+        {
+          "type": "text",
+          "id": "k4Nz4",
+          "x": 75,
+          "y": 184,
+          "name": "Small Catch Kicker",
+          "fill": "#D5BB7E",
+          "textGrowth": "fixed-width",
+          "width": 470,
+          "content": "THE RARE / THE WILD / THE REAL",
+          "fontFamily": "Special Elite",
+          "fontSize": 22,
+          "letterSpacing": 1.2
+        },
+        {
+          "type": "text",
+          "id": "zUQMB",
+          "x": 72,
+          "y": 246,
+          "name": "Water Wolf Title",
+          "fill": "#F6E9C8",
+          "textGrowth": "fixed-width",
+          "width": 820,
+          "content": "WATER\nWOLF",
+          "lineHeight": 0.86,
+          "fontFamily": "Rye",
+          "fontSize": 118,
+          "letterSpacing": 1
+        },
+        {
+          "type": "rectangle",
+          "id": "fO1oB",
+          "x": 78,
+          "y": 470,
+          "name": "Title Ink Slash",
+          "fill": "#C8A85D",
+          "width": 365,
+          "height": 9
+        },
+        {
+          "type": "text",
+          "id": "j7etCm",
+          "x": 75,
+          "y": 510,
+          "name": "Water Wolf Deck",
+          "fill": "#E5D5AF",
+          "textGrowth": "fixed-width",
+          "width": 660,
+          "content": "Not every cast ends with a story.\nThis one came with teeth.",
+          "lineHeight": 1.28,
+          "fontFamily": "Special Elite",
+          "fontSize": 28
+        },
+        {
+          "type": "rectangle",
+          "id": "knANo",
+          "x": 74,
+          "y": 670,
+          "name": "Photo Frame Outer",
+          "fill": "#D8C391",
+          "width": 932,
+          "height": 505
+        },
+        {
+          "type": "rectangle",
+          "id": "nGfUy",
+          "x": 88,
+          "y": 684,
+          "name": "Photo Frame Inner",
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-5.png",
+            "mode": "fill"
+          },
+          "width": 904,
+          "height": 477
+        },
+        {
+          "type": "rectangle",
+          "id": "jbwAc",
+          "x": 88,
+          "y": 684,
+          "name": "Photo Green Tint",
+          "fill": "#2830254A",
+          "width": 904,
+          "height": 477
+        },
+        {
+          "type": "text",
+          "id": "B8U4K",
+          "x": 104,
+          "y": 1118,
+          "name": "Photo Credit Line",
+          "fill": "#EADBB8",
+          "textGrowth": "fixed-width",
+          "width": 840,
+          "content": "FIELD PHOTO  /  PIKE COUNTRY",
+          "fontFamily": "Special Elite",
+          "fontSize": 18,
+          "letterSpacing": 1.7
+        },
+        {
+          "type": "rectangle",
+          "id": "kzVlo",
+          "x": 74,
+          "y": 1226,
+          "name": "Footer Divider",
+          "fill": "#BFA56B",
+          "width": 932,
+          "height": 2
+        },
+        {
+          "type": "text",
+          "id": "vd36X",
+          "x": 74,
+          "y": 1256,
+          "name": "Release Prompt",
+          "fill": "#D5BB7E",
+          "textGrowth": "fixed-width",
+          "width": 880,
+          "content": "KEEP THE MOMENT. RETURN THE FISH.",
+          "fontFamily": "Special Elite",
+          "fontSize": 22,
+          "letterSpacing": 1.5
+        }
+      ]
     }
   ],
   "fileToken": "b00fb356-5982-40d3-9e79-0b15789fe7e7"

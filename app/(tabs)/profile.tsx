@@ -5,6 +5,7 @@ import { getGearLabel, getGearOptions } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
 import { pocketbaseThumbUrl } from "@/lib/imageUrls";
+import { canMakeCatchPublic } from "@/lib/catchFormFlow";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges } from "@/lib/badges";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -20,7 +21,7 @@ import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import SignInPrompt from "@/components/SignInPrompt";
 import { useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, RefreshControl, ScrollView, Share, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/AppText";
 import Swipeable from "react-native-gesture-handler/Swipeable";
@@ -58,6 +59,11 @@ export default function Profile() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [avatarPreviewVisible, setAvatarPreviewVisible] = useState(false);
+  const [bannerFilename, setBannerFilename] = useState<string | null>(user?.banner ?? null);
+
+  useEffect(() => {
+    setBannerFilename(user?.banner ?? null);
+  }, [user?.banner]);
 
   const availableSpecies = useMemo(
     () => [...new Set(catches.map((c) => c.species).filter(Boolean))] as string[],
@@ -179,6 +185,15 @@ export default function Profile() {
   useFocusEffect(useCallback(() => {
     load();
     if (user) {
+      pb.collection("users").getOne(user.id, { fields: "id,banner", requestKey: null })
+        .then((record) => {
+          const banner = record.banner ?? null;
+          setBannerFilename(banner);
+          const currentRecord = pb.authStore.record;
+          if (!currentRecord || currentRecord.id !== user.id || currentRecord.banner === banner) return;
+          pb.authStore.save(pb.authStore.token, { ...currentRecord, banner } as any);
+        })
+        .catch(() => {});
       Promise.all([
         pb.collection("follows").getList(1, 1, { filter: `following_id = "${user.id}"`, requestKey: null }),
         pb.collection("follows").getList(1, 1, { filter: `follower_id = "${user.id}"`, requestKey: null }),
@@ -252,6 +267,7 @@ export default function Profile() {
         type: asset.mimeType || "image/jpeg",
       } as any);
       const record = await pb.collection("users").update(user.id, formData);
+      setBannerFilename(record.banner ?? null);
       pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, banner: record.banner });
     } catch (error: any) {
       console.warn("Banner upload error:", error);
@@ -318,6 +334,10 @@ export default function Profile() {
 
   const handleTogglePublic = async (catchId: string, value: boolean) => {
     if (!selectedCatch) return;
+    if (value && !canMakeCatchPublic({ hasPhoto: !!(selectedCatch.image || selectedCatch.imageUrl || selectedCatch.pbImageUrl) })) {
+      Alert.alert(t("error"), language === "ru" ? "Добавьте фото улова, прежде чем сделать его публичным." : "Add a catch photo before making it public.");
+      return;
+    }
     const updated = { ...selectedCatch, isPublic: value };
     setSelectedCatch(updated);
     await updateCatch(catchId, updated);
@@ -339,7 +359,7 @@ export default function Profile() {
     >
       <TouchableOpacity style={styles.item} onPress={() => openCatch(item)}>
         <ExpoImage
-          source={(item.image ?? item.imageUrl) ? { uri: pocketbaseThumbUrl(item.image ?? item.imageUrl, "200x200")! } : require("../../assets/placeholder.png")}
+          source={(item.imageUrl ?? item.pbImageUrl ?? item.image) ? { uri: pocketbaseThumbUrl(item.imageUrl ?? item.pbImageUrl ?? item.image, "200x200")! } : require("../../assets/placeholder.png")}
           placeholder={require("../../assets/placeholder.png")}
           cachePolicy="memory-disk"
           contentFit="cover"
@@ -368,8 +388,8 @@ export default function Profile() {
     </Swipeable>
   );
 
-  const bannerSource = user?.banner
-    ? { uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.banner}?thumb=1200x400` }
+  const bannerSource = bannerFilename
+    ? { uri: `${pb.baseURL}/api/files/_pb_users_auth_/${user?.id}/${bannerFilename}?thumb=1200x400` }
     : require("../../assets/images/default-water-banner.png");
   const ownAvatarUri = user?.avatar
     ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}`
@@ -720,7 +740,7 @@ export default function Profile() {
       <CatchDetailModal
         catch={selectedCatch ? {
           id: selectedCatch.id,
-          imageUrl: selectedCatch.image ?? selectedCatch.imageUrl ?? null,
+          imageUrl: pocketbaseThumbUrl(selectedCatch.imageUrl ?? selectedCatch.pbImageUrl, "600x600") ?? selectedCatch.image ?? null,
           extraPhotos: selectedCatch.extraPhotos,
           species: selectedCatch.species,
           description: selectedCatch.description,

@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -23,6 +24,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const APPLE_SIGN_IN_TIMEOUT_MS = 30_000;
 const OAUTH_SIGN_IN_TIMEOUT_MS = 120_000;
+const WELCOME_CARD_STORAGE_PREFIX = '@welcome_add_catch_pending:';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<any>(null);
@@ -104,13 +106,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       timeout,
     ]);
     try {
+      let createdUser: any;
       try {
-        await createUser();
+        createdUser = await createUser();
       } catch (e: any) {
         if (!isNetworkError(e)) throw e;
         await new Promise(r => setTimeout(r, 1000));
-        await createUser();
+        createdUser = await createUser();
       }
+      await AsyncStorage.setItem(`${WELCOME_CARD_STORAGE_PREFIX}${createdUser.id}`, 'true').catch(() => {});
       await pb.collection('users').authWithPassword(email, password);
       return { error: null };
     } catch (e: any) {

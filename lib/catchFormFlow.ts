@@ -14,6 +14,10 @@ export function getCatchFormReadiness({ hasPhoto }: CatchFormRequirements): Catc
   return { ready: missing.length === 0, missing };
 }
 
+export function canMakeCatchPublic({ hasPhoto }: CatchFormRequirements): boolean {
+  return hasPhoto;
+}
+
 export function canAdvanceCatchFormStep(step: number, requirements: CatchFormRequirements): boolean {
   return step !== 0 || getCatchFormReadiness(requirements).ready;
 }
