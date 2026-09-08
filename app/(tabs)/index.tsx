@@ -19,10 +19,11 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MapboxGL from "@rnmapbox/maps";
 import { Image as ExpoImage } from "expo-image";
+import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "expo-glass-effect";
 import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
@@ -32,7 +33,14 @@ const VIEW_TOGGLE_THUMB_WIDTH = 104;
 const WELCOME_CARD_STORAGE_PREFIX = "@welcome_add_catch_pending:";
 
 
-const STYLE_URL = "mapbox://styles/mapbox/satellite-streets-v12";
+const MAP_STYLES = [
+  { key: "standard", label: "Normal", labelRu: "Обычная", url: "mapbox://styles/mapbox/standard" },
+  { key: "satellite", label: "Satellite", labelRu: "Спутник", url: "mapbox://styles/mapbox/satellite-v9" },
+  { key: "hybrid", label: "Hybrid", labelRu: "Гибрид", url: "mapbox://styles/mapbox/satellite-streets-v12" },
+  { key: "outdoors", label: "Outdoors", labelRu: "Природа", url: "mapbox://styles/mapbox/outdoors-v12" },
+  { key: "dark", label: "Dark", labelRu: "Темная", url: "mapbox://styles/mapbox/dark-v11" },
+] as const;
+type MapStyleKey = (typeof MAP_STYLES)[number]["key"];
 
 type CatchMarker = {
   id: string;
@@ -63,6 +71,7 @@ export default function Map() {
   const mapboxReady = useMapboxReady();
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const liquidGlassAvailable = Platform.OS === "ios" && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
   const safeTop = insets.top;
   const cameraRef = useRef<MapboxGL.Camera>(null);
   const mapReadyRef = useRef(false);
@@ -76,9 +85,14 @@ export default function Map() {
   const zoomLevelRef = useRef(10);
 
   const [previewCatch, setPreviewCatch] = useState<any>(null);
+  const [renderedPreviewCatch, setRenderedPreviewCatch] = useState<any>(null);
+  const previewCardOpacity = useRef(new Animated.Value(0)).current;
   const [detailCatch, setDetailCatch] = useState<any>(null);
 
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [mapStyleKey, setMapStyleKey] = useState<MapStyleKey>("hybrid");
+  const [showStyleMenu, setShowStyleMenu] = useState(false);
+  const styleSheetOffset = useRef(new Animated.Value(320)).current;
   // "public" = all public catches (own public + everyone's); "mine" = all of the user's own catches
   const [mapView, setMapView] = useState<"public" | "mine">("public");
   const [selectedMapView, setSelectedMapView] = useState<"public" | "mine">("public");
@@ -118,6 +132,42 @@ export default function Map() {
       setMarkersVisible(true);
     }, CATCH_VIEW_FADE.duration / 2);
   };
+
+  useEffect(() => {
+    if (!showStyleMenu) return;
+    styleSheetOffset.setValue(320);
+    requestAnimationFrame(() => {
+      Animated.timing(styleSheetOffset, {
+        toValue: 0,
+        duration: 240,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [showStyleMenu, styleSheetOffset]);
+
+  useEffect(() => {
+    if (previewCatch) {
+      setRenderedPreviewCatch(previewCatch);
+      previewCardOpacity.stopAnimation();
+      previewCardOpacity.setValue(0);
+      Animated.timing(previewCardOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    if (!renderedPreviewCatch) return;
+    previewCardOpacity.stopAnimation();
+    Animated.timing(previewCardOpacity, {
+      toValue: 0,
+      duration: 150,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) setRenderedPreviewCatch(null);
+    });
+  }, [previewCatch, renderedPreviewCatch, previewCardOpacity]);
 
   useEffect(() => () => {
     if (mapViewTimer.current) clearTimeout(mapViewTimer.current);
@@ -568,7 +618,7 @@ export default function Map() {
     <View style={{ flex: 1 }}>
       <MapboxGL.MapView
         style={{ flex: 1 }}
-        styleURL={STYLE_URL}
+        styleURL={MAP_STYLES.find((style) => style.key === mapStyleKey)?.url}
         localizeLabels={{ locale: language }}
         logoEnabled={true}
         logoPosition={{ bottom: 8, left: 8 }}
@@ -785,6 +835,72 @@ export default function Map() {
         </Pressable>
       </View>
 
+      {/* Bottom-right map style control */}
+      <View style={styles.styleControlWrap}>
+        <Pressable
+          style={[styles.controlBtn, showStyleMenu && styles.controlBtnActive]}
+          onPress={() => setShowStyleMenu(true)}
+          accessibilityRole="button"
+          accessibilityLabel={language === "ru" ? "Стиль карты" : "Map style"}
+          accessibilityState={{ expanded: showStyleMenu }}
+          android_ripple={{ color: "#00000020", borderless: false, radius: 22 }}
+        >
+          <Ionicons name="layers-outline" size={18} color="#333" />
+        </Pressable>
+      </View>
+
+      <Modal
+        visible={showStyleMenu}
+        transparent
+        animationType="none"
+        onRequestClose={() => setShowStyleMenu(false)}
+      >
+        <View style={styles.styleSheetRoot}>
+          <Pressable style={styles.styleSheetBackdrop} onPress={() => setShowStyleMenu(false)} />
+          <Animated.View
+            style={[styles.styleSheetAnimation, { transform: [{ translateY: styleSheetOffset }] }]}
+          >
+            <GlassView
+              style={[styles.styleSheet, !liquidGlassAvailable && styles.styleSheetFallback, { paddingBottom: Math.max(insets.bottom, 16) }]}
+              glassEffectStyle="regular"
+              tintColor={theme.colors.background}
+              isInteractive
+            >
+              <View style={styles.styleSheetHandle} />
+              <View style={styles.styleSheetHeader}>
+                <Text style={styles.styleSheetTitle}>{language === "ru" ? "Стиль карты" : "Map style"}</Text>
+                <Pressable
+                  style={styles.styleSheetClose}
+                  onPress={() => setShowStyleMenu(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel={language === "ru" ? "Закрыть" : "Close"}
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={20} color="#94a3b8" />
+                </Pressable>
+              </View>
+              {MAP_STYLES.map((style) => (
+                <Pressable
+                  key={style.key}
+                  style={[styles.mapStyleOption, style.key === mapStyleKey && styles.mapStyleOptionActive]}
+                  onPress={() => {
+                    setMapStyleKey(style.key);
+                    setShowStyleMenu(false);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: style.key === mapStyleKey }}
+                >
+                  <Text style={[styles.mapStyleOptionText, style.key === mapStyleKey && styles.mapStyleOptionTextActive]}>
+                    {language === "ru" ? style.labelRu : style.label}
+                  </Text>
+                  {style.key === mapStyleKey && <Ionicons name="checkmark" size={18} color="#ffffff" />}
+                </Pressable>
+              ))}
+            </GlassView>
+          </Animated.View>
+        </View>
+      </Modal>
+
 
       {/* Empty state — shown only after catches are confirmed to be empty */}
       {catchesLoaded && catchesGeoJSON.features.length === 0 && !showWelcomeCard && !previewCatch && !newSpotCoord && (
@@ -834,47 +950,49 @@ export default function Map() {
       )}
 
       {/* Preview card */}
-      {previewCatch && (
+      {renderedPreviewCatch && (
         <TouchableOpacity
           style={styles.previewCard}
           activeOpacity={0.97}
-          onPress={() => { setDetailCatch(previewCatch); setPreviewCatch(null); }}
+          onPress={() => { setDetailCatch(renderedPreviewCatch); setPreviewCatch(null); }}
         >
-          <ImageWithLoader
-            source={previewCatch.imageUrl ? { uri: previewCatch.imageUrl } : require("../../assets/placeholder.png")}
-            placeholder={require("../../assets/placeholder.png")}
-            cachePolicy="memory-disk"
-            transition={120}
-            contentFit="cover"
-            style={styles.previewCardImage}
-          />
-          <View style={styles.previewCardBody}>
-            <Text style={styles.previewCardSpecies} numberOfLines={1}>
-              {getSpeciesLabel(previewCatch.species, language)}
-            </Text>
-            {previewCatch.gear ? (
-              <View style={styles.previewCardGearRow}>
-                {gearPhotos[previewCatch.gear] && <ExpoImage source={gearPhotos[previewCatch.gear]} style={styles.previewCardGearThumb} contentFit="contain" />}
-                <Text style={styles.previewCardGear} numberOfLines={1}>{getGearLabel(previewCatch.gear, language)}</Text>
-              </View>
-            ) : null}
-            <Text style={styles.previewCardDate}>
+          <Animated.View style={[styles.previewCardContent, { opacity: previewCardOpacity }] }>
+            <ImageWithLoader
+              source={renderedPreviewCatch.imageUrl ? { uri: renderedPreviewCatch.imageUrl } : require("../../assets/placeholder.png")}
+              placeholder={require("../../assets/placeholder.png")}
+              cachePolicy="memory-disk"
+              transition={120}
+              contentFit="cover"
+              style={styles.previewCardImage}
+            />
+            <View style={styles.previewCardBody}>
+              <Text style={styles.previewCardSpecies} numberOfLines={1}>
+                {getSpeciesLabel(renderedPreviewCatch.species, language)}
+              </Text>
+              {renderedPreviewCatch.gear ? (
+                <View style={styles.previewCardGearRow}>
+                  {gearPhotos[renderedPreviewCatch.gear] && <ExpoImage source={gearPhotos[renderedPreviewCatch.gear]} style={styles.previewCardGearThumb} contentFit="contain" />}
+                  <Text style={styles.previewCardGear} numberOfLines={1}>{getGearLabel(renderedPreviewCatch.gear, language)}</Text>
+                </View>
+              ) : null}
+              <Text style={styles.previewCardDate}>
               {(() => {
-                if (!previewCatch.createdAt) return t("recently");
-                const d = new Date(previewCatch.createdAt);
+                if (!renderedPreviewCatch.createdAt) return t("recently");
+                const d = new Date(renderedPreviewCatch.createdAt);
                 return isNaN(d.getTime()) ? t("recently") : d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
               })()}
-            </Text>
-            {previewCatch.description ? (
-              <Text style={styles.previewCardDesc} numberOfLines={2}>{previewCatch.description}</Text>
-            ) : null}
-            <View style={styles.previewCardBtn}>
-              <Text style={styles.previewCardBtnText}>{language === "ru" ? "Открыть" : "View catch"}</Text>
+              </Text>
+              {renderedPreviewCatch.description ? (
+                <Text style={styles.previewCardDesc} numberOfLines={2}>{renderedPreviewCatch.description}</Text>
+              ) : null}
+              <View style={styles.previewCardBtn}>
+                <Text style={styles.previewCardBtnText}>{language === "ru" ? "Открыть" : "View catch"}</Text>
+              </View>
             </View>
-          </View>
-          <TouchableOpacity style={styles.previewCardClose} onPress={() => setPreviewCatch(null)} hitSlop={8}>
-            <Ionicons name="close" size={16} color="#94a3b8" />
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.previewCardClose} onPress={() => setPreviewCatch(null)} hitSlop={8}>
+              <Ionicons name="close" size={16} color="#94a3b8" />
+            </TouchableOpacity>
+          </Animated.View>
         </TouchableOpacity>
       )}
 
@@ -1011,12 +1129,19 @@ const styles = StyleSheet.create({
   controls: {
     position: "absolute",
     left: 16,
-    bottom: 100,
+    bottom: 50,
     alignItems: "center",
     zIndex: 9999,
   },
   controlsWithWelcome: {
-    bottom: 244,
+    bottom: 224,
+  },
+  styleControlWrap: {
+    position: "absolute",
+    right: 16,
+    bottom: 20,
+    zIndex: 1,
+    elevation: 0,
   },
   viewToggleWrap: {
     position: "absolute",
@@ -1065,7 +1190,7 @@ const styles = StyleSheet.create({
   zoomControls: {
     position: "absolute",
     left: 16,
-    bottom: 100,
+    bottom: 80,
     alignItems: "center",
     zIndex: 9999,
   },
@@ -1082,7 +1207,81 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
-    opacity: 0.85
+    opacity: 1
+  },
+  controlBtnActive: {
+    borderWidth: 2,
+    borderColor: "#0ea5e9",
+  },
+  styleSheetRoot: {
+    flex: 1,
+    justifyContent: "flex-end",
+  },
+  styleSheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(2, 12, 27, 0.58)",
+  },
+  styleSheetAnimation: {
+    width: "100%",
+  },
+  styleSheet: {
+    backgroundColor: "transparent",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: "#334155",
+  },
+  styleSheetFallback: {
+    backgroundColor: theme.colors.background,
+  },
+  styleSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    backgroundColor: "#64748b",
+    marginBottom: 16,
+  },
+  styleSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  styleSheetTitle: {
+    color: "#e6eef8",
+    fontSize: 25,
+    fontWeight: "800",
+  },
+  styleSheetClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#1e293b",
+  },
+  mapStyleOption: {
+    minHeight: 36,
+    paddingHorizontal: 10,
+    paddingVertical: 20,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  mapStyleOptionActive: {
+    backgroundColor: theme.colors.primaryMuted,
+  },
+  mapStyleOptionText: {
+    color: "#cbd5e1",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  mapStyleOptionTextActive: {
+    color: "#ffffff",
   },
   controlBtnText: {
     fontSize: 18,
@@ -1179,6 +1378,7 @@ const styles = StyleSheet.create({
     left: 72,
     right: 12,
     height: 210,
+    zIndex: 20,
     backgroundColor: theme.colors.background,
     borderRadius: 16,
     flexDirection: "row",
@@ -1188,6 +1388,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 8,
+  },
+  previewCardContent: {
+    ...StyleSheet.absoluteFillObject,
+    flexDirection: "row",
   },
   previewCardImage: {
     width: 170,
@@ -1318,6 +1522,7 @@ const styles = StyleSheet.create({
     bottom: 16,
     left: 72,
     right: 12,
+    zIndex: 20,
     backgroundColor: theme.colors.background,
     borderRadius: 16,
     flexDirection: "row",

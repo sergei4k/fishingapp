@@ -19,7 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
-function CatchPhoto({ uri }: { uri: string }) {
+function CatchPhoto({ uri, onLoadingChange }: { uri: string; onLoadingChange?: (loading: boolean) => void }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,8 +35,14 @@ function CatchPhoto({ uri }: { uri: string }) {
         transition={120}
         contentFit="cover"
         style={styles.catchPhotoImage}
-        onLoadEnd={() => setLoading(false)}
-        onError={() => setLoading(false)}
+        onLoadEnd={() => {
+          setLoading(false);
+          onLoadingChange?.(false);
+        }}
+        onError={() => {
+          setLoading(false);
+          onLoadingChange?.(false);
+        }}
       />
       {loading && (
         <View style={styles.catchPhotoLoader} pointerEvents="none">
@@ -116,6 +122,8 @@ export default function CatchDetailModal({
   const safeBottom = insets.bottom;
 
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [photoLoading, setPhotoLoading] = useState(true);
+  const [loadedPhotos, setLoadedPhotos] = useState<Record<number, boolean>>({});
   const [heartPhotoIndex, setHeartPhotoIndex] = useState<number | null>(null);
   const lastPhotoTapAt = useRef(0);
   const photoHeartScale = useRef(new Animated.Value(0.6)).current;
@@ -186,6 +194,8 @@ export default function CatchDetailModal({
     const catchId = currentCatchId;
 
     setPhotoIndex(0);
+    setPhotoLoading(true);
+    setLoadedPhotos({});
     setHeartPhotoIndex(null);
     lastPhotoTapAt.current = 0;
     setLikeCount(0);
@@ -584,21 +594,29 @@ export default function CatchDetailModal({
 
             {/* Photo carousel */}
             {photos.length > 0 && (
-              <View>
+              <View style={styles.photoCarousel}>
                 <ScrollView
                   horizontal
                   pagingEnabled
                   showsHorizontalScrollIndicator={false}
                   scrollEventThrottle={16}
                   style={{ width: SCREEN_WIDTH }}
-                  onMomentumScrollEnd={(e) =>
-                    setPhotoIndex(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))
-                  }
+                  onMomentumScrollEnd={(e) => {
+                    const nextIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+                    setPhotoLoading(!loadedPhotos[nextIndex]);
+                    setPhotoIndex(nextIndex);
+                  }}
                 >
                   {photos.map((uri, i) => (
                     <View key={i} style={styles.catchPhotoPage}>
                       <Pressable onPress={() => handlePhotoTap(i)} style={styles.catchPhotoPressable}>
-                        <CatchPhoto uri={uri} />
+                        <CatchPhoto
+                          uri={uri}
+                          onLoadingChange={(loading) => {
+                            setLoadedPhotos((current) => ({ ...current, [i]: !loading }));
+                            if (i === photoIndex) setPhotoLoading(loading);
+                          }}
+                        />
                         {heartPhotoIndex === i && (
                           <Animated.View
                             pointerEvents="none"
@@ -619,6 +637,11 @@ export default function CatchDetailModal({
                     {photos.map((_, i) => (
                       <View key={i} style={[styles.dot, i === photoIndex && styles.dotActive]} />
                     ))}
+                  </View>
+                )}
+                {photoLoading && (
+                  <View style={styles.photoLoadingOverlay} pointerEvents="none">
+                    <FishLoader size={76} />
                   </View>
                 )}
               </View>
@@ -1013,6 +1036,7 @@ export default function CatchDetailModal({
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
+  photoCarousel: { position: "relative" },
   catchPhotoPage: { width: SCREEN_WIDTH, height: 280 },
   catchPhotoPressable: { flex: 1 },
   catchPhoto: { flex: 1, backgroundColor: theme.colors.surface, overflow: "hidden" },
@@ -1024,6 +1048,16 @@ const styles = StyleSheet.create({
   },
   catchPhotoLoader: {
     ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.surface,
+  },
+  photoLoadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 280,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: theme.colors.surface,
@@ -1234,8 +1268,8 @@ const styles = StyleSheet.create({
   speciesTabText: { color: "#94a3b8", fontSize: 13, fontWeight: "700" },
   speciesTabTextActive: { color: "#ffffff" },
   pickerItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
-  pickerItemImg: { width: 52, height: 52, flexShrink: 0 },
-  pickerItemImgPlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  pickerItemImg: { width: 76, height: 56, flexShrink: 0 },
+  pickerItemImgPlaceholder: { width: 76, height: 56, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   pickerItemText: { color: "#e6eef8", fontSize: 16 },
   pickerItemSub: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
 });

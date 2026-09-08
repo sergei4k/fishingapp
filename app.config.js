@@ -60,8 +60,11 @@ export default {
     },
     ios: {
       bundleIdentifier: "com.strikefeed.myapp",
-      buildNumber: "6",
+      buildNumber: "7",
       usesAppleSignIn: true,
+      entitlements: {
+        "aps-environment": "production"
+      },
       infoPlist: {
         CFBundleAllowMixedLocalizations: true,
         NSLocationWhenInUseUsageDescription: "StrikeFeed uses your location to show your current position on the fishing map. For example, this helps you see where you are relative to catches and fishing spots while viewing the map. Your location is private and never shared.",
@@ -77,6 +80,7 @@ export default {
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": process.env.MAPBOX_DOWNLOADS_TOKEN
       }],
       "expo-router",
+      "expo-font",
       [
         "expo-splash-screen",
         {

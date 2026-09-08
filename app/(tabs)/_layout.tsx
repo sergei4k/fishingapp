@@ -2,26 +2,54 @@ import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../lib/theme';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Tabs } from 'expo-router';
+import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from 'expo-glass-effect';
 import React, { useEffect, useState } from 'react';
-import { DeviceEventEmitter, Pressable, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { DeviceEventEmitter, Platform, Pressable, useWindowDimensions, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  return (
-    <View style={{
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      height: 64 + insets.bottom,
-      paddingBottom: insets.bottom,
-      borderTopWidth: 0,
-    }}>
-      {state.routes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        if (options.tabBarButton?.({} as any) === null) return null;
+  const { width } = useWindowDimensions();
+  const liquidGlassAvailable = Platform.OS === 'ios' && isLiquidGlassAvailable() && isGlassEffectAPIAvailable();
+  const visibleRoutes = state.routes.filter((route) => descriptors[route.key].options.tabBarButton?.({} as any) !== null);
+  const tabWidth = width / visibleRoutes.length;
+  const activeIndex = Math.max(0, visibleRoutes.findIndex((route) => route.key === state.routes[state.index]?.key));
+  const indicatorPosition = useSharedValue(activeIndex * tabWidth);
 
-        const isFocused = state.index === index;
+  useEffect(() => {
+    indicatorPosition.value = withSpring(activeIndex * tabWidth, {
+      damping: 24,
+      stiffness: 360,
+      mass: 0.55,
+      overshootClamping: false,
+    });
+  }, [activeIndex, indicatorPosition, tabWidth]);
+
+  const indicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: indicatorPosition.value }],
+  }));
+
+  return (
+    <GlassView
+      style={[
+        tabStyles.bar,
+        { height: 64 + insets.bottom, paddingBottom: insets.bottom },
+        !liquidGlassAvailable && tabStyles.fallbackBar,
+      ]}
+      glassEffectStyle="regular"
+      tintColor={theme.colors.surface}
+      isInteractive
+    >
+      <Animated.View
+        pointerEvents="none"
+        style={[tabStyles.indicator, { left: (tabWidth - 36) / 2 }, indicatorStyle]}
+      />
+      {visibleRoutes.map((route) => {
+        const { options } = descriptors[route.key];
+
+        const isFocused = state.routes[state.index]?.key === route.key;
         const color = isFocused ? '#ffffff' : '#94a3b8';
         const icon = options.tabBarIcon?.({ focused: isFocused, color, size: 24 });
 
@@ -44,9 +72,28 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           </Pressable>
         );
       })}
-    </View>
+    </GlassView>
   );
 }
+
+const tabStyles = {
+  bar: {
+    flexDirection: 'row' as const,
+    borderTopWidth: 0,
+  },
+  fallbackBar: {
+    backgroundColor: theme.colors.surface,
+  },
+  indicator: {
+    position: 'absolute' as const,
+    top: 0,
+    width: 36,
+    height: 3,
+    borderBottomLeftRadius: 3,
+    borderBottomRightRadius: 3,
+    backgroundColor: theme.colors.primary,
+  },
+};
 
 export default function TabsLayout() {
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
