@@ -11,6 +11,8 @@ expo-env.d.ts
 .gradle-local/
 
 # Native
+/ios
+/android
 .kotlin/
 *.orig.*
 *.jks
@@ -44,6 +46,7 @@ yarn-error.*
 # EAS local credentials
 credentials.json
 credentials/
+android/app/google-services.json
 
 # typescript
 *.tsbuildinfo

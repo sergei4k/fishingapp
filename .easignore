@@ -1,5 +1,8 @@
 .gradle-local/
 builds/
+/ios
+/android
+android/app/google-services.json
 android/app/build/
 android/.gradle/
 android/build/

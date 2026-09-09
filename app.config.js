@@ -50,11 +50,6 @@ export default {
         "READ_EXTERNAL_STORAGE",
         "CAMERA"
       ],
-      config: {
-        googleMaps: {
-          apiKey: process.env.GOOGLE_MAPS_API_KEY
-        }
-      },
       package: "com.strikefeed.myapp",
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
