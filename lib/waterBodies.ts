@@ -47,6 +47,11 @@ const WATER_TYPE_MAP: Record<string, WaterBodyType> = {
   marina: "other",
 };
 
+const OVERPASS_URLS = [
+  "https://overpass.osm.ch/api/interpreter",
+  "https://overpass-api.de/api/interpreter",
+];
+
 function normalizeType(natural: string | undefined, waterway: string | undefined, waterBody: string | undefined): WaterBodyType {
   if (waterBody && WATER_TYPE_MAP[waterBody]) return WATER_TYPE_MAP[waterBody];
   if (natural && WATER_TYPE_MAP[natural]) return WATER_TYPE_MAP[natural];
@@ -73,15 +78,27 @@ export async function fetchWaterBodies(
   signal?: AbortSignal,
 ): Promise<WaterBody[]> {
   const query = buildOverpassQuery(bbox);
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded", "User-Agent": "StrikeFeed-water-detection/1.0" },
-    body: `data=${encodeURIComponent(query)}`,
-    signal,
-  });
-  if (!res.ok) throw new OverpassError(res.status);
-  
-  const data = await res.json();
+  let data: { elements?: OverpassElement[] } | null = null;
+  let lastError: Error | null = null;
+
+  for (const url of OVERPASS_URLS) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/x-www-form-urlencoded" },
+        body: `data=${encodeURIComponent(query)}`,
+        signal,
+      });
+      if (!res.ok) throw new OverpassError(res.status);
+      data = await res.json();
+      break;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      lastError = error instanceof Error ? error : new Error("Overpass request failed");
+    }
+  }
+
+  if (!data) throw lastError ?? new Error("Overpass request failed");
   const elements = (data.elements || []) as OverpassElement[];
   
   const ways = new Map(elements.filter((e) => e.type === "way").map((e) => [e.id, e]));

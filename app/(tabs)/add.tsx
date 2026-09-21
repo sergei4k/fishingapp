@@ -207,10 +207,9 @@ export default function Add() {
         boundaries.map((body) => {
           const osmId = body.id.replace("way_", "way/").replace("rel_", "relation/");
           const record = records.find((item: any) => item.osm_id === osmId);
-          if (!record) return null;
           return {
-            id: record.id,
-            name: record.name ?? body.name ?? "",
+            id: record?.id,
+            name: record?.name ?? body.name ?? "",
             geometry: body.geometry,
           };
         }).filter((body): body is NonNullable<typeof body> => !!body?.name),
@@ -1239,8 +1238,6 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: "#ffffff",
     alignItems: "center", justifyContent: "center",
     marginRight: 10,
-    shadowColor: "#ffffff", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
-    elevation: 4,
   },
   selectedPreviewImg: { width: 84, height: 64 },
   previewDivider: { width: 1.5, height: 72, backgroundColor: "#2d6a99", marginRight: 10 },

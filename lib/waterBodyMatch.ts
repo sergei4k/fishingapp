@@ -14,7 +14,7 @@ export type WaterBodyGeometry =
   | { type: "MultiLineString"; coordinates: MultiLineCoordinates };
 
 export type WaterBodyMatchCandidate = {
-  id: string;
+  id?: string;
   name: string;
   geometry?: WaterBodyGeometry | string | null;
 };
@@ -108,5 +108,7 @@ export function matchWaterBody(
   if (!matches.length) return null;
   matches.sort((a, b) => Number(b.containsPoint) - Number(a.containsPoint) || a.distance - b.distance);
   const match = matches[0];
-  return { id: match.candidate.id, name: match.candidate.name, isShorelineMatch: !match.containsPoint };
+  return match.candidate.id
+    ? { id: match.candidate.id, name: match.candidate.name, isShorelineMatch: !match.containsPoint }
+    : { name: match.candidate.name, isShorelineMatch: !match.containsPoint };
 }
