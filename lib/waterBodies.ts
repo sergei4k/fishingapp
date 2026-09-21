@@ -64,10 +64,14 @@ export function buildOverpassQuery(bbox: [number, number, number, number]): stri
   return `
 [out:json][timeout:30];
 (
-  way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
-  way["waterway"~"^(river|stream|canal)$"](${minLat},${minLon},${maxLat},${maxLon});
- relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
- relation["waterway"~"^(river|stream|canal)$"](${minLat},${minLon},${maxLat},${maxLon});
+   way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+   way["water"~"^(lake|pond|reservoir|basin|lagoon)$"](${minLat},${minLon},${maxLat},${maxLon});
+   way["landuse"~"^(reservoir|basin)$"](${minLat},${minLon},${maxLat},${maxLon});
+   way["waterway"~"^(river|stream|canal)$"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["water"~"^(lake|pond|reservoir|basin|lagoon)$"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["landuse"~"^(reservoir|basin)$"](${minLat},${minLon},${maxLat},${maxLon});
+  relation["waterway"~"^(river|stream|canal)$"](${minLat},${minLon},${maxLat},${maxLon});
 );
  out geom;
 `;
@@ -108,7 +112,7 @@ export async function fetchWaterBodies(
   
   for (const rel of relations) {
     const tags = rel.tags || {};
-    const type = normalizeType(tags.natural, tags.waterway, tags["water:body"]);
+    const type = normalizeType(tags.natural, tags.waterway, tags.water || tags["water:body"] || tags.landuse);
     const name = tags.name || tags["name:en"] || null;
     
     const outerRings: [number, number][][] = [];
@@ -137,7 +141,7 @@ export async function fetchWaterBodies(
   for (const way of ways.values()) {
     if (way.geometry && way.geometry.length >= 2) {
       const tags = way.tags || {};
-      const type = normalizeType(tags.natural, tags.waterway, tags["water:body"]);
+      const type = normalizeType(tags.natural, tags.waterway, tags.water || tags["water:body"] || tags.landuse);
       const name = tags.name || tags["name:en"] || null;
       
       const coords = way.geometry.map((g) => [g.lon, g.lat] as [number, number]);

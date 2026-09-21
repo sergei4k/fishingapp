@@ -16,6 +16,8 @@ export type WaterBodyGeometry =
 export type WaterBodyMatchCandidate = {
   id?: string;
   name: string;
+  osmId?: string;
+  waterType?: string;
   geometry?: WaterBodyGeometry | string | null;
 };
 
@@ -23,6 +25,9 @@ export type WaterBodyMatch = {
   id?: string;
   name: string;
   isShorelineMatch: boolean;
+  osmId?: string;
+  waterType?: string;
+  geometry?: WaterBodyGeometry | string | null;
 };
 
 function parseGeometry(geometry: WaterBodyMatchCandidate["geometry"]): WaterBodyGeometry | null {
@@ -108,7 +113,12 @@ export function matchWaterBody(
   if (!matches.length) return null;
   matches.sort((a, b) => Number(b.containsPoint) - Number(a.containsPoint) || a.distance - b.distance);
   const match = matches[0];
-  return match.candidate.id
-    ? { id: match.candidate.id, name: match.candidate.name, isShorelineMatch: !match.containsPoint }
-    : { name: match.candidate.name, isShorelineMatch: !match.containsPoint };
+  return {
+    ...(match.candidate.id ? { id: match.candidate.id } : {}),
+    ...(match.candidate.osmId ? { osmId: match.candidate.osmId } : {}),
+    ...(match.candidate.waterType ? { waterType: match.candidate.waterType } : {}),
+    ...(match.candidate.osmId && match.candidate.geometry ? { geometry: match.candidate.geometry } : {}),
+    name: match.candidate.name,
+    isShorelineMatch: !match.containsPoint,
+  };
 }

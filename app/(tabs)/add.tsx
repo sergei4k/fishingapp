@@ -218,6 +218,8 @@ export default function Add() {
           const record = records.find((item: any) => item.osm_id === osmId);
           return {
             id: record?.id,
+            osmId,
+            waterType: body.type,
             name: record?.name ?? body.name ?? "",
             geometry: body.geometry,
           };
@@ -225,6 +227,25 @@ export default function Add() {
         lat,
         lon,
       );
+      if (!boundaryMatch?.id && boundaryMatch?.osmId && boundaryMatch.waterType && boundaryMatch.geometry) {
+        try {
+          const registered = await pb.send<{ id: string; name: string }>("/water-bodies/resolve", {
+            method: "POST",
+            body: {
+              osmId: boundaryMatch.osmId,
+              name: boundaryMatch.name,
+              waterType: boundaryMatch.waterType,
+              latitude: lat,
+              longitude: lon,
+              geometry: boundaryMatch.geometry,
+            },
+          });
+          setWaterBody({ ...boundaryMatch, id: registered.id, name: registered.name });
+          return;
+        } catch (error) {
+          console.warn("Water body registration failed:", error);
+        }
+      }
       setWaterBody(boundaryMatch);
     } catch {
       // Waterbody attribution is optional and must not block saving a catch.
