@@ -184,8 +184,17 @@ export default function Add() {
     setDetectingWater(true);
     setWaterBody(null);
     try {
+      const storedSearchDelta = 0.03;
       const records = await pb.collection("water_bodies").getFullList({
-        filter: 'region = "moscow" || region = "moscow_500km"',
+        filter: pb.filter(
+          "lat >= {:minLat} && lat <= {:maxLat} && lon >= {:minLon} && lon <= {:maxLon}",
+          {
+            minLat: lat - storedSearchDelta,
+            maxLat: lat + storedSearchDelta,
+            minLon: lon - storedSearchDelta,
+            maxLon: lon + storedSearchDelta,
+          },
+        ),
         fields: "id,osm_id,name,geometry",
         requestKey: null,
       });
