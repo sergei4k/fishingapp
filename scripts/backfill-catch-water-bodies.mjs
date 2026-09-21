@@ -4,6 +4,7 @@ import PocketBase from "pocketbase";
 const PB_URL = process.env.PB_URL || process.env.EXPO_PUBLIC_POCKETBASE_URL || "https://strikefeed.tech";
 const EMAIL = process.env.PB_SUPERUSER_EMAIL;
 const PASSWORD = process.env.PB_SUPERUSER_PASSWORD;
+const apply = process.argv.includes("--apply");
 
 if (!EMAIL || !PASSWORD) {
   throw new Error("PB_SUPERUSER_EMAIL and PB_SUPERUSER_PASSWORD are required");
@@ -22,22 +23,28 @@ const [waterBodies, catches] = await Promise.all([
 const candidates = waterBodies
   .filter((waterBody) => waterBody.name && waterBody.geometry)
   .map((waterBody) => ({ id: waterBody.id, name: waterBody.name, geometry: waterBody.geometry }));
-const pending = catches.filter((catchItem) =>
+const eligible = catches.filter((catchItem) =>
   catchItem.lat != null
-  && catchItem.lon != null
-  && !catchItem.water_body_id
-  && !catchItem.water_body_name,
+  && catchItem.lon != null,
 );
 
 let mapped = 0;
+let unchanged = 0;
 let nextIndex = 0;
 
 async function worker() {
-  while (nextIndex < pending.length) {
-    const catchItem = pending[nextIndex];
+  while (nextIndex < eligible.length) {
+    const catchItem = eligible[nextIndex];
     nextIndex += 1;
     const match = matchWaterBody(candidates, Number(catchItem.lat), Number(catchItem.lon));
-    if (!match?.id) continue;
+    if (!match?.id || (catchItem.water_body_id === match.id && catchItem.water_body_name === match.name)) {
+      unchanged += 1;
+      continue;
+    }
+    if (!apply) {
+      mapped += 1;
+      continue;
+    }
     await pb.collection("catches").update(catchItem.id, {
       water_body_id: match.id,
       water_body_name: match.name,
@@ -47,4 +54,4 @@ async function worker() {
 }
 
 await Promise.all(Array.from({ length: 8 }, worker));
-console.log(`Catch waterbody backfill: ${pending.length} eligible, ${mapped} mapped`);
+console.log(`Catch waterbody remap (${apply ? "applied" : "dry run"}): ${eligible.length} checked, ${mapped} ${apply ? "updated" : "would update"}, ${unchanged} unchanged or unmatched`);
