@@ -251,7 +251,7 @@ export default function Profile() {
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [3, 1],
         quality: 0.82,
@@ -484,7 +484,6 @@ export default function Profile() {
       {/* Action buttons */}
       <View style={styles.actionRow}>
         <TouchableOpacity style={styles.actionBtn} onPress={() => setStatsVisible(true)}>
-          <Ionicons name="analytics-outline" size={15} color="#e6eef8" />
           <Text style={styles.actionBtnText}>{language === "ru" ? "Статистика" : "View statistics"}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/social?openSearch=1')}>
@@ -756,6 +755,8 @@ export default function Profile() {
             : undefined,
           lat: selectedCatch.lat,
           lon: selectedCatch.lon,
+          waterBodyId: selectedCatch.waterBodyId,
+          waterBodyName: selectedCatch.waterBodyName,
           isPublic: selectedCatch.isPublic,
         } : null}
         onClose={closeCatch}
@@ -864,7 +865,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
-  actionBtnText: { color: "#e6eef8", fontSize: 13, fontWeight: "600", textAlign: "center" },
+  actionBtnText: { color: "#e6eef8", fontSize: 14, fontWeight: "600", textAlign: "center" },
 
   statsModalContainer: { flex: 1, backgroundColor: theme.colors.background },
   statsModalHeader: {

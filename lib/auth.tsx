@@ -79,7 +79,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && pb.authStore.record?.id) {
-        pushPendingCatches(pb.authStore.record.id).catch(() => {});
+        const userId = pb.authStore.record.id;
+        pushPendingCatches(userId).catch(() => {});
+        // Push tokens can be rotated or unavailable during the initial auth
+        // callback. Retry registration whenever the app becomes active.
+        syncPushTokenForUser(userId).catch((e) =>
+          console.warn('foreground push token sync error:', e),
+        );
       }
     });
     return () => sub.remove();

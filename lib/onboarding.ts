@@ -16,8 +16,21 @@ export const FISHING_STYLES = [
   "other",
 ] as const;
 
+export const ONBOARDING_REFERRAL_SOURCES = [
+  "instagram",
+  "app_store_feed",
+  "play_store_feed",
+  "vkontakte",
+  "threads",
+  "google_search",
+  "yandex",
+  "friend",
+  "other",
+] as const;
+
 export type OnboardingGoal = (typeof ONBOARDING_GOALS)[number];
 export type FishingStyle = (typeof FISHING_STYLES)[number];
+export type OnboardingReferralSource = (typeof ONBOARDING_REFERRAL_SOURCES)[number];
 export type PreferredStartTab = "index" | "social" | "add" | "weather";
 
 export type OnboardingLocation = {
@@ -32,12 +45,16 @@ export type OnboardingPreferencesInput = {
   primaryGoal?: unknown;
   fishingStyles?: unknown;
   location?: OnboardingLocation | null;
+  referralSource?: unknown;
+  referralSourceOther?: unknown;
 };
 
 export type OnboardingPreferences = {
   primaryGoal: OnboardingGoal;
   fishingStyles: FishingStyle[];
   preferredStartTab: PreferredStartTab;
+  referralSource: OnboardingReferralSource | "";
+  referralSourceOther: string;
   location: {
     city: string;
     region: string;
@@ -63,6 +80,7 @@ const TAB_TO_ROUTE: Record<PreferredStartTab, string> = {
 
 const goalSet = new Set<string>(ONBOARDING_GOALS);
 const fishingStyleSet = new Set<string>(FISHING_STYLES);
+const referralSourceSet = new Set<string>(ONBOARDING_REFERRAL_SOURCES);
 
 function cleanText(value: unknown, maxLength = 120): string {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -101,11 +119,17 @@ export function normalizeOnboardingPreferences(input: OnboardingPreferencesInput
   const rawStyles = Array.isArray(input.fishingStyles) ? input.fishingStyles : [];
   const fishingStyles = [...new Set(rawStyles)]
     .filter((style): style is FishingStyle => typeof style === "string" && fishingStyleSet.has(style));
+  const referralSource: OnboardingReferralSource | "" = typeof input.referralSource === "string" && referralSourceSet.has(input.referralSource)
+    ? input.referralSource as OnboardingReferralSource
+    : "";
+  const referralSourceOther = referralSource === "other" ? cleanText(input.referralSourceOther) : "";
 
   return {
     primaryGoal,
     fishingStyles,
     preferredStartTab: getPreferredStartTab(primaryGoal),
+    referralSource,
+    referralSourceOther,
     location: {
       city: cleanText(input.location?.city, 80),
       region: cleanText(input.location?.region, 120),

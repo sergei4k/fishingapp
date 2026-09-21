@@ -1574,13 +1574,14 @@
         {
           "type": "text",
           "id": "B9uBz",
-          "x": 437,
-          "y": 74,
+          "x": 258.01808141863665,
+          "y": 65.94430610499785,
+          "rotation": -0.03450093994408895,
           "fill": "#000000",
           "content": "Стерлядь",
           "fontFamily": "Alegreya SC",
           "fontSize": 44,
-          "fontWeight": "normal"
+          "fontWeight": "500"
         },
         {
           "type": "rectangle",
@@ -1602,13 +1603,13 @@
         {
           "type": "text",
           "id": "Kx0Qk",
-          "x": 164,
-          "y": 195,
+          "x": 52,
+          "y": 164,
           "fill": "#000000",
           "textGrowth": "fixed-width-height",
           "width": 852,
           "height": 129,
-          "content": "Сегодня, встретить эту рыбу можно почти исключительно в платных прудах. Но в ",
+          "content": "Сегодня, встретить эту рыбу можно почти исключительно в платных прудах. ",
           "fontFamily": "Alegreya SC",
           "fontSize": 36,
           "fontWeight": "normal"
@@ -1616,13 +1617,13 @@
         {
           "type": "rectangle",
           "id": "C3KZhh",
-          "x": 673,
-          "y": 389.0511581728115,
+          "x": 885.3552518327906,
+          "y": 389.11759800287473,
           "name": "Corner Tape Right",
-          "rotation": 8,
+          "rotation": -164,
           "fill": "#D2B778CC",
-          "width": 180,
-          "height": 48
+          "width": 187,
+          "height": 47
         },
         {
           "type": "rectangle",
@@ -1638,10 +1639,10 @@
         {
           "type": "rectangle",
           "id": "nBgJ6",
-          "x": 192.09835615961128,
-          "y": 392.6399185434375,
+          "x": 173.53074360871943,
+          "y": 441.04293994002455,
           "name": "Corner Tape Right",
-          "rotation": -172,
+          "rotation": -570,
           "fill": "#D2B778CC",
           "width": 108,
           "height": 37
@@ -1649,8 +1650,8 @@
         {
           "type": "text",
           "id": "NVV6a",
-          "x": 60,
-          "y": 86,
+          "x": 52,
+          "y": 79,
           "fill": "#000000",
           "content": "StrikeFeed App ",
           "fontFamily": "Alegreya SC",
@@ -1660,29 +1661,39 @@
         {
           "type": "text",
           "id": "H74jj",
-          "x": 164,
-          "y": 935,
+          "x": 52,
+          "y": 893,
           "fill": "#000000",
           "textGrowth": "fixed-width-height",
-          "width": 852,
-          "height": 129,
-          "content": "Фото примерно ",
+          "width": 962,
+          "height": 226,
+          "content": "Стерлядь была обычной добычей в Москве-реке с древнерусского времени и особенно в средневековье: археологические слои Зарядья XIII–XVII веков содержат её кости и рыболовные снасти",
           "fontFamily": "Alegreya SC",
           "fontSize": 36,
           "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "uxQfc",
+          "x": 52,
+          "y": 138,
+          "name": "Header Rule",
+          "fill": "#796B50",
+          "width": 976,
+          "height": 2
         }
       ]
     },
     {
       "type": "frame",
       "id": "b8EMM",
-      "x": 1574,
-      "y": 2092,
+      "x": 1432,
+      "y": 3802,
       "name": "Frame 2",
       "clip": true,
       "width": 1080,
       "height": 1350,
-      "fill": "#e8d6aeff",
+      "fill": "#e8d6b0ff",
       "layout": "none",
       "children": [
         {
@@ -1713,16 +1724,120 @@
         {
           "type": "text",
           "id": "Jv04V",
-          "x": 323,
-          "y": 81,
+          "x": 276,
+          "y": 61,
           "fill": "#000000",
           "textGrowth": "fixed-width-height",
           "width": 456,
           "height": 42,
           "content": "Толстолобик",
-          "fontFamily": "Inter",
+          "fontFamily": "Alegreya SC",
           "fontSize": 44,
+          "fontWeight": "500"
+        },
+        {
+          "type": "rectangle",
+          "id": "nQLFU",
+          "x": 230.7108928638645,
+          "y": 425.17929970910063,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "rectangle",
+          "id": "kx1xN",
+          "x": 981.8750930359231,
+          "y": 506.4644285424269,
+          "name": "Corner Tape Right",
+          "rotation": -580,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "rectangle",
+          "id": "OfReR",
+          "x": 102.81341711211508,
+          "y": 401.8946810586913,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 856,
+          "height": 485
+        },
+        {
+          "type": "rectangle",
+          "id": "FbpTV",
+          "x": 1040.8909213410725,
+          "y": 858.0095635029163,
+          "name": "Corner Tape Right",
+          "rotation": -169.99999999999997,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "rectangle",
+          "id": "KIagF",
+          "x": 201.25031086324907,
+          "y": 943.2053718379748,
+          "name": "Corner Tape Right",
+          "rotation": 140.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "text",
+          "id": "iJQc4",
+          "x": 52,
+          "y": 193,
+          "fill": "#000000",
+          "textGrowth": "fixed-width-height",
+          "width": 872,
+          "height": 143,
+          "content": "7 июля 2021 года, на Бережковской набережной поймали толстолобика весом 35  кг.",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 36,
           "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "W13Gkk",
+          "x": 52,
+          "y": 79,
+          "fill": "#000000",
+          "content": "StrikeFeed App ",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 24,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "text",
+          "id": "rXLDT",
+          "x": 52,
+          "y": 968,
+          "fill": "#000000",
+          "textGrowth": "fixed-width-height",
+          "width": 872,
+          "height": 143,
+          "content": "Крупный толстолобик, вероятно, попал в Москву-реку из рыбного хозяйства: в России этот вид естественно обитает только в бассейне Амура.",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 36,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "Hqu7V",
+          "x": 52,
+          "y": 141,
+          "name": "Header Rule",
+          "fill": "#796B50",
+          "width": 976,
+          "height": 2
         }
       ]
     },
@@ -1817,6 +1932,7 @@
           "content": "STRIKEFEED  /  RARE CATCHES  /  FIELD NOTE 01",
           "fontFamily": "Special Elite",
           "fontSize": 23,
+          "fontWeight": "normal",
           "letterSpacing": 1.1
         },
         {
@@ -1841,6 +1957,7 @@
           "content": "NORTHERN PIKE",
           "fontFamily": "Special Elite",
           "fontSize": 26,
+          "fontWeight": "normal",
           "letterSpacing": 2.6
         },
         {
@@ -1856,6 +1973,7 @@
           "lineHeight": 0.9,
           "fontFamily": "Rye",
           "fontSize": 110,
+          "fontWeight": "normal",
           "letterSpacing": 1.2
         },
         {
@@ -1880,7 +1998,8 @@
           "content": "A fish with the look of a relic—\nand the pull of a freight train.",
           "lineHeight": 1.32,
           "fontFamily": "Special Elite",
-          "fontSize": 28
+          "fontSize": 28,
+          "fontWeight": "normal"
         },
         {
           "type": "ellipse",
@@ -1907,7 +2026,8 @@
           "lineHeight": 1.05,
           "textAlign": "center",
           "fontFamily": "Special Elite",
-          "fontSize": 18
+          "fontSize": 18,
+          "fontWeight": "normal"
         },
         {
           "type": "text",
@@ -1921,6 +2041,7 @@
           "content": "FIND THE WATER. KEEP THE STORY.",
           "fontFamily": "Special Elite",
           "fontSize": 20,
+          "fontWeight": "normal",
           "letterSpacing": 1.7
         }
       ]
@@ -1969,6 +2090,7 @@
           "content": "STRIKEFEED  /  THE UNCOMMON CATCH FILES",
           "fontFamily": "Special Elite",
           "fontSize": 24,
+          "fontWeight": "normal",
           "letterSpacing": 1.4
         },
         {
@@ -1983,7 +2105,8 @@
           "content": "02",
           "textAlign": "right",
           "fontFamily": "Rye",
-          "fontSize": 42
+          "fontSize": 42,
+          "fontWeight": "normal"
         },
         {
           "type": "rectangle",
@@ -2078,6 +2201,7 @@
           "content": "THE LONG ONE",
           "fontFamily": "Rye",
           "fontSize": 76,
+          "fontWeight": "normal",
           "letterSpacing": 1.2
         },
         {
@@ -2092,7 +2216,8 @@
           "content": "An old-school kind of catch: big shoulders,\nbad attitude, no easy second chance.",
           "lineHeight": 1.28,
           "fontFamily": "Special Elite",
-          "fontSize": 27
+          "fontSize": 27,
+          "fontWeight": "normal"
         },
         {
           "type": "rectangle",
@@ -2116,6 +2241,7 @@
           "content": "ADMIRE IT. PHOTOGRAPH IT. LET IT SWIM.",
           "fontFamily": "Special Elite",
           "fontSize": 21,
+          "fontWeight": "normal",
           "letterSpacing": 1.5
         }
       ]
@@ -2166,6 +2292,7 @@
           "content": "STRIKEFEED // WATERSIDE ARCHIVE",
           "fontFamily": "Special Elite",
           "fontSize": 23,
+          "fontWeight": "normal",
           "letterSpacing": 1.3
         },
         {
@@ -2181,6 +2308,7 @@
           "textAlign": "right",
           "fontFamily": "Special Elite",
           "fontSize": 23,
+          "fontWeight": "normal",
           "letterSpacing": 1.2
         },
         {
@@ -2217,6 +2345,7 @@
           "content": "THE RARE / THE WILD / THE REAL",
           "fontFamily": "Special Elite",
           "fontSize": 22,
+          "fontWeight": "normal",
           "letterSpacing": 1.2
         },
         {
@@ -2232,6 +2361,7 @@
           "lineHeight": 0.86,
           "fontFamily": "Rye",
           "fontSize": 118,
+          "fontWeight": "normal",
           "letterSpacing": 1
         },
         {
@@ -2256,7 +2386,8 @@
           "content": "Not every cast ends with a story.\nThis one came with teeth.",
           "lineHeight": 1.28,
           "fontFamily": "Special Elite",
-          "fontSize": 28
+          "fontSize": 28,
+          "fontWeight": "normal"
         },
         {
           "type": "rectangle",
@@ -2305,6 +2436,7 @@
           "content": "FIELD PHOTO  /  PIKE COUNTRY",
           "fontFamily": "Special Elite",
           "fontSize": 18,
+          "fontWeight": "normal",
           "letterSpacing": 1.7
         },
         {
@@ -2329,7 +2461,497 @@
           "content": "KEEP THE MOMENT. RETURN THE FISH.",
           "fontFamily": "Special Elite",
           "fontSize": 22,
+          "fontWeight": "normal",
           "letterSpacing": 1.5
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "d2KqWJ",
+      "x": -1241,
+      "y": 3802,
+      "name": "Frame 1",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#e8d6b0ff",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "BsMac",
+          "x": 324.7369969060546,
+          "y": 917.1090190065815,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "text",
+          "id": "Inayb",
+          "x": 107.10477496315616,
+          "y": 171,
+          "rotation": -0.03450093994408895,
+          "fill": "#000000",
+          "textGrowth": "fixed-width",
+          "width": 865,
+          "content": "Интересные и редкие уловы в Москве-реке",
+          "textAlign": "center",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 64,
+          "fontWeight": "500"
+        },
+        {
+          "type": "text",
+          "id": "g5mKx",
+          "x": 52,
+          "y": 79,
+          "fill": "#000000",
+          "content": "StrikeFeed App ",
+          "fontFamily": "Alegreya SC",
+          "fontSize": 24,
+          "fontWeight": "normal"
+        },
+        {
+          "type": "rectangle",
+          "id": "keTuK",
+          "x": 98.7653718043598,
+          "y": 621.3858433229498,
+          "name": "Corner Tape Right",
+          "rotation": 150.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 54,
+          "height": 18
+        },
+        {
+          "type": "rectangle",
+          "id": "EPxV9",
+          "x": 79.56556360592413,
+          "y": 598.4932257259097,
+          "fill": {
+            "type": "image",
+            "enabled": true,
+            "url": "image-8.png",
+            "mode": "fill"
+          },
+          "width": 344,
+          "height": 196,
+          "stroke": "#ffffffff",
+          "strokeWidth": 6,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "rectangle",
+          "id": "eV9cv",
+          "x": 68.82247851358738,
+          "y": 596.7777589802508,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 357,
+          "height": 211
+        },
+        {
+          "type": "rectangle",
+          "id": "V8LMkP",
+          "x": 462.9173366930261,
+          "y": 597.1477573106431,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 95,
+          "height": 22
+        },
+        {
+          "type": "rectangle",
+          "id": "czgTg",
+          "x": 635.7369969060546,
+          "y": 509.87286124463753,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "G9M78",
+          "x": 587.5209393040266,
+          "y": 504.29932404771534,
+          "fill": [
+            {
+              "type": "image",
+              "enabled": true,
+              "url": "image-7.png",
+              "mode": "fill"
+            },
+            {
+              "type": "color",
+              "color": "#808080ff",
+              "enabled": true,
+              "blendMode": "saturation"
+            }
+          ],
+          "width": 404,
+          "height": 218,
+          "stroke": "#ffffffff",
+          "strokeWidth": 6,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "rectangle",
+          "id": "h39AR",
+          "x": 571.9725968949726,
+          "y": 498.2641119006548,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 427,
+          "height": 242
+        },
+        {
+          "type": "rectangle",
+          "id": "LdZBF",
+          "x": 1010.2364485351493,
+          "y": 550.3982698925847,
+          "name": "Corner Tape Right",
+          "rotation": 140.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "R8CrWN",
+          "x": 621.0491672659077,
+          "y": 768.1392694379465,
+          "name": "Corner Tape Right",
+          "rotation": 140.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "rL3u6",
+          "x": 1039.659303528309,
+          "y": 725.664157478047,
+          "name": "Corner Tape Right",
+          "rotation": -169.99999999999997,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "KA5GF",
+          "x": 310.24213321006505,
+          "y": 1179.3982698925847,
+          "name": "Corner Tape Right",
+          "rotation": 140.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "t0DXC4",
+          "x": 252,
+          "y": 914.0202257028632,
+          "name": "Photo Mount Shadow",
+          "rotation": 2,
+          "fill": "#46352033",
+          "width": 545,
+          "height": 242
+        },
+        {
+          "type": "rectangle",
+          "id": "hdZMJ",
+          "x": 819.5810291164747,
+          "y": 1144.6505783192806,
+          "name": "Corner Tape Right",
+          "rotation": -169.99999999999997,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "Q0KLv",
+          "x": 790.242133210065,
+          "y": 957.3982698925847,
+          "name": "Corner Tape Right",
+          "rotation": 140.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 93,
+          "height": 23
+        },
+        {
+          "type": "rectangle",
+          "id": "m7jwAg",
+          "x": 41,
+          "y": 143,
+          "name": "Header Rule",
+          "fill": "#796B50",
+          "width": 976,
+          "height": 2
+        },
+        {
+          "type": "rectangle",
+          "id": "zWCHo",
+          "x": 278,
+          "y": 914,
+          "fill": [
+            {
+              "type": "image",
+              "enabled": true,
+              "url": "image-10.png",
+              "mode": "fill"
+            },
+            {
+              "type": "color",
+              "color": "#808080",
+              "enabled": true,
+              "blendMode": "saturation"
+            }
+          ],
+          "width": 500,
+          "height": 238,
+          "stroke": "#d9d6d0ff",
+          "strokeWidth": 6,
+          "strokeAlignment": "inner"
+        }
+      ]
+    },
+    {
+      "type": "frame",
+      "id": "q39Jj",
+      "x": -41,
+      "y": 5253,
+      "name": "Pike Story — Moscow River 9kg",
+      "clip": true,
+      "width": 1080,
+      "height": 1350,
+      "fill": "#E8D7B1",
+      "layout": "none",
+      "children": [
+        {
+          "type": "rectangle",
+          "id": "Wbu9F",
+          "x": 0,
+          "y": 0,
+          "name": "Aged Paper Background",
+          "fill": "#E8D7B1",
+          "width": 1080,
+          "height": 1350
+        },
+        {
+          "type": "text",
+          "id": "eCuYq",
+          "x": 52,
+          "y": 79,
+          "name": "Brand Line",
+          "fill": "#201B14",
+          "textGrowth": "fixed-width",
+          "width": 400,
+          "content": "StrikeFeed App",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 22,
+          "fontWeight": "600"
+        },
+        {
+          "type": "text",
+          "id": "TBwt0",
+          "x": 690,
+          "y": 79,
+          "name": "Story Category",
+          "fill": "#201B14",
+          "textGrowth": "fixed-width",
+          "width": 338,
+          "content": "РЕДКИЙ УЛОВ",
+          "textAlign": "right",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 22,
+          "fontWeight": "600",
+          "letterSpacing": 1.5
+        },
+        {
+          "type": "rectangle",
+          "id": "AY5u8",
+          "x": 52,
+          "y": 126,
+          "name": "Header Rule",
+          "fill": "#796B50",
+          "width": 976,
+          "height": 2
+        },
+        {
+          "type": "text",
+          "id": "AJoSi",
+          "x": 52,
+          "y": 174,
+          "name": "Pike Story Title",
+          "fill": "#1F1A13",
+          "textGrowth": "fixed-width",
+          "width": 976,
+          "content": "Щука весом 9 кг",
+          "lineHeight": 0.93,
+          "textAlign": "center",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 69,
+          "fontWeight": "700"
+        },
+        {
+          "type": "text",
+          "id": "ZSinu",
+          "x": 90,
+          "y": 330,
+          "name": "Pike Story Lead",
+          "fill": "#34291B",
+          "textGrowth": "fixed-width",
+          "width": 900,
+          "content": "Вечером 29 марта в Москве-реке поймали щуку весом 9 кг.",
+          "lineHeight": 1.14,
+          "textAlign": "center",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 32,
+          "fontWeight": "600"
+        },
+        {
+          "type": "rectangle",
+          "id": "pUDkj",
+          "x": 76,
+          "y": 461,
+          "name": "Photo Mount Shadow",
+          "rotation": 1,
+          "fill": "#765D3633",
+          "width": 936,
+          "height": 446
+        },
+        {
+          "type": "rectangle",
+          "id": "xalPK",
+          "x": 66,
+          "y": 446,
+          "name": "Photo — 9kg Pike",
+          "fill": [
+            {
+              "type": "image",
+              "enabled": true,
+              "url": "image-10.png",
+              "mode": "fill"
+            },
+            {
+              "type": "color",
+              "color": "#808080",
+              "enabled": true,
+              "blendMode": "saturation"
+            }
+          ],
+          "width": 936,
+          "height": 446,
+          "stroke": "#E9D9B7",
+          "strokeWidth": 9,
+          "strokeAlignment": "inner"
+        },
+        {
+          "type": "rectangle",
+          "id": "VvBB1",
+          "x": 66,
+          "y": 836,
+          "name": "Photo Label Strip",
+          "fill": "#1E1A14CC",
+          "width": 936,
+          "height": 56
+        },
+        {
+          "type": "text",
+          "id": "u9Rxv",
+          "x": 92,
+          "y": 850,
+          "name": "Photo Label",
+          "fill": "#F0E1BF",
+          "textGrowth": "fixed-width",
+          "width": 880,
+          "content": "МОСКВА-РЕКА  ·  ЩУКА 9 КГ",
+          "textAlign": "center",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 20,
+          "fontWeight": "700",
+          "letterSpacing": 1.5
+        },
+        {
+          "type": "rectangle",
+          "id": "f96ndo",
+          "x": 52,
+          "y": 946,
+          "name": "Detail Rule",
+          "fill": "#796B50",
+          "width": 976,
+          "height": 2
+        },
+        {
+          "type": "text",
+          "id": "DFdTy",
+          "x": 82,
+          "y": 982,
+          "name": "Pike Story Details",
+          "fill": "#2B2318",
+          "textGrowth": "fixed-width",
+          "width": 916,
+          "content": "По данным публикации, Александр поймал рыбу на «Мандулу». Такой улов случился у него впервые за последние 25 лет. Щуку тащили втроём два часа, затем сфотографировали и отпустили обратно в реку.",
+          "lineHeight": 1.14,
+          "textAlign": "center",
+          "fontFamily": "Cormorant Garamond",
+          "fontSize": 29,
+          "fontWeight": "600"
+        },
+        {
+          "type": "rectangle",
+          "id": "vtQDD",
+          "x": 1062.7108928638645,
+          "y": 459.17929970910063,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "rectangle",
+          "id": "HzXS2",
+          "x": 127.53074360871943,
+          "y": 500.04293994002455,
+          "name": "Corner Tape Right",
+          "rotation": 150.00000000000006,
+          "fill": "#D2B778CC",
+          "width": 108,
+          "height": 37
+        },
+        {
+          "type": "rectangle",
+          "id": "yeGOu",
+          "x": 1068.7108928638645,
+          "y": 881.1792997091006,
+          "name": "Corner Tape Right",
+          "rotation": -164,
+          "fill": "#D2B778CC",
+          "width": 187,
+          "height": 47
+        },
+        {
+          "type": "rectangle",
+          "id": "PGSiH",
+          "x": 46,
+          "y": 910.0081776531842,
+          "name": "Corner Tape Right",
+          "rotation": -670,
+          "fill": "#D2B778CC",
+          "width": 94,
+          "height": 36
         }
       ]
     }

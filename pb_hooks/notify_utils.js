@@ -316,6 +316,32 @@ function notifyNewUser(e) {
   e.app.newMailClient().send(message);
 }
 
+function notifyPremiumPurchase(e, event, userRecord) {
+  const username = getRecordString(userRecord, "username") || getRecordString(userRecord, "name") || "(no name)";
+  const email = getRecordString(userRecord, "email") || "(no email)";
+  const productId = String(event.product_id || event.product_identifier || "(unknown product)");
+  const store = String(event.store || "(unknown store)");
+  const transactionId = String(event.transaction_id || "(unknown transaction)");
+  const price = event.price != null ? String(event.price) : "(not supplied)";
+  const currency = String(event.currency || "");
+  const message = new MailerMessage({
+    from: {
+      address: e.app.settings().meta.senderAddress,
+      name: e.app.settings().meta.senderName,
+    },
+    to: [{ address: ADMIN_EMAIL }],
+    subject: "New StrikeFeed Premium subscription",
+    html: [
+      "<p>A user subscribed to StrikeFeed Premium.</p>",
+      `<p><b>User:</b> ${escapeHtml(username)}<br/><b>Email:</b> ${escapeHtml(email)}</p>`,
+      `<p><b>Product:</b> ${escapeHtml(productId)}<br/><b>Store:</b> ${escapeHtml(store)}<br/><b>Price:</b> ${escapeHtml(price)} ${escapeHtml(currency)}</p>`,
+      `<p><b>Transaction:</b> ${escapeHtml(transactionId)}<br/><b>RevenueCat event:</b> ${escapeHtml(event.id || "(unknown)")}</p>`,
+    ].join(""),
+  });
+  e.app.newMailClient().send(message);
+  console.log("[revenuecat] premium purchase email sent for", userRecord.id);
+}
+
 function notifyModerationReport(e) {
   const report = e.record;
   const reportId = report.id || "unknown";
@@ -554,6 +580,7 @@ module.exports = {
   notifyCatchOwner,
   notifyFollowedUser,
   notifyNewUser,
+  notifyPremiumPurchase,
   notifyModerationReport,
   notifyBadgeChange,
   notifyGroupMessage,

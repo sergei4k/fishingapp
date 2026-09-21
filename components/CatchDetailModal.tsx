@@ -70,6 +70,8 @@ export type CatchDetail = {
   verified?: boolean;
   lat?: number | null;
   lon?: number | null;
+  waterBodyId?: string;
+  waterBodyName?: string;
   isPublic?: boolean;
 };
 
@@ -778,6 +780,24 @@ export default function CatchDetailModal({
                 </>
               )}
               <Text style={styles.detailDate}>{formatDate(item?.date)}</Text>
+              {item?.waterBodyName ? (
+                <TouchableOpacity
+                  style={styles.waterBodyRow}
+                  disabled={!item.waterBodyId}
+                  onPress={() => {
+                    if (!item.waterBodyId) return;
+                    onClose();
+                    router.push({ pathname: "/", params: { waterBodyId: item.waterBodyId } });
+                  }}
+                >
+                  <Ionicons name="water-outline" size={18} color="#38bdf8" />
+                  <View style={styles.waterBodyText}>
+                    <Text style={styles.waterBodyLabel}>{t("waterBody")}</Text>
+                    <Text style={styles.waterBodyName}>{item.waterBodyName}</Text>
+                  </View>
+                  {item.waterBodyId ? <Ionicons name="chevron-forward" size={16} color="#64748b" /> : null}
+                </TouchableOpacity>
+              ) : null}
 
               <Text style={styles.label}>{t("description")}</Text>
               {editing ? (
@@ -866,8 +886,8 @@ export default function CatchDetailModal({
                     onPress={() => {
                       if (item?.lat != null && item?.lon != null) {
                         onClose();
-                        router.navigate({
-                          pathname: "/(tabs)",
+                        router.push({
+                          pathname: "/",
                           params: { focusLat: item.lat, focusLon: item.lon, catchId: item.id },
                         });
                       } else {
@@ -1172,6 +1192,10 @@ const styles = StyleSheet.create({
   detailGearThumb: { width: 56, height: 56 },
   detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
   detailDate: { color: "#94a3b8", fontSize: 14, marginTop: 4, marginBottom: 8 },
+  waterBodyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: "#0c3147" },
+  waterBodyText: { flex: 1 },
+  waterBodyLabel: { color: "#94a3b8", fontSize: 12 },
+  waterBodyName: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginTop: 2 },
   label: { color: "#fff", fontSize: 16, fontWeight: "600", marginTop: 16 },
   value: { color: "#cbd5e1", fontSize: 14, marginTop: 4 },
   metricsRow: { flexDirection: "row", gap: 12 },

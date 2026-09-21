@@ -7,6 +7,7 @@ const authLayout = fs.readFileSync(new URL("./(auth)/_layout.tsx", import.meta.u
 const authSource = fs.readFileSync(new URL("../lib/auth.tsx", import.meta.url), "utf8");
 const appleHook = fs.readFileSync(new URL("../pb_hooks/apple_signin.pb.js", import.meta.url), "utf8");
 const migration = fs.readFileSync(new URL("../pb_migrations/1786731600_create_onboarding_preferences.js", import.meta.url), "utf8");
+const referralMigration = fs.readFileSync(new URL("../pb_migrations/1786900000_add_referral_source_to_onboarding_preferences.js", import.meta.url), "utf8");
 const settingsSource = fs.readFileSync(new URL("./(tabs)/settings.tsx", import.meta.url), "utf8");
 const onboardingSource = fs.readFileSync(new URL("./(auth)/onboarding.tsx", import.meta.url), "utf8");
 
@@ -37,6 +38,18 @@ test("profile location editing publishes the city without the country label", ()
 
 test("finishing onboarding saves independent records concurrently", () => {
   assert.match(onboardingSource, /Promise\.allSettled\(\[saveUser\(\), savePreferences\(\)\]\)/);
+  assert.match(onboardingSource, /referral_source: preferences\.referralSource/);
+});
+
+test("onboarding includes a single-select referral source step", () => {
+  assert.match(onboardingSource, /How did you find out about StrikeFeed\?/);
+  assert.match(onboardingSource, /mode="single"/);
+  assert.match(onboardingSource, /App Store feed/);
+  assert.match(onboardingSource, /Play Store feed/);
+  assert.match(onboardingSource, /label: ru \? "Другое" : "Other"/);
+  assert.match(onboardingSource, /referral_source_other: preferences\.referralSourceOther/);
+  assert.match(referralMigration, /name:\s*"referral_source"/);
+  assert.match(referralMigration, /name:\s*"referral_source_other"/);
 });
 
 test("first-time onboarding creates preferences without a preliminary lookup", () => {

@@ -13,6 +13,8 @@ import { Buffer } from 'buffer';
 import ExifParser from 'exif-parser';
 import MapboxGL from '@rnmapbox/maps';
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
+import { matchWaterBody, type WaterBodyMatch } from "@/lib/waterBodyMatch";
+import { fetchWaterBodies } from "@/lib/waterBodies";
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -113,7 +115,7 @@ export default function Add() {
   const [isUploading, setIsUploading] = useState(false);
   const [isPublic, setIsPublic] = useState(true);
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
-  const [waterBody, setWaterBody] = useState<string | null>(null);
+  const [waterBody, setWaterBody] = useState<WaterBodyMatch | null>(null);
   const [detectingWater, setDetectingWater] = useState(false);
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [pendingCoord, setPendingCoord] = useState<{ lat: number; lon: number } | null>(null);
@@ -180,25 +182,45 @@ export default function Add() {
   const router = useRouter();
 
   const detectWaterBody = async (lat: number, lon: number) => {
-    const token = MAPBOX_ACCESS_TOKEN;
-    if (!token) return;
     setDetectingWater(true);
     setWaterBody(null);
     try {
-      const lang = language === "ru" ? "ru" : "en";
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?access_token=${token}&types=poi,place,locality&language=${lang}&limit=5`;
-      const res = await fetch(url);
-      const data = await res.json();
-      if (!data.features?.length) return;
-      const waterRe = /lake|river|sea|ocean|bay|pond|creek|stream|reservoir|gulf|fjord|strait|canal|озеро|река|море|залив|пруд|водохранилище|ручей|канал|бухта/i;
-      const match = data.features.find((f: any) =>
-        waterRe.test(f.text ?? '') || waterRe.test(f.place_name ?? '')
+      const records = await pb.collection("water_bodies").getFullList({
+        filter: 'region = "moscow" || region = "moscow_500km"',
+        fields: "id,osm_id,name,geometry",
+        requestKey: null,
+      });
+      const storedMatch = matchWaterBody(
+        records
+          .filter((record: any) => record.name)
+          .map((record: any) => ({ id: record.id, name: record.name, geometry: record.geometry })),
+        lat,
+        lon,
       );
-      if (match) {
-        setWaterBody(match.text);
+      if (storedMatch) {
+        setWaterBody(storedMatch);
+        return;
       }
-    } catch (e) {
-      // silent — water body is optional info
+
+      const delta = 0.015;
+      const boundaries = await fetchWaterBodies([lon - delta, lat - delta, lon + delta, lat + delta]);
+      const boundaryMatch = matchWaterBody(
+        boundaries.map((body) => {
+          const osmId = body.id.replace("way_", "way/").replace("rel_", "relation/");
+          const record = records.find((item: any) => item.osm_id === osmId);
+          if (!record) return null;
+          return {
+            id: record.id,
+            name: record.name ?? body.name ?? "",
+            geometry: body.geometry,
+          };
+        }).filter((body): body is NonNullable<typeof body> => !!body?.name),
+        lat,
+        lon,
+      );
+      setWaterBody(boundaryMatch);
+    } catch {
+      // Waterbody attribution is optional and must not block saving a catch.
     } finally {
       setDetectingWater(false);
     }
@@ -249,7 +271,7 @@ export default function Add() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [4, 3],
         quality: 1,
@@ -458,6 +480,12 @@ export default function Add() {
           formData.append('species', selectedSpecies ?? '');
           if (lat != null) formData.append('lat', String(lat));
           if (lon != null) formData.append('lon', String(lon));
+          if (waterBody?.id) {
+            formData.append('water_body_id', waterBody.id);
+          }
+          if (waterBody) {
+            formData.append('water_body_name', waterBody.name);
+          }
           formData.append('description', description || '');
           formData.append('gear', selectedGear ?? '');
           if (lengthNum != null) formData.append('length_cm', String(lengthNum));
@@ -557,6 +585,8 @@ export default function Add() {
         date: new Date(createdAt).toISOString(),
         lat,
         lon,
+        waterBodyId: waterBody?.id,
+        waterBodyName: waterBody?.name,
         isPublic: effectivelyPublic,
         pendingSync: savedOffline,
       });
@@ -689,8 +719,8 @@ export default function Add() {
                       style={{ flex: 1 }}
                       styleURL="mapbox://styles/mapbox/dark-v11"
                       scaleBarEnabled={false}
-                      onRegionDidChange={(e: any) => {
-                        const [lon, lat] = e.geometry.coordinates;
+                      onMapIdle={(state) => {
+                        const [lon, lat] = state.properties.center;
                         setPendingCoord({ lat, lon });
                       }}
                     >
@@ -862,23 +892,27 @@ export default function Add() {
           </View>
           <Text style={styles.sectionHeading}>{language === "ru" ? "Место и видимость" : "Location & visibility"}</Text>
           {imageCoords ? (
-            <View style={styles.locationRow}>
-              <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
-              <Text style={styles.coordsText}>
-                {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
-              </Text>
-              {(detectingWater || waterBody) && (
-                <View style={styles.waterBadge}>
-                  <Ionicons name="water-outline" size={11} color="#38bdf8" style={{ marginRight: 4 }} />
-                  <Text style={styles.waterBadgeText}>
-                    {detectingWater ? t("detectingWater") : waterBody}
-                  </Text>
-                </View>
-              )}
-              <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: "auto" }]}>
-                <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
-              </TouchableOpacity>
-            </View>
+            <>
+              <View style={styles.locationRow}>
+                <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
+                <Text style={styles.coordsText}>
+                  {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
+                </Text>
+                <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: "auto" }]}>
+                  <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.waterBodyStatus, waterBody && styles.waterBodyStatusMatched]}>
+                <Ionicons name={waterBody ? "water" : detectingWater ? "sync" : "water-outline"} size={15} color={waterBody ? "#38bdf8" : "#94a3b8"} />
+                <Text style={[styles.waterBodyStatusText, waterBody && styles.waterBodyStatusTextMatched]}>
+                  {detectingWater
+                    ? t("detectingWater")
+                    : waterBody
+                      ? (language === "ru" ? `Улов будет добавлен к водоёму: ${waterBody.name}` : `This catch will be added to: ${waterBody.name}`)
+                      : (language === "ru" ? "Водоём у места улова не найден" : "No waterbody found at this catch location")}
+                </Text>
+              </View>
+            </>
           ) : (
             <View style={styles.noCoordsRow}>
               <Ionicons name="location-outline" size={16} color="#ef4444" style={{ marginRight: 8 }} />
@@ -1110,9 +1144,9 @@ const styles = StyleSheet.create({
   speciesWrapper: { width: "100%", marginBottom: 16 },
   speciesTitle: { color: "#ffffff", marginBottom: 8, marginLeft: 4 },
   speciesContainer: { paddingHorizontal: 4, alignItems: "center" },
-  speciesItem: { width: 90, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: theme.colors.surface },
+  speciesItem: { width: 96, marginRight: 12, alignItems: "center", padding: 6, borderRadius: 8, backgroundColor: theme.colors.surface },
   speciesItemSelected: { borderWidth: 2, borderColor: "#ffffff", backgroundColor: "#092032" },
-  speciesImage: { width: 64, height: 64, marginBottom: 6, resizeMode: "contain" },
+  speciesImage: { width: 76, height: 56, marginBottom: 6, resizeMode: "contain" },
   gearIconBox: { width: 64, height: 64, marginBottom: 6, borderRadius: 12, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", borderWidth: 1.5 },
   speciesLabel: { color: "#e6eef8", fontSize: 12, textAlign: "center" },
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
@@ -1157,10 +1191,14 @@ const styles = StyleSheet.create({
   modalItemLeft: { flex: 1 },
   modalItemText: { color: "#e6eef8", fontSize: 16 },
   modalItemScientific: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
-  modalItemImage: { width: 52, height: 52, resizeMode: "contain", flexShrink: 0 },
-  modalItemImagePlaceholder: { width: 52, height: 52, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  modalItemImage: { width: 76, height: 56, resizeMode: "contain", flexShrink: 0 },
+  modalItemImagePlaceholder: { width: 76, height: 56, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
   locationRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", width: "100%", marginBottom: 14, paddingHorizontal: 4, gap: 8 },
+  waterBodyStatus: { flexDirection: "row", alignItems: "center", gap: 7, width: "100%", marginTop: -8, marginBottom: 14, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#0f2236" },
+  waterBodyStatusMatched: { backgroundColor: "#0c3147" },
+  waterBodyStatusText: { flex: 1, color: "#94a3b8", fontSize: 13 },
+  waterBodyStatusTextMatched: { color: "#bae6fd", fontWeight: "600" },
   noCoordsRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14, paddingHorizontal: 4 },
   noCoordsText: { color: "#ef4444", fontSize: 15, fontWeight: "600", flex: 1 },
   addLocationBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
@@ -1198,10 +1236,8 @@ const styles = StyleSheet.create({
   locationSearchResultTitle: { color: "#e6eef8", fontSize: 14, fontWeight: "600" },
   locationSearchResultSub: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
   publicRowDisabled: { opacity: 0.5 },
-  waterBadge: { flexDirection: "row", alignItems: "center", backgroundColor: "#0c2d48", borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
-  waterBadgeText: { color: "#38bdf8", fontSize: 13 },
   selectedPreviewBox: {
-    width: 82, height: 90,
+    width: 96, height: 90,
     backgroundColor: "#071c30", borderRadius: 12,
     borderWidth: 2, borderColor: "#ffffff",
     alignItems: "center", justifyContent: "center",
@@ -1209,7 +1245,7 @@ const styles = StyleSheet.create({
     shadowColor: "#ffffff", shadowOpacity: 0.25, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
     elevation: 4,
   },
-  selectedPreviewImg: { width: 64, height: 64 },
+  selectedPreviewImg: { width: 84, height: 64 },
   previewDivider: { width: 1.5, height: 72, backgroundColor: "#2d6a99", marginRight: 10 },
   addScreenHeader: { width: "100%", alignItems: "flex-end", marginBottom: 4 },
   closeBtn: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },

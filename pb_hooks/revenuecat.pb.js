@@ -100,6 +100,13 @@ routerAdd("POST", "/revenuecat-webhook", (e) => {
   const hasVerified = badges.indexOf("verified") !== -1;
 
   if (grant) {
+    if (type === "INITIAL_PURCHASE" && !hasVerified) {
+      try {
+        require(`${__hooks}/notify_utils.js`).notifyPremiumPurchase(e, event, user);
+      } catch (err) {
+        console.log("[revenuecat] premium purchase email error:", err);
+      }
+    }
     if (hasVerified) return e.json(200, { ok: true, unchanged: true });
     badges.push("verified");
   } else {

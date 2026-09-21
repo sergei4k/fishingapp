@@ -24,6 +24,7 @@ import ImageWithLoader from "@/components/ImageWithLoader";
 import { useFocusEffect } from "@react-navigation/native";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Reanimated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Linking, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -191,6 +192,29 @@ export default function Social() {
   const { userId: navUserId, openSearch: openSearchParam } = useLocalSearchParams<{ userId?: string; openSearch?: string }>();
 
   const [activeTab, setActiveTab] = useState<"discover" | "feed" | "groups">("discover");
+  const [tabsWidth, setTabsWidth] = useState(0);
+  const tabIndicatorX = useSharedValue(0);
+  const contentTransition = useSharedValue(1);
+  const activeTabIndex = activeTab === "discover" ? 0 : activeTab === "feed" ? 1 : 2;
+  const tabWidth = tabsWidth / 3;
+
+  useEffect(() => {
+    tabIndicatorX.value = withSpring(activeTabIndex * tabWidth, {
+      damping: 20,
+      stiffness: 360,
+      mass: 0.55,
+    });
+    contentTransition.value = 0;
+    contentTransition.value = withTiming(1, { duration: 180 });
+  }, [activeTabIndex, contentTransition, tabIndicatorX, tabWidth]);
+
+  const tabIndicatorStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: tabIndicatorX.value }],
+  }));
+  const contentTransitionStyle = useAnimatedStyle(() => ({
+    opacity: contentTransition.value,
+    transform: [{ translateY: 8 * (1 - contentTransition.value) }],
+  }));
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const blockedUserIdSet = React.useMemo(() => new Set(blockedUserIds), [blockedUserIds]);
 
@@ -818,6 +842,8 @@ export default function Social() {
     avatarUrl: item._avatarUrl ?? undefined,
     lat: item.lat,
     lon: item.lon,
+    waterBodyId: item.water_body_id ?? item.waterBodyId,
+    waterBodyName: item.water_body_name ?? item.waterBodyName,
     isPublic: item.is_public ?? item.isPublic,
   });
   const openUserCatchDetail = (item: CatchItem) => {
@@ -1492,9 +1518,15 @@ export default function Social() {
 
       {/* Tabs + search button */}
       <View style={styles.tabRow}>
-        <View style={styles.tabs}>
+        <View style={styles.tabs} onLayout={(event) => setTabsWidth(event.nativeEvent.layout.width)}>
+          {tabsWidth > 0 ? (
+            <Reanimated.View
+              pointerEvents="none"
+              style={[styles.tabIndicator, { width: tabWidth }, tabIndicatorStyle]}
+            />
+          ) : null}
           <TouchableOpacity
-            style={[styles.tab, activeTab === "discover" && styles.tabActive]}
+            style={styles.tab}
             onPress={() => setActiveTab("discover")}
           >
             <Text style={[styles.tabText, activeTab === "discover" && styles.tabTextActive]}>
@@ -1502,7 +1534,7 @@ export default function Social() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, activeTab === "feed" && styles.tabActive]}
+            style={styles.tab}
             onPress={() => setActiveTab("feed")}
           >
             <Text style={[styles.tabText, activeTab === "feed" && styles.tabTextActive]}>
@@ -1510,7 +1542,7 @@ export default function Social() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.tab, activeTab === "groups" && styles.tabActive]}
+            style={styles.tab}
             onPress={() => setActiveTab("groups")}
           >
             <Text style={[styles.tabText, activeTab === "groups" && styles.tabTextActive]}>
@@ -1523,6 +1555,7 @@ export default function Social() {
         </TouchableOpacity>
       </View>
 
+      <Reanimated.View style={[styles.socialTabContent, contentTransitionStyle]}>
       {/* Discover fullscreen pager */}
       {activeTab === "discover" && (
         loadingDiscover ? (
@@ -1696,6 +1729,7 @@ export default function Social() {
           />
         )
       )}
+      </Reanimated.View>
 
       {/* User profile modal */}
       <Modal visible={!!selectedUser} animationType="slide" onRequestClose={() => { setProfileMenuVisible(false); setSelectedUser(null); }}>
@@ -2206,11 +2240,21 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     marginHorizontal: 16,
+    position: "relative",
+  },
+  tabIndicator: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    height: 2,
+    borderRadius: 1,
+    backgroundColor: "#ffffff",
   },
   tab: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     paddingVertical: 14, gap: 6,
   },
+  socialTabContent: { flex: 1 },
   searchIconBtn: {
     padding: 10,
     marginRight: 4,

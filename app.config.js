@@ -30,7 +30,7 @@ export default {
   expo: {
     name: "StrikeFeed",
     slug: "fishingapp",
-    version: "1.4.1",
+    version: "1.4.2",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
     icon: "./assets/images/app-icon.png",
@@ -51,6 +51,7 @@ export default {
         "CAMERA"
       ],
       package: "com.strikefeed.myapp",
+      versionCode: 34,
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {

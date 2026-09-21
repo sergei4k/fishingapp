@@ -57,6 +57,8 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         gear: recordGear ?? existing.gear,
         lat: record.lat ?? existing.lat ?? null,
         lon: record.lon ?? existing.lon ?? null,
+        waterBodyId: record.water_body_id ?? existing.waterBodyId,
+        waterBodyName: record.water_body_name ?? existing.waterBodyName,
         extraPhotos: serverExtraPhotos.length ? serverExtraPhotos : existing.extraPhotos,
         pendingSync: false,
       });
@@ -71,6 +73,8 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         gear: recordGear ?? undefined,
         lat: record.lat ?? null,
         lon: record.lon ?? null,
+        waterBodyId: record.water_body_id ?? undefined,
+        waterBodyName: record.water_body_name ?? undefined,
         date: (() => {
           try {
             const raw = record.created_at;
@@ -140,6 +144,8 @@ export async function pushPendingCatches(userId: string): Promise<void> {
         formData.append('species', item.species ?? '');
         if (item.lat != null) formData.append('lat', String(item.lat));
         if (item.lon != null) formData.append('lon', String(item.lon));
+        if (item.waterBodyId) formData.append('water_body_id', item.waterBodyId);
+        if (item.waterBodyName) formData.append('water_body_name', item.waterBodyName);
         formData.append('description', item.description || '');
         formData.append('gear', item.gear ?? '');
         if (item.length) formData.append('length_cm', String(Number(item.length)));

@@ -14,6 +14,7 @@ export type Spot = {
   lon: number;
   is_public: boolean;
   user_id: string;
+  source?: "user" | "water";
 };
 
 type Props = {

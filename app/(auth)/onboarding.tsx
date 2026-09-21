@@ -8,6 +8,7 @@ import {
   getPublicCity,
   normalizeOnboardingPreferences,
   OnboardingLocation,
+  OnboardingReferralSource,
 } from "@/lib/onboarding";
 import { pb } from "@/lib/pocketbase";
 import { theme } from "@/lib/theme";
@@ -65,6 +66,8 @@ export default function Onboarding() {
   const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [avatar, setAvatar] = useState<AvatarSelection | null>(null);
+  const [referralSource, setReferralSource] = useState<OnboardingReferralSource | "">("");
+  const [referralSourceOther, setReferralSourceOther] = useState("");
 
   const styles = useMemo(() => [
     { id: "spinning" as const, label: ru ? "Спиннинг" : "Spinning" },
@@ -74,6 +77,18 @@ export default function Onboarding() {
     { id: "ice" as const, label: ru ? "Зимняя рыбалка" : "Ice fishing" },
     { id: "sea" as const, label: ru ? "Морская рыбалка" : "Sea fishing" },
     { id: "other" as const, label: ru ? "Другое / пока не уверен(а)" : "Other / not sure yet" },
+  ], [ru]);
+
+  const referralSources = useMemo(() => [
+    { id: "instagram" as const, label: "Instagram" },
+    { id: "app_store_feed" as const, label: ru ? "Лента App Store" : "App Store feed" },
+    { id: "play_store_feed" as const, label: ru ? "Лента Play Store" : "Play Store feed" },
+    { id: "vkontakte" as const, label: "VKontakte" },
+    { id: "threads" as const, label: "Threads" },
+    { id: "google_search" as const, label: ru ? "Поиск Google" : "Google Search" },
+    { id: "yandex" as const, label: "Yandex" },
+    { id: "friend" as const, label: ru ? "От друга" : "From a friend" },
+    { id: "other" as const, label: ru ? "Другое" : "Other" },
   ], [ru]);
 
   useEffect(() => {
@@ -133,7 +148,7 @@ export default function Onboarding() {
   const pickAvatar = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -166,17 +181,27 @@ export default function Onboarding() {
       Alert.alert(ru ? "Выберите хотя бы один вариант" : "Choose at least one option");
       return;
     }
-    setStep((current) => Math.min(2, current + 1));
+    setStep((current) => Math.min(3, current + 1));
   };
 
   const finishOnboarding = async () => {
     if (!user?.id || saving) return;
+    if (!referralSource) {
+      Alert.alert(ru ? "Выберите вариант" : "Choose an option");
+      return;
+    }
+    if (referralSource === "other" && !referralSourceOther.trim()) {
+      Alert.alert(ru ? "Укажите свой вариант" : "Tell us how you found StrikeFeed");
+      return;
+    }
     setSaving(true);
-    const preferences = normalizeOnboardingPreferences({ primaryGoal: DEFAULT_ONBOARDING_GOAL, fishingStyles, location });
+    const preferences = normalizeOnboardingPreferences({ primaryGoal: DEFAULT_ONBOARDING_GOAL, fishingStyles, location, referralSource, referralSourceOther });
     const payload = {
       user_id: user.id,
       primary_goal: preferences.primaryGoal,
       fishing_styles: preferences.fishingStyles,
+      referral_source: preferences.referralSource,
+      referral_source_other: preferences.referralSourceOther,
       preferred_start_tab: preferences.preferredStartTab,
       location_city: preferences.location.city,
       location_region: preferences.location.region,
@@ -254,13 +279,17 @@ export default function Onboarding() {
     ? (ru ? "Какую рыбалку вы любите?" : "What kind of fishing do you enjoy?")
     : step === 1
       ? (ru ? "Где вы обычно рыбачите?" : "Where do you usually fish?")
-      : (ru ? "Добавьте фото профиля" : "Add a profile photo");
+      : step === 2
+        ? (ru ? "Добавьте фото профиля" : "Add a profile photo")
+        : (ru ? "Как вы узнали о StrikeFeed?" : "How did you find out about StrikeFeed?");
 
   const subtitle = step === 0
     ? (ru ? "Можно выбрать несколько вариантов." : "Select as many as you like.")
     : step === 1
       ? (ru ? "Необязательно · ваш город будет виден всем в профиле." : "Optional · your city will be public on your profile.")
-      : (ru ? "Необязательно · фото можно изменить позже." : "Optional · you can change it later.");
+      : step === 2
+        ? (ru ? "Необязательно · фото можно изменить позже." : "Optional · you can change it later.")
+        : (ru ? "Выберите один вариант." : "Choose one option.");
 
   const existingAvatarUrl = user?.avatar
     ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=300x300`
@@ -271,8 +300,8 @@ export default function Onboarding() {
     <SafeAreaView style={screenStyles.safeArea}>
       <KeyboardAvoidingView style={screenStyles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={screenStyles.header}>
-          <View style={screenStyles.progressRow} accessibilityLabel={`${step + 1} / 3`}>
-            {[0, 1, 2].map((index) => <View key={index} style={[screenStyles.progressPill, index <= step && screenStyles.progressPillFilled]} />)}
+          <View style={screenStyles.progressRow} accessibilityLabel={`${step + 1} / 4`}>
+            {[0, 1, 2, 3].map((index) => <View key={index} style={[screenStyles.progressPill, index <= step && screenStyles.progressPillFilled]} />)}
           </View>
           <AppText style={screenStyles.title}>{title}</AppText>
           <AppText style={screenStyles.subtitle}>{subtitle}</AppText>
@@ -341,7 +370,7 @@ export default function Onboarding() {
               )}
 
             </View>
-          ) : (
+          ) : step === 2 ? (
             <View style={screenStyles.avatarContent}>
               <Pressable
                 style={screenStyles.avatarPicker}
@@ -371,6 +400,37 @@ export default function Onboarding() {
                 {ru ? "Фото будет видно другим пользователям в вашем профиле и публикациях." : "Other anglers will see this photo on your profile and posts."}
               </AppText>
             </View>
+          ) : (
+            <View style={screenStyles.referralContent}>
+              <FlatList
+                data={referralSources}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={screenStyles.optionList}
+                showsVerticalScrollIndicator={false}
+                renderItem={({ item }) => (
+                  <SelectableOption
+                    key={item.id}
+                    label={item.label}
+                    selected={referralSource === item.id}
+                    mode="single"
+                    onPress={() => setReferralSource(item.id)}
+                  />
+                )}
+              />
+              {referralSource === "other" ? (
+                <TextInput
+                  style={screenStyles.referralInput}
+                  value={referralSourceOther}
+                  onChangeText={setReferralSourceOther}
+                  placeholder={ru ? "Ваш вариант" : "Your answer"}
+                  placeholderTextColor={theme.colors.text.muted}
+                  maxLength={120}
+                  autoCapitalize="sentences"
+                  autoCorrect
+                  accessibilityLabel={ru ? "Другой источник" : "Other source"}
+                />
+              ) : null}
+            </View>
           )}
         </View>
 
@@ -383,13 +443,13 @@ export default function Onboarding() {
           ) : <View />}
           <Pressable
             style={[screenStyles.continueButton, saving && screenStyles.disabled]}
-            onPress={step === 2 ? finishOnboarding : continueFromStep}
+            onPress={step === 3 ? finishOnboarding : continueFromStep}
             disabled={saving}
           >
             {saving ? <ActivityIndicator color="#ffffff" /> : (
               <>
-                <AppText style={screenStyles.continueText}>{step === 2 ? (ru ? "Готово" : "Finish") : (ru ? "Продолжить" : "Continue")}</AppText>
-                <Ionicons name={step === 2 ? "checkmark" : "arrow-forward"} size={20} color="#ffffff" />
+                <AppText style={screenStyles.continueText}>{step === 3 ? (ru ? "Готово" : "Finish") : (ru ? "Продолжить" : "Continue")}</AppText>
+                <Ionicons name={step === 3 ? "checkmark" : "arrow-forward"} size={20} color="#ffffff" />
               </>
             )}
           </Pressable>
@@ -418,8 +478,10 @@ const screenStyles = StyleSheet.create({
     paddingBottom: 16,
   },
   locationContent: { flex: 1 },
+  referralContent: { flex: 1 },
   searchBox: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 14, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control },
   searchInput: { flex: 1, color: theme.colors.text.primary, fontSize: 16, paddingVertical: 12 },
+  referralInput: { minHeight: 54, marginTop: 12, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.text.primary, fontSize: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control },
   results: { width: "100%", flexDirection: "column", gap: 8, paddingTop: 10, paddingBottom: 12 },
   resultRow: { width: "100%" },
   resultCard: { width: "100%", minHeight: 62, flexDirection: "row", alignItems: "center", paddingHorizontal: 12, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control },

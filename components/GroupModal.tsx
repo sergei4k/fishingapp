@@ -5,6 +5,7 @@ import { Text, TextInput } from "@/components/AppText";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image as ExpoImage } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import { File, Paths } from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
@@ -63,6 +64,23 @@ type MessageRowProps = {
   onOpenFullscreen: (message: ChatMessage) => void;
   getImageUrl: (message: ChatMessage, thumb?: boolean) => string;
 };
+
+const MAX_CHAT_IMAGE_DIMENSION = 1600;
+
+async function prepareChatPhoto(uri: string): Promise<string> {
+  const probe = await ImageManipulator.manipulateAsync(uri, [], {});
+  const longest = Math.max(probe.width, probe.height);
+  const actions: ImageManipulator.Action[] = longest > MAX_CHAT_IMAGE_DIMENSION
+    ? [probe.width >= probe.height
+      ? { resize: { width: MAX_CHAT_IMAGE_DIMENSION } }
+      : { resize: { height: MAX_CHAT_IMAGE_DIMENSION } }]
+    : [];
+  const prepared = await ImageManipulator.manipulateAsync(uri, actions, {
+    compress: 0.82,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  return prepared.uri;
+}
 
 const MessageRow = React.memo(function MessageRow({
   item,
@@ -316,17 +334,31 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
 
   useEffect(() => {
     if (!canChat) return;
-    pb.collection("group_messages").subscribe("*", (event) => {
-      if (event.record?.group_id !== liveGroup.id) return;
+    const handleRealtimeEvent = (event: any) => {
+      // Delete payloads can contain only the record id, so only filter by
+      // group when PocketBase includes that field.
+      const eventGroupId = event.record?.group_id;
+      if (eventGroupId && eventGroupId !== liveGroup.id) return;
+      if (!event.record?.id) return;
       if (event.action === "create") {
         if (blockedUserIdSet.has(event.record.user_id)) return;
         setMessages((prev) => prev.some((m) => m.id === event.record.id) ? prev : [...prev, event.record as unknown as ChatMessage]);
         requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
       }
+      if (event.action === "update") {
+        if (blockedUserIdSet.has(event.record.user_id)) {
+          setMessages((prev) => prev.filter((m) => m.id !== event.record.id));
+          return;
+        }
+        setMessages((prev) => prev.map((m) => m.id === event.record.id ? event.record as unknown as ChatMessage : m));
+      }
       if (event.action === "delete") {
         setMessages((prev) => prev.filter((m) => m.id !== event.record.id));
       }
-    }, { requestKey: null } as any).catch(() => {});
+    };
+
+    pb.collection("group_messages").subscribe("*", handleRealtimeEvent, { requestKey: null } as any)
+      .catch((error) => console.warn("GroupModal realtime subscription error:", error));
     return () => { pb.collection("group_messages").unsubscribe("*"); };
   }, [blockedUserIdSet, canChat, liveGroup.id]);
 
@@ -442,7 +474,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
 
   const handlePickAvatar = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
@@ -564,16 +596,24 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       quality: 0.7,
     });
     if (result.canceled || !result.assets?.[0]) return;
     const asset = result.assets[0];
-    const mime = asset.mimeType || "image/jpeg";
-    const ext = (mime.split("/")[1] || "jpg").replace("jpeg", "jpg");
     const caption = messageText.trim();
     if (caption && isProfane(caption)) {
       Alert.alert(ru ? "Ошибка" : "Error", ru ? "Сообщение содержит недопустимый текст." : "The message contains objectionable text.");
+      return;
+    }
+    let uploadUri: string;
+    try {
+      // iOS may return HEIC or a Photos-library URI. Normalize it to a local
+      // JPEG because the PocketBase image field accepts standard upload files.
+      uploadUri = await prepareChatPhoto(asset.uri);
+    } catch (error) {
+      console.warn("prepare group photo error:", error);
+      Alert.alert(ru ? "Ошибка" : "Error", ru ? "Не удалось подготовить фото" : "Could not prepare the photo");
       return;
     }
     const username = pb.authStore.record?.username || pb.authStore.record?.name || "";
@@ -581,11 +621,11 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
 
     // Warm the image cache, then show it in the chat immediately (optimistic)
     // so the photo is visible before the upload confirms.
-    await ExpoImage.prefetch(asset.uri).catch(() => {});
+    await ExpoImage.prefetch(uploadUri).catch(() => {});
     const tempId = `temp_${Date.now()}`;
     const optimistic: ChatMessage = {
       id: tempId, group_id: liveGroup.id, user_id: currentUserId,
-      username, text: caption, _localUri: asset.uri, _pending: true,
+      username, text: caption, _localUri: uploadUri, _pending: true,
       ...(replyPayload ?? {}),
     };
     setMessages((prev) => [...prev, optimistic]);
@@ -607,7 +647,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         form.append("reply_text", replyPayload.reply_text);
         form.append("reply_has_image", String(replyPayload.reply_has_image));
       }
-      form.append("image", { uri: asset.uri, name: `chat.${ext}`, type: mime } as any);
+      form.append("image", { uri: uploadUri, name: `chat.jpg`, type: "image/jpeg" } as any);
       const created = await pb.collection("group_messages").create(form, { requestKey: null });
       setMessages((prev) => {
         const withoutTemp = prev.filter((m) => m.id !== tempId);

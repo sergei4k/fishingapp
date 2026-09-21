@@ -13,6 +13,7 @@ import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import { useLanguage } from "@/lib/language";
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import { isNetworkError, pb } from "@/lib/pocketbase";
+import { WATER_TYPE_LABELS } from "@/lib/waterBodies";
 import { getSpeciesLabel } from "@/lib/species";
 import { getCatches } from "@/lib/storage";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,15 +24,26 @@ import { GlassView, isGlassEffectAPIAvailable, isLiquidGlassAvailable } from "ex
 import * as Location from "expo-location";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, DeviceEventEmitter, Image, Keyboard, KeyboardAvoidingView, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Oswald_500Medium } from "@expo-google-fonts/oswald";
 
 const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png")).uri;
 const PREVIEW_THUMB_SIZE = "300x300";
 const CATCH_VIEW_FADE = { duration: 240, delay: 0 };
 const VIEW_TOGGLE_THUMB_WIDTH = 104;
 const WELCOME_CARD_STORAGE_PREFIX = "@welcome_add_catch_pending:";
+const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
+function parseWaterBodyGeometry(value: unknown): GeoJSON.Geometry | null {
+  try {
+    const geometry = typeof value === "string" ? JSON.parse(value) : value;
+    if (geometry && typeof geometry === "object" && (geometry as any).type && (geometry as any).coordinates) {
+      return geometry as GeoJSON.Geometry;
+    }
+  } catch {}
+  return null;
+}
 
 const MAP_STYLES = [
   { key: "standard", label: "Normal", labelRu: "Обычная", url: "mapbox://styles/mapbox/standard" },
@@ -54,15 +66,57 @@ type CatchMarker = {
   weight_kg: number | null;
   created_at: number;
   is_public: boolean;
+  water_body_id?: string | null;
+  water_body_name?: string | null;
 };
+
+type WaterBodyPreview = {
+  id: string;
+  ids: string[];
+  name: string;
+  typeLabel: string;
+  lat: number;
+  lon: number;
+  city: string | null;
+  country: string | null;
+  isResolvingLocation: boolean;
+};
+
+const WATERWAY_TYPES = new Set(["river", "stream", "canal"]);
+
+function waterBodyIds(value: unknown, fallback?: string): string[] {
+  if (typeof value === "string") {
+    try {
+      const ids = JSON.parse(value);
+      if (Array.isArray(ids)) return ids.filter((id): id is string => typeof id === "string");
+    } catch {}
+  }
+  return fallback ? [fallback] : [];
+}
+
+function getWaterBodyLabel(type: string, language: string): string {
+  const locale = language === "ru" ? "ru" : "en";
+  return WATER_TYPE_LABELS[type as keyof typeof WATER_TYPE_LABELS]?.[locale]
+    ?? (locale === "ru" ? "Водоём" : "Water body");
+}
+
+function distanceInKilometers(from: [number, number], to: [number, number]): number {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const latitudeDelta = toRadians(to[1] - from[1]);
+  const longitudeDelta = toRadians(to[0] - from[0]);
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(toRadians(from[1])) * Math.cos(toRadians(to[1])) * Math.sin(longitudeDelta / 2) ** 2;
+  return 6_371 * 2 * Math.asin(Math.sqrt(haversine));
+}
 
 
 
 export default function Map() {
-  const { focusLat, focusLon, catchId } = useLocalSearchParams<{
+  const { focusLat, focusLon, catchId, waterBodyId } = useLocalSearchParams<{
     focusLat?: string;
     focusLon?: string;
     catchId?: string;
+    waterBodyId?: string;
   }>();
 
   const { language, t } = useLanguage();
@@ -83,6 +137,7 @@ export default function Map() {
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [centerCoord] = useState<[number, number]>([37.618423, 55.751244]);
   const zoomLevelRef = useRef(10);
+  const [waterBodyZoom, setWaterBodyZoom] = useState(10);
 
   const [previewCatch, setPreviewCatch] = useState<any>(null);
   const [renderedPreviewCatch, setRenderedPreviewCatch] = useState<any>(null);
@@ -107,6 +162,28 @@ export default function Map() {
   const [spotPreview, setSpotPreview] = useState<Spot | null>(null);
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [newSpotCoord, setNewSpotCoord] = useState<{ lat: number; lon: number } | null>(null);
+  const [waterBodyPreview, setWaterBodyPreview] = useState<WaterBodyPreview | null>(null);
+  const waterBodyPreviewRequestRef = useRef(0);
+  const waterBodyRequestRef = useRef(0);
+  const waterBodySheetOffset = useRef(new Animated.Value(0)).current;
+  const waterBodySheetPanResponder = useRef(PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gesture) => gesture.dy > 6 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onPanResponderMove: (_, gesture) => waterBodySheetOffset.setValue(Math.max(0, gesture.dy)),
+    onPanResponderRelease: (_, gesture) => {
+      if (gesture.dy > 80) {
+        Animated.timing(waterBodySheetOffset, { toValue: 320, duration: 180, useNativeDriver: true }).start(() => {
+          waterBodyPreviewRequestRef.current += 1;
+          setWaterBodyPreview(null);
+        });
+        return;
+      }
+      Animated.spring(waterBodySheetOffset, { toValue: 0, useNativeDriver: true }).start();
+    },
+  })).current;
+
+  const [waterBodiesGeoJSON, setWaterBodiesGeoJSON] = useState<GeoJSON.FeatureCollection>(EMPTY_FEATURE_COLLECTION);
+  const [waterBodyAreasGeoJSON, setWaterBodyAreasGeoJSON] = useState<GeoJSON.FeatureCollection>(EMPTY_FEATURE_COLLECTION);
+  const [waterBodyLinesGeoJSON, setWaterBodyLinesGeoJSON] = useState<GeoJSON.FeatureCollection>(EMPTY_FEATURE_COLLECTION);
   const [newSpotName, setNewSpotName] = useState("");
   const [newSpotDesc, setNewSpotDesc] = useState("");
   const [newSpotPublic, setNewSpotPublic] = useState(false);
@@ -304,6 +381,8 @@ export default function Map() {
           weight_kg: r.weight ? Number(r.weight) : null,
           created_at: r.date ? new Date(r.date).getTime() : Date.now(),
           is_public: !!((r as any).isPublic ?? (r as any).is_public),
+          water_body_id: r.waterBodyId ?? null,
+          water_body_name: r.waterBodyName ?? null,
         }));
       setMarkers(parsed);
     } catch (err) {
@@ -352,6 +431,168 @@ export default function Map() {
     }
   };
 
+  const visibleWaterBodyIds = useMemo(() => {
+    const ids = new Set<string>();
+    const add = (catchItem: any) => {
+      if (!catchItem.water_body_id || !Number.isFinite(Number(catchItem.lat)) || !Number.isFinite(Number(catchItem.lon))) return;
+      ids.add(String(catchItem.water_body_id));
+    };
+
+    if (mapView === "mine") {
+      markers.forEach(add);
+    } else {
+      markers.filter((marker) => marker.is_public).forEach(add);
+      publicMarkers.forEach(add);
+    }
+    return [...ids];
+  }, [mapView, markers, publicMarkers]);
+
+  const refreshWaterBodies = useCallback(async () => {
+    const requestId = waterBodyRequestRef.current + 1;
+    waterBodyRequestRef.current = requestId;
+    if (waterBodyZoom < 8 || !visibleWaterBodyIds.length) {
+      setWaterBodiesGeoJSON(EMPTY_FEATURE_COLLECTION);
+      setWaterBodyAreasGeoJSON(EMPTY_FEATURE_COLLECTION);
+      setWaterBodyLinesGeoJSON(EMPTY_FEATURE_COLLECTION);
+      return;
+    }
+    try {
+      const filter = visibleWaterBodyIds.map((_, index) => `id = {:id${index}}`).join(" || ");
+      const params = Object.fromEntries(visibleWaterBodyIds.map((id, index) => [`id${index}`, id]));
+      const records = await pb.collection("water_bodies").getFullList({
+        filter: pb.filter(filter, params),
+        requestKey: null,
+      });
+      if (waterBodyRequestRef.current !== requestId) return;
+      type WaterwayGroup = {
+        id: string;
+        ids: string[];
+        name: string;
+        waterType: string;
+        lat: number;
+        lon: number;
+        lines: GeoJSON.Position[][];
+      };
+      const waterwayGroups = new globalThis.Map<string, WaterwayGroup>();
+      for (const record of records as any[]) {
+        const waterType = record.water_type ?? "other";
+        const geometry = parseWaterBodyGeometry(record.geometry);
+        if (!record.name || !WATERWAY_TYPES.has(waterType) || !geometry || (geometry.type !== "LineString" && geometry.type !== "MultiLineString")) continue;
+        const key = `${waterType}:${record.name.trim().toLocaleLowerCase()}`;
+        const group: WaterwayGroup = waterwayGroups.get(key) ?? {
+          id: `waterway:${key}`,
+          ids: [],
+          name: record.name,
+          waterType,
+          lat: Number(record.lat),
+          lon: Number(record.lon),
+          lines: [],
+        };
+        group.ids.push(record.id);
+        group.lines.push(...(geometry.type === "LineString" ? [geometry.coordinates] : geometry.coordinates));
+        waterwayGroups.set(key, group);
+      }
+      const groupedWaterwayIds = new Set([...waterwayGroups.values()].flatMap((group) => group.ids));
+      const groupedWaterwayMarkers = [...waterwayGroups.values()]
+        .filter((group) => Number.isFinite(group.lat) && Number.isFinite(group.lon))
+        .map((group) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [group.lon, group.lat] },
+          properties: {
+            id: group.id,
+            water_body_ids: JSON.stringify(group.ids),
+            name: group.name,
+            water_type: group.waterType,
+            center_lat: group.lat,
+            center_lon: group.lon,
+            is_public: true,
+            user_id: "",
+          },
+        }));
+      setWaterBodiesGeoJSON({
+        type: "FeatureCollection",
+        features: [
+          ...records.flatMap((record: any) => {
+          if (groupedWaterwayIds.has(record.id)) return [];
+          const lat = Number(record.lat);
+          const lon = Number(record.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return [];
+          return [{
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [lon, lat] },
+            properties: {
+              id: record.id,
+              osm_id: record.osm_id,
+              name: record.name || null,
+              water_type: record.water_type || "other",
+              center_lat: lat,
+              center_lon: lon,
+              is_public: true,
+              user_id: "",
+            },
+          }];
+          }),
+          ...groupedWaterwayMarkers,
+        ],
+      });
+      setWaterBodyAreasGeoJSON({
+        type: "FeatureCollection",
+        features: records.flatMap((record: any) => {
+          const geometry = parseWaterBodyGeometry(record.geometry);
+          if (!geometry || (geometry.type !== "Polygon" && geometry.type !== "MultiPolygon")) return [];
+          return [{
+            type: "Feature" as const,
+            geometry,
+            properties: {
+              id: record.id,
+              osm_id: record.osm_id,
+              name: record.name || null,
+              water_type: record.water_type || "other",
+              center_lat: record.lat,
+              center_lon: record.lon,
+            },
+          }];
+        }),
+      });
+      setWaterBodyLinesGeoJSON({
+        type: "FeatureCollection",
+        features: [
+          ...records.flatMap((record: any) => {
+          if (groupedWaterwayIds.has(record.id)) return [];
+          const geometry = parseWaterBodyGeometry(record.geometry);
+          if (!geometry || (geometry.type !== "LineString" && geometry.type !== "MultiLineString")) return [];
+          return [{
+            type: "Feature" as const,
+            geometry,
+            properties: {
+              id: record.id,
+              osm_id: record.osm_id,
+              name: record.name || null,
+              water_type: record.water_type || "other",
+              center_lat: record.lat,
+              center_lon: record.lon,
+            },
+          }];
+          }),
+          ...[...waterwayGroups.values()].map((group) => ({
+            type: "Feature" as const,
+            geometry: { type: "MultiLineString" as const, coordinates: group.lines },
+            properties: {
+              id: group.id,
+              water_body_ids: JSON.stringify(group.ids),
+              name: group.name,
+              water_type: group.waterType,
+              center_lat: group.lat,
+              center_lon: group.lon,
+            },
+          })),
+        ],
+      });
+    } catch (e) {
+      if (!isNetworkError(e)) console.warn("water bodies error:", e);
+    }
+  }, [visibleWaterBodyIds, waterBodyZoom]);
+
   const refreshPublicMarkers = useCallback(async () => {
     try {
       const records = await pb.collection('catches').getFullList({
@@ -380,18 +621,54 @@ export default function Map() {
   }, [user]);
 
   useFocusEffect(
-    useCallback(() => {
+      useCallback(() => {
       refreshMarkers();
       refreshPublicMarkers();
       refreshSpots();
-    }, [refreshMarkers, refreshPublicMarkers, refreshSpots])
+      refreshWaterBodies();
+    }, [refreshMarkers, refreshPublicMarkers, refreshSpots, refreshWaterBodies])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!waterBodyId) return;
+      let active = true;
+      void pb.collection("water_bodies").getOne(waterBodyId, { requestKey: null })
+        .then((record: any) => {
+          if (!active) return;
+          const lat = Number(record.lat);
+          const lon = Number(record.lon);
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+          const target = [lon, lat] as [number, number];
+          waterBodySheetOffset.setValue(0);
+          setWaterBodyPreview({
+            id: record.id,
+            ids: [record.id],
+            name: record.name || getWaterBodyLabel(record.water_type ?? "other", language),
+            typeLabel: getWaterBodyLabel(record.water_type ?? "other", language),
+            lat,
+            lon,
+            city: null,
+            country: null,
+            isResolvingLocation: false,
+          });
+          if (mapReadyRef.current) {
+            cameraRef.current?.setCamera({ centerCoordinate: target, zoomLevel: 14, animationDuration: 800, animationMode: "flyTo" });
+          } else {
+            pendingLocationRef.current = target;
+          }
+        })
+        .catch(() => {});
+      return () => { active = false; };
+    }, [language, waterBodyId, waterBodySheetOffset]),
   );
 
   useEffect(() => {
     refreshMarkers();
     refreshPublicMarkers();
     refreshSpots();
-  }, [refreshMarkers, refreshPublicMarkers, refreshSpots]);
+    refreshWaterBodies();
+  }, [refreshMarkers, refreshPublicMarkers, refreshSpots, refreshWaterBodies]);
 
   const syncCommentCountInMap = useCallback((targetCatchId: string, count: number) => {
     const patchCatch = (current: any) => {
@@ -428,17 +705,28 @@ export default function Map() {
       const lat = parseFloat(focusLat);
       const lon = parseFloat(focusLon);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-      // Small delay so the camera is ready after the tab transition
+      const target = [lon, lat] as [number, number];
+      const ownCatch = catchId ? markers.find((marker) => String(marker.id) === String(catchId)) : null;
+      if (ownCatch && !ownCatch.is_public) {
+        setMapView("mine");
+        setSelectedMapView("mine");
+      }
+      pendingLocationRef.current = target;
+
+      // Keep the target until the map is ready after a tab transition.
       const timer = setTimeout(() => {
-        mapReadyRef.current && cameraRef.current?.setCamera({
-          centerCoordinate: [lon, lat],
+        if (!mapReadyRef.current) return;
+        cameraRef.current?.setCamera({
+          centerCoordinate: target,
           zoomLevel: 14,
           animationDuration: 800,
           animationMode: "flyTo",
         });
+        pendingLocationRef.current = null;
+        router.setParams({ focusLat: undefined, focusLon: undefined, catchId: undefined });
       }, 150);
       return () => clearTimeout(timer);
-    }, [focusLat, focusLon, catchId])
+    }, [catchId, focusLat, focusLon, markers, router])
   );
 
 
@@ -456,6 +744,7 @@ export default function Map() {
           id: m.id, species: m.species, gear: m.gear,
           image_uri: m.image_uri, description: m.description,
           length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+          water_body_id: m.water_body_id ?? null, water_body_name: m.water_body_name ?? null,
           is_own: true,
         },
       });
@@ -464,7 +753,7 @@ export default function Map() {
       if (mapView === "mine") {
         return {
           type: "FeatureCollection" as const,
-          features: ownValid.map(ownFeature),
+          features: ownValid.filter((m) => !m.water_body_id).map(ownFeature),
         };
       }
 
@@ -472,9 +761,9 @@ export default function Map() {
       return {
         type: "FeatureCollection" as const,
         features: [
-          ...ownValid.filter((m) => m.is_public).map(ownFeature),
+          ...ownValid.filter((m) => m.is_public && !m.water_body_id).map(ownFeature),
           ...publicMarkers
-            .filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)) && m.lat !== 0 && m.lon !== 0)
+            .filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)) && m.lat !== 0 && m.lon !== 0 && !m.water_body_id)
             .map((m) => ({
               type: "Feature" as const,
               geometry: { type: "Point" as const, coordinates: [Number(m.lon), Number(m.lat)] },
@@ -482,6 +771,7 @@ export default function Map() {
                 id: m.id, species: m.species, gear: m.gear ?? null,
                 image_uri: m.image_uri, description: m.description,
                 length_cm: m.length_cm, weight_kg: m.weight_kg, created_at: m.created_at,
+                water_body_id: m.water_body_id ?? null, water_body_name: m.water_body_name ?? null,
                 is_own: false,
                 author_username: m.author_username ?? null,
                 author_name: m.author_name ?? null,
@@ -493,6 +783,65 @@ export default function Map() {
     },
     [markers, publicMarkers, mapView]
   );
+
+  const waterBodyCatchCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const add = (waterBodyId?: string | null) => {
+      if (waterBodyId) counts[waterBodyId] = (counts[waterBodyId] ?? 0) + 1;
+    };
+    const ownValid = markers.filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lon) && m.lat !== 0 && m.lon !== 0);
+
+    if (mapView === "mine") {
+      ownValid.forEach((m) => add(m.water_body_id));
+    } else {
+      ownValid.filter((m) => m.is_public).forEach((m) => add(m.water_body_id));
+      publicMarkers
+        .filter((m) => Number.isFinite(Number(m.lat)) && Number.isFinite(Number(m.lon)) && m.lat !== 0 && m.lon !== 0)
+        .forEach((m) => add(m.water_body_id));
+    }
+    return counts;
+  }, [mapView, markers, publicMarkers]);
+
+  const waterBodySheetCatches = useMemo(() => {
+    if (!waterBodyPreview) return [];
+    const matchesWaterBody = (catchItem: any) => waterBodyPreview.ids.includes(catchItem.water_body_id);
+    const toDetailCatch = (catchItem: any, isOwn: boolean) => ({
+      id: catchItem.id,
+      imageUrl: catchItem.image_uri,
+      species: catchItem.species,
+      gear: catchItem.gear ?? null,
+      description: catchItem.description,
+      length: catchItem.length_cm != null ? String(catchItem.length_cm) : "",
+      weight: catchItem.weight_kg != null ? String(catchItem.weight_kg) : "",
+      date: String(catchItem.created_at),
+      lat: Number(catchItem.lat),
+      lon: Number(catchItem.lon),
+      isPublic: isOwn ? catchItem.is_public : true,
+      waterBodyId: catchItem.water_body_id,
+      waterBodyName: catchItem.water_body_name,
+    });
+    const ownCatches = markers
+      .filter((catchItem) => matchesWaterBody(catchItem) && (mapView === "mine" || catchItem.is_public))
+      .map((catchItem) => toDetailCatch(catchItem, true));
+    const otherCatches = mapView === "public"
+      ? publicMarkers.filter(matchesWaterBody).map((catchItem) => toDetailCatch(catchItem, false))
+      : [];
+    return [...ownCatches, ...otherCatches].sort((a, b) => Number(b.date) - Number(a.date));
+  }, [mapView, markers, publicMarkers, waterBodyPreview]);
+
+  const waterBodyDistanceText = useMemo(() => {
+    if (!userLocation || !waterBodyPreview) {
+      return null;
+    }
+    const kilometers = distanceInKilometers(userLocation, [waterBodyPreview.lon, waterBodyPreview.lat]);
+    if (!Number.isFinite(kilometers)) return null;
+    if (kilometers < 1) {
+      const meters = Math.round(kilometers * 1_000);
+      return language === "ru" ? `${meters} м` : `${meters} m away`;
+    }
+    const distance = kilometers.toFixed(kilometers < 10 ? 1 : 0);
+    return language === "ru" ? `${distance} км` : `${distance} km away`;
+  }, [language, userLocation, waterBodyPreview]);
 
   useEffect(() => {
     const previewUrls = [...markers, ...publicMarkers]
@@ -523,11 +872,30 @@ export default function Map() {
     [spots, publicSpots]
   );
 
+  const waterBodyMarkersGeoJSON: GeoJSON.FeatureCollection = useMemo(() => ({
+    type: "FeatureCollection",
+    features: waterBodiesGeoJSON.features.flatMap((feature: any) => {
+      const type = feature.properties?.water_type ?? "other";
+      return [{
+        type: "Feature" as const,
+        geometry: feature.geometry,
+        properties: {
+          ...feature.properties,
+          water_label: getWaterBodyLabel(type, language),
+          catch_count: waterBodyIds(feature.properties?.water_body_ids, feature.properties?.id)
+            .reduce((count, id) => count + (waterBodyCatchCounts[id] ?? 0), 0),
+        },
+      }];
+    }),
+  }), [waterBodiesGeoJSON, language, waterBodyCatchCounts]);
+
   const handleSpotPress = useCallback((e: any) => {
     const feature = e.features?.[0];
     if (!feature) return;
     const p = feature.properties;
-    const [lon, lat] = feature.geometry.coordinates;
+    const lon = Number(p.center_lon);
+    const lat = Number(p.center_lat);
+    if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
     setSpotPreview({ id: p.id, name: p.name, description: p.description, is_public: !!p.is_public, user_id: p.user_id, lat, lon });
     setPreviewCatch(null);
   }, []);
@@ -548,6 +916,8 @@ export default function Map() {
     }
     setSpotPreview(null);
     setSelectedSpot(null);
+    setWaterBodyPreview(null);
+    waterBodySheetOffset.setValue(0);
     setPreviewCatch({
       id: p.id,
       imageUrl: p.image_uri,
@@ -563,8 +933,64 @@ export default function Map() {
       authorUsername: p.author_username ?? null,
       authorName: p.author_name ?? null,
       authorAvatar: p.author_avatar ?? null,
+      waterBodyId: p.water_body_id ?? null,
+      waterBodyName: p.water_body_name ?? null,
     });
-  }, []);
+  }, [waterBodySheetOffset]);
+
+  const handleWaterBodyPress = useCallback((e: any) => {
+    const feature = e.features?.[0];
+    if (!feature) return;
+    const p = feature.properties;
+    const [lon, lat] = feature.geometry.coordinates;
+    const typeLabel = getWaterBodyLabel(p.water_type ?? "other", language);
+    const name = p.name || typeLabel;
+    const id = String(p.id ?? p.osm_id ?? `${lon},${lat}`);
+    const ids = waterBodyIds(p.water_body_ids, id);
+    const requestId = waterBodyPreviewRequestRef.current + 1;
+    waterBodyPreviewRequestRef.current = requestId;
+    waterBodySheetOffset.setValue(320);
+    setWaterBodyPreview({
+      id,
+      ids,
+      name,
+      typeLabel,
+      lat,
+      lon,
+      city: null,
+      country: null,
+      isResolvingLocation: true,
+    });
+    Animated.timing(waterBodySheetOffset, {
+      toValue: 0,
+      duration: 260,
+      useNativeDriver: true,
+    }).start();
+    void fetch(
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json` +
+      `?access_token=${MAPBOX_ACCESS_TOKEN}&language=${language}&types=place,locality,district,country`,
+    )
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!data || waterBodyPreviewRequestRef.current !== requestId) return;
+        const features = data.features ?? [];
+        const city = features.find((feature: any) =>
+          feature.place_type?.some((type: string) => ["place", "locality", "district"].includes(type)),
+        )?.text ?? null;
+        const country = features.find((feature: any) => feature.place_type?.includes("country"))?.text ?? null;
+        setWaterBodyPreview((current) => current?.id === id
+          ? { ...current, city, country, isResolvingLocation: false }
+          : current);
+      })
+      .catch(() => {
+        if (waterBodyPreviewRequestRef.current !== requestId) return;
+        setWaterBodyPreview((current) => current?.id === id
+          ? { ...current, isResolvingLocation: false }
+          : current);
+      });
+    setSpotPreview(null);
+    setPreviewCatch(null);
+  }, [language, waterBodySheetOffset]);
 
   // ─── Search ──────────────────────────────────────────────────────────────────
 
@@ -624,14 +1050,15 @@ export default function Map() {
         logoPosition={{ bottom: 8, left: 8 }}
         attributionEnabled={false}
         scaleBarEnabled={false}
-        onDidFinishLoadingMap={() => {
-          mapReadyRef.current = true;
-          if (pendingLocationRef.current) {
-            cameraRef.current?.setCamera({ centerCoordinate: pendingLocationRef.current, zoomLevel: 12, animationDuration: 0 });
-            pendingLocationRef.current = null;
-          }
+         onDidFinishLoadingMap={() => {
+           mapReadyRef.current = true;
+           if (pendingLocationRef.current) {
+             cameraRef.current?.setCamera({ centerCoordinate: pendingLocationRef.current, zoomLevel: 12, animationDuration: 0 });
+             pendingLocationRef.current = null;
+           }
         }}
         onCameraChanged={(state) => { zoomLevelRef.current = state.properties.zoom; }}
+        onMapIdle={(state) => setWaterBodyZoom(state.properties.zoom)}
         onPress={() => Keyboard.dismiss()}
         onLongPress={(e: any) => {
           if (!requireAuth()) return;
@@ -687,6 +1114,73 @@ export default function Map() {
               circleStrokeWidth: 2.5,
               circleStrokeColor: "#ffffff",
               circleOpacity: 0.95,
+            }}
+          />
+        </MapboxGL.ShapeSource>
+
+        {/* One clickable marker per water body */}
+        <MapboxGL.ShapeSource
+          id="water-body-areas"
+          shape={waterBodyAreasGeoJSON}
+          onPress={handleWaterBodyPress}
+        >
+          <MapboxGL.FillLayer
+            id="water-body-fills"
+            style={{ fillColor: "#0369a1", fillOpacity: 0.32 }}
+          />
+          <MapboxGL.LineLayer
+            id="water-body-outlines"
+            style={{ lineColor: "#bae6fd", lineWidth: 2, lineOpacity: 1 }}
+          />
+        </MapboxGL.ShapeSource>
+
+        <MapboxGL.ShapeSource
+          id="water-body-lines"
+          shape={waterBodyLinesGeoJSON}
+          onPress={handleWaterBodyPress}
+        >
+          <MapboxGL.LineLayer
+            id="water-body-rivers"
+            style={{ lineColor: "#38bdf8", lineWidth: 3, lineOpacity: 0.9 }}
+          />
+        </MapboxGL.ShapeSource>
+
+        {/* One clickable marker per water body */}
+        <MapboxGL.ShapeSource
+          id="water-body-markers"
+          shape={waterBodyMarkersGeoJSON}
+          onPress={handleWaterBodyPress}
+        >
+          <MapboxGL.CircleLayer
+            id="water-body-marker-circles"
+            style={{
+              circleRadius: ["interpolate", ["linear"], ["get", "catch_count"], 0, 3, 1, 12, 10, 16],
+              circleColor: "#0369a1",
+              circleOpacity: 0.95,
+              circleStrokeColor: "#ffffff",
+              circleStrokeWidth: ["interpolate", ["linear"], ["zoom"], 3, 0, 10, 0, 11, 2.5],
+            }}
+          />
+          <MapboxGL.SymbolLayer
+            id="water-body-catch-counts"
+            style={{
+              textField: ["case", [">", ["get", "catch_count"], 0], ["to-string", ["get", "catch_count"]], ""],
+              textColor: "#ffffff",
+              textSize: 12,
+              textAllowOverlap: true,
+            }}
+          />
+          <MapboxGL.SymbolLayer
+            id="water-body-marker-labels"
+            minZoomLevel={11}
+            style={{
+              textField: ["coalesce", ["get", "name"], ["get", "water_label"]],
+              textColor: "#ffffff",
+              textSize: ["interpolate", ["linear"], ["zoom"], 11, 10, 15, 13],
+              textHaloColor: "#075985",
+              textHaloWidth: 2,
+              textOffset: [0, 1.5],
+              textAllowOverlap: false,
             }}
           />
         </MapboxGL.ShapeSource>
@@ -978,7 +1472,10 @@ export default function Map() {
               <Text style={styles.previewCardDate}>
               {(() => {
                 if (!renderedPreviewCatch.createdAt) return t("recently");
-                const d = new Date(renderedPreviewCatch.createdAt);
+                const timestamp = Number(renderedPreviewCatch.createdAt);
+                const d = Number.isFinite(timestamp) && timestamp > 0
+                  ? new Date(timestamp)
+                  : new Date(renderedPreviewCatch.createdAt);
                 return isNaN(d.getTime()) ? t("recently") : d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
               })()}
               </Text>
@@ -994,6 +1491,84 @@ export default function Map() {
             </TouchableOpacity>
           </Animated.View>
         </TouchableOpacity>
+      )}
+
+      {waterBodyPreview && !newSpotCoord && (
+        <Animated.View style={[styles.waterBodySheet, { paddingBottom: Math.max(insets.bottom, 20), transform: [{ translateY: waterBodySheetOffset }] }]}>
+          <View style={styles.waterBodySheetHandle} {...waterBodySheetPanResponder.panHandlers} />
+          <View style={styles.waterBodySheetHeader}>
+            <Text style={styles.waterBodySheetName} numberOfLines={2}>{waterBodyPreview.name}</Text>
+            <Pressable style={[styles.waterbodySave]}>
+              <Ionicons name="bookmark-outline" size={20} color="#94a3b8">
+
+              </Ionicons>
+            </Pressable>
+            <Pressable
+              style={styles.waterBodySheetClose}
+              onPress={() => {
+                waterBodyPreviewRequestRef.current += 1;
+                Animated.timing(waterBodySheetOffset, {
+                  toValue: 320,
+                  duration: 180,
+                  useNativeDriver: true,
+                }).start(() => {
+                  setWaterBodyPreview(null);
+                });
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={language === "ru" ? "Закрыть" : "Close"}
+            >
+
+              <Ionicons name="close" size={20} color="#94a3b8" />
+            </Pressable>
+          </View>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.waterBodySheetContent}>
+            <View style={styles.waterBodySheetLocation}>
+              <Text style={[styles.waterBodySheetLocationText, styles.waterBodySheetLocationName]} numberOfLines={1}>
+                {waterBodyPreview.isResolvingLocation
+                  ? (language === "ru" ? "Определяем местоположение..." : "Finding location...")
+                  : [waterBodyPreview.city, waterBodyPreview.country].filter(Boolean).join(", ")
+                    || (language === "ru" ? "Московская область, Россия" : "Moscow Oblast, Russia")}
+              </Text>
+              {waterBodyDistanceText ? <Text style={styles.waterBodySheetLocationSeparator}>•</Text> : null}
+              {waterBodyDistanceText ? (
+                <Text style={styles.waterBodySheetLocationText} numberOfLines={1}>
+                  {waterBodyDistanceText}
+                </Text>
+              ) : null}
+            </View>
+            {waterBodySheetCatches.length > 0 ? (
+              <View style={styles.waterBodyCatches}>
+                <Text style={styles.waterBodyCatchesTitle}>
+                  {language === "ru" ? `Уловы: ${waterBodySheetCatches.length}` : `Catches: ${waterBodySheetCatches.length}`}
+                </Text>
+                <View style={styles.waterBodyCatchGrid}>
+                {waterBodySheetCatches.map((catchItem) => (
+                  <TouchableOpacity
+                    key={catchItem.id}
+                    style={styles.waterBodyCatchThumb}
+                    onPress={() => {
+                      setDetailCatch(catchItem);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={language === "ru" ? "Открыть улов" : "Open catch"}
+                  >
+                    <ExpoImage
+                      source={catchItem.imageUrl ? { uri: catchItem.imageUrl } : require("../../assets/placeholder.png")}
+                      style={styles.waterBodyCatchImage}
+                      contentFit="cover"
+                    />
+                  </TouchableOpacity>
+                ))}
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.waterBodyEmptyText}>
+                {language === "ru" ? "В этом водоёме пока нет уловов" : "No catches in this waterbody yet"}
+              </Text>
+            )}
+          </ScrollView>
+        </Animated.View>
       )}
 
       {/* Spot preview card */}
@@ -1131,7 +1706,7 @@ const styles = StyleSheet.create({
     left: 16,
     bottom: 50,
     alignItems: "center",
-    zIndex: 9999,
+    zIndex: 10,
   },
   controlsWithWelcome: {
     bottom: 224,
@@ -1149,7 +1724,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    zIndex: 9998,
+    zIndex: 10,
   },
   viewToggle: {
     flexDirection: "row",
@@ -1550,6 +2125,71 @@ const styles = StyleSheet.create({
     paddingVertical: 7, alignItems: "center", marginTop: 8,
   },
   spotPreviewBtnText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+
+  waterBodySheet: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 100,
+    height: "72%",
+    backgroundColor: "#071828",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderColor: "#1e4b68",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  waterBodySheetHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    backgroundColor: "#3b627a",
+    marginBottom: 18,
+  },
+  waterBodySheetHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  waterBodySheetIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0c3147",
+    borderWidth: 1,
+    borderColor: "#1d6388",
+  },
+waterbodySave: {
+  paddingHorizontal: 12,
+},
+
+  waterBodySheetClose: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#10283a",
+  },
+  waterBodySheetName: { color: "#f1f5f9", fontSize: 26, lineHeight: 27, fontWeight: "800", flex: 1 },
+  waterBodySheetContent: { paddingBottom: 24 },
+  waterBodySheetType: { color: "#7dd3fc", fontSize: 14, fontWeight: "700", marginTop: 12 },
+  waterBodySheetLocation: { marginTop: 4, flexDirection: "row", alignItems: "center" },
+  waterBodySheetLocationName: { flexShrink: 1 },
+  waterBodySheetLocationSeparator: { color: "#cbd5e1", fontSize: 16, marginHorizontal: 4 },
+  waterBodySheetLocationText: { color: "#cbd5e1", fontSize: 14, fontWeight: "400" },
+  waterBodyCatches: { marginTop: 18 },
+  waterBodyCatchesTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700", marginBottom: 10 },
+  waterBodyCatchGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  waterBodyCatchThumb: { width: "31.5%", aspectRatio: 1, borderRadius: 10, overflow: "hidden", backgroundColor: "#0f2236", marginBottom: 10 },
+  waterBodyCatchImage: { width: "100%", height: "100%" },
+  waterBodyEmptyText: { color: "#94a3b8", fontSize: 14, marginTop: 24, textAlign: "center" },
 
   createSpotSheet: {
     position: "absolute",

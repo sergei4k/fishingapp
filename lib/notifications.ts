@@ -218,7 +218,14 @@ export async function syncPushTokenForUser(userId: string): Promise<string | nul
       }
     }
 
-    // Legacy fallback for existing hooks/older builds. Multi-device delivery uses user_push_tokens.
+  } catch (e: any) {
+    if (!isNetworkError(e)) console.warn("[syncPushTokenForUser] failed to save device token:", e?.status, e?.message);
+  }
+
+  // Keep the original user token path independent from the multi-device
+  // registry. This lets existing server deployments continue delivering if
+  // the new collection migration has not reached them yet.
+  try {
     await pb.collection("users").update(userId, { pushToken: token });
     console.log("[syncPushTokenForUser] saved token for", userId);
   } catch (e: any) {

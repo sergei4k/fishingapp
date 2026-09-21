@@ -7,6 +7,7 @@ import { pb } from '@/lib/pocketbase';
 import '@/lib/mapbox';
 import { clearDeliveredNotifications } from '@/lib/notifications';
 import { needsOnboarding } from '@/lib/onboarding';
+import { requiresUpdate, updateStoreUrl } from '@/lib/appVersion';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -47,16 +48,6 @@ const toastConfig = {
   ),
 };
 
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number);
-  const pb_ = b.split('.').map(Number);
-  for (let i = 0; i < 3; i++) {
-    const diff = (pa[i] ?? 0) - (pb_[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
 function UpdateRequired() {
   return (
     <View style={styles.updateScreen}>
@@ -68,9 +59,18 @@ function UpdateRequired() {
       </Text>
       <TouchableOpacity
         style={styles.updateBtn}
-        onPress={() => Linking.openURL('https://play.google.com/store/apps/details?id=com.strikefeed.myapp')}
+        accessibilityRole="button"
+        onPress={async () => {
+          const url = updateStoreUrl(Platform.OS);
+          if (!url) return;
+          try {
+            await Linking.openURL(url);
+          } catch {
+            Alert.alert('Unable to open store / Не удалось открыть магазин', 'Please open the store and search for StrikeFeed. / Найдите StrikeFeed в магазине приложений.');
+          }
+        }}
       >
-        <Text style={styles.updateBtnText}>Update on Google Play</Text>
+        <Text style={styles.updateBtnText}>{Platform.OS === 'ios' ? 'Update on App Store' : 'Update on Google Play'}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -82,7 +82,7 @@ function needsUsernameSetup(user: any) {
   return !u || /^users?\d+$/.test(u);
 }
 
-function useProtectedRoute() {
+function useProtectedRoute(enabled: boolean) {
   const { session, loading, user } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
@@ -91,6 +91,7 @@ function useProtectedRoute() {
   const onboardingRequired = needsOnboarding(user);
 
   useEffect(() => {
+    if (!enabled) return;
     if (!navigationState?.key) return;
     if (loading) return;
     if (!pathname) return;
@@ -116,14 +117,14 @@ function useProtectedRoute() {
       // Guest: free to browse the tabs. Only bounce off account setup screens.
       if (onSetupUsername || onOnboarding) router.replace('/(tabs)' as const as any);
     }
-  }, [session, loading, pathname, usernameSetupRequired, onboardingRequired, navigationState?.key, router]);
+  }, [enabled, session, loading, pathname, usernameSetupRequired, onboardingRequired, navigationState?.key, router]);
 }
 
 function RootNavigator() {
   const { loading, user } = useAuth();
   const [updateRequired, setUpdateRequired] = useState(false);
-  const [updateAvailable, setUpdateAvailable] = useState(false);
-  useProtectedRoute();
+  const [checkingVersion, setCheckingVersion] = useState(true);
+  useProtectedRoute(!checkingVersion && !updateRequired);
 
   useEffect(() => {
     clearDeliveredNotifications(user?.id);
@@ -134,30 +135,49 @@ function RootNavigator() {
   }, [user?.id]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const record = await pb.collection('app_config').getFirstListItem('key = "min_version"', { requestKey: null });
-        const minVersion = (record.value as string).trim();
-        const currentVersion = Constants.expoConfig?.version ?? (Constants as any).manifest?.version ?? '0.0.0';
-        if (compareVersions(currentVersion, minVersion) < 0) {
-          if (Platform.OS === 'ios') setUpdateAvailable(true);
-          else setUpdateRequired(true);
-        }
-      } catch {
-        // if config fetch fails, let the user in
+    let active = true;
+    let inFlight = false;
+    let controller: AbortController | undefined;
+    const checkVersion = async () => {
+      if (!updateStoreUrl(Platform.OS)) {
+        setCheckingVersion(false);
+        return;
       }
-    })();
+      if (inFlight) return;
+      inFlight = true;
+      controller = new AbortController();
+      const timeout = setTimeout(() => controller?.abort(), 5000);
+      try {
+        const key = `min_version_${Platform.OS}`;
+        const records = await pb.collection('app_config').getFullList({
+          filter: `key = "${key}" || key = "min_version"`,
+          requestKey: null,
+          signal: controller.signal,
+        });
+        const minimum = (records.find(record => record.key === key)
+          ?? records.find(record => record.key === 'min_version'))?.value;
+        // Native version cannot be changed by an OTA update.
+        if (active) setUpdateRequired(requiresUpdate(Constants.nativeAppVersion, minimum));
+      } catch {
+        // Allow startup offline; retain an already confirmed update requirement.
+      } finally {
+        clearTimeout(timeout);
+        inFlight = false;
+        if (active) setCheckingVersion(false);
+      }
+    };
+    void checkVersion();
+    const subscription = AppState.addEventListener('change', state => {
+      if (state === 'active') void checkVersion();
+    });
+    return () => {
+      active = false;
+      controller?.abort();
+      subscription.remove();
+    };
   }, []);
 
-  useEffect(() => {
-    if (!updateAvailable) return;
-    Alert.alert(
-      'Update available',
-      'A new version of StrikeFeed is available in the App Store.\n\nДоступна новая версия StrikeFeed в App Store.',
-    );
-  }, [updateAvailable]);
-
-  if (loading) {
+  if (loading || checkingVersion) {
     return (
       <View style={{ flex: 1, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center' }}>
         <FishLoader />
