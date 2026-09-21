@@ -79,6 +79,19 @@ test("marker refresh does not depend on water body state", () => {
   assert.match(source, /useEffect\(\(\) => \{\s*refreshWaterBodies\(\);\s*\}, \[refreshWaterBodies\]\);/);
 });
 
+test("water body sheet shows loading feedback while catches are fetched", () => {
+  assert.match(source, /const \[publicMarkersLoaded, setPublicMarkersLoaded\] = useState\(false\);/);
+  assert.match(source, /!catchesLoaded \|\| \(mapView === "public" && !publicMarkersLoaded\)/);
+  assert.match(source, /Loading catches/);
+  assert.match(source, /<ImageWithLoader/);
+});
+
+test("water body thumbnails load in batches", () => {
+  assert.match(source, /const WATER_BODY_CATCH_BATCH_SIZE = 9;/);
+  assert.match(source, /waterBodySheetCatches\.slice\(0, visibleWaterBodyCatchCount\)/);
+  assert.match(source, /setVisibleWaterBodyCatchCount\(\(count\) => count \+ WATER_BODY_CATCH_BATCH_SIZE\)/);
+});
+
 test("welcome card body has comfortable multi-line spacing", () => {
   assert.match(source, /welcomeCardMessage:\s*\{[\s\S]*?fontSize:\s*17,[\s\S]*?lineHeight:\s*24,/);
 });

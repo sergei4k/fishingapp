@@ -1,5 +1,5 @@
 export const DEFAULT_SHORELINE_RADIUS_METERS = 100;
-export const DEFAULT_WATERWAY_RADIUS_METERS = 75;
+export const DEFAULT_WATERWAY_RADIUS_METERS = 100;
 
 type Position = [number, number];
 type PolygonCoordinates = Position[][];

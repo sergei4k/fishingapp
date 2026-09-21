@@ -32,6 +32,7 @@ const PIN_URI = Image.resolveAssetSource(require("../../assets/images/pin.png"))
 const PREVIEW_THUMB_SIZE = "300x300";
 const CATCH_VIEW_FADE = { duration: 240, delay: 0 };
 const VIEW_TOGGLE_THUMB_WIDTH = 104;
+const WATER_BODY_CATCH_BATCH_SIZE = 9;
 const WELCOME_CARD_STORAGE_PREFIX = "@welcome_add_catch_pending:";
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -134,6 +135,7 @@ export default function Map() {
   const [markers, setMarkers] = useState<CatchMarker[]>([]);
   const [catchesLoaded, setCatchesLoaded] = useState(false);
   const [publicMarkers, setPublicMarkers] = useState<any[]>([]);
+  const [publicMarkersLoaded, setPublicMarkersLoaded] = useState(false);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [centerCoord] = useState<[number, number]>([37.618423, 55.751244]);
   const zoomLevelRef = useRef(10);
@@ -163,6 +165,7 @@ export default function Map() {
   const [selectedSpot, setSelectedSpot] = useState<Spot | null>(null);
   const [newSpotCoord, setNewSpotCoord] = useState<{ lat: number; lon: number } | null>(null);
   const [waterBodyPreview, setWaterBodyPreview] = useState<WaterBodyPreview | null>(null);
+  const [visibleWaterBodyCatchCount, setVisibleWaterBodyCatchCount] = useState(WATER_BODY_CATCH_BATCH_SIZE);
   const waterBodyPreviewRequestRef = useRef(0);
   const waterBodyRequestRef = useRef(0);
   const waterBodySheetOffset = useRef(new Animated.Value(0)).current;
@@ -594,6 +597,7 @@ export default function Map() {
   }, [visibleWaterBodyIds, waterBodyZoom]);
 
   const refreshPublicMarkers = useCallback(async () => {
+    setPublicMarkersLoaded(false);
     try {
       const records = await pb.collection('catches').getFullList({
         filter: 'is_public = true',
@@ -617,6 +621,8 @@ export default function Map() {
       );
     } catch (e) {
       if (!isNetworkError(e)) console.warn('Failed to fetch public markers:', e);
+    } finally {
+      setPublicMarkersLoaded(true);
     }
   }, [user]);
 
@@ -830,6 +836,10 @@ export default function Map() {
       : [];
     return [...ownCatches, ...otherCatches].sort((a, b) => Number(b.date) - Number(a.date));
   }, [mapView, markers, publicMarkers, waterBodyPreview]);
+
+  useEffect(() => {
+    setVisibleWaterBodyCatchCount(WATER_BODY_CATCH_BATCH_SIZE);
+  }, [waterBodyPreview?.id]);
 
   const waterBodyDistanceText = useMemo(() => {
     if (!userLocation || !waterBodyPreview) {
@@ -1539,13 +1549,18 @@ export default function Map() {
                 </Text>
               ) : null}
             </View>
-            {waterBodySheetCatches.length > 0 ? (
+            {!catchesLoaded || (mapView === "public" && !publicMarkersLoaded) ? (
+              <View style={styles.waterBodyLoading} accessibilityRole="progressbar" accessibilityLabel={language === "ru" ? "Загружаем уловы" : "Loading catches"}>
+                <ActivityIndicator size="small" color="#7dd3fc" />
+                <Text style={styles.waterBodyLoadingText}>{language === "ru" ? "Загружаем уловы..." : "Loading catches..."}</Text>
+              </View>
+            ) : waterBodySheetCatches.length > 0 ? (
               <View style={styles.waterBodyCatches}>
                 <Text style={styles.waterBodyCatchesTitle}>
                   {language === "ru" ? `Уловы: ${waterBodySheetCatches.length}` : `Catches: ${waterBodySheetCatches.length}`}
                 </Text>
                 <View style={styles.waterBodyCatchGrid}>
-                {waterBodySheetCatches.map((catchItem) => (
+                    {waterBodySheetCatches.slice(0, visibleWaterBodyCatchCount).map((catchItem) => (
                   <TouchableOpacity
                     key={catchItem.id}
                     style={styles.waterBodyCatchThumb}
@@ -1555,14 +1570,28 @@ export default function Map() {
                     accessibilityRole="button"
                     accessibilityLabel={language === "ru" ? "Открыть улов" : "Open catch"}
                   >
-                    <ExpoImage
-                      source={catchItem.imageUrl ? { uri: catchItem.imageUrl } : require("../../assets/placeholder.png")}
-                      style={styles.waterBodyCatchImage}
-                      contentFit="cover"
-                    />
+                        <ImageWithLoader
+                          source={catchItem.imageUrl ? { uri: catchItem.imageUrl } : require("../../assets/placeholder.png")}
+                          style={styles.waterBodyCatchImage}
+                          contentFit="cover"
+                        />
                   </TouchableOpacity>
-                ))}
-                </View>
+                    ))}
+                    </View>
+                {visibleWaterBodyCatchCount < waterBodySheetCatches.length ? (
+                  <Pressable
+                    style={styles.waterBodyLoadMore}
+                    onPress={() => setVisibleWaterBodyCatchCount((count) => count + WATER_BODY_CATCH_BATCH_SIZE)}
+                    accessibilityRole="button"
+                    accessibilityLabel={language === "ru" ? "Показать больше уловов" : "Show more catches"}
+                  >
+                    <Text style={styles.waterBodyLoadMoreText}>
+                      {language === "ru"
+                        ? `Показать ещё (${waterBodySheetCatches.length - visibleWaterBodyCatchCount})`
+                        : `Show more (${waterBodySheetCatches.length - visibleWaterBodyCatchCount})`}
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
             ) : (
               <Text style={styles.waterBodyEmptyText}>
@@ -2186,12 +2215,16 @@ waterbodySave: {
   waterBodySheetLocationName: { flexShrink: 1 },
   waterBodySheetLocationSeparator: { color: "#cbd5e1", fontSize: 16, marginHorizontal: 4 },
   waterBodySheetLocationText: { color: "#cbd5e1", fontSize: 14, fontWeight: "400" },
-  waterBodyCatches: { marginTop: 18 },
-  waterBodyCatchesTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700", marginBottom: 10 },
-  waterBodyCatchGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
-  waterBodyCatchThumb: { width: "31.5%", aspectRatio: 1, borderRadius: 10, overflow: "hidden", backgroundColor: "#0f2236", marginBottom: 10 },
-  waterBodyCatchImage: { width: "100%", height: "100%" },
-  waterBodyEmptyText: { color: "#94a3b8", fontSize: 14, marginTop: 24, textAlign: "center" },
+      waterBodyCatches: { marginTop: 18 },
+      waterBodyCatchesTitle: { color: "#e6eef8", fontSize: 15, fontWeight: "700", marginBottom: 10 },
+      waterBodyCatchGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+      waterBodyCatchThumb: { width: "31.5%", aspectRatio: 1, borderRadius: 10, overflow: "hidden", backgroundColor: "#0f2236", marginBottom: 10 },
+      waterBodyCatchImage: { width: "100%", height: "100%" },
+      waterBodyLoadMore: { alignSelf: "center", paddingHorizontal: 16, paddingVertical: 10, marginTop: 2, borderRadius: 10, backgroundColor: "#0c3147" },
+      waterBodyLoadMoreText: { color: "#7dd3fc", fontSize: 14, fontWeight: "700" },
+      waterBodyLoading: { alignItems: "center", justifyContent: "center", minHeight: 112, gap: 10 },
+      waterBodyLoadingText: { color: "#94a3b8", fontSize: 14 },
+      waterBodyEmptyText: { color: "#94a3b8", fontSize: 14, marginTop: 24, textAlign: "center" },
 
   createSpotSheet: {
     position: "absolute",
