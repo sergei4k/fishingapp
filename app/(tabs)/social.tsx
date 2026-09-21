@@ -21,7 +21,7 @@ import { AppNewsItem, countUnreadNews, fetchAppNews, getLatestNewsTimestamp, rea
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect } from "expo-router";
 import { useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Reanimated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";

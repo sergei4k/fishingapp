@@ -16,11 +16,10 @@ import CatchDetailModal, { EditableFields } from "@/components/CatchDetailModal"
 import AvatarPreviewModal from "@/components/AvatarPreviewModal";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect } from "@react-navigation/native";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import SignInPrompt from "@/components/SignInPrompt";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, RefreshControl, ScrollView, Share, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/AppText";

@@ -134,7 +134,7 @@ export default function SetupUsername() {
 
 const styles = StyleSheet.create({
   bg: { flex: 1 },
-  overlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(5, 12, 26, 0.62)' },
+  overlay: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(5, 12, 26, 0.62)' },
   container: { flex: 1 },
   scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   heroText: { alignItems: 'center', marginBottom: 36 },

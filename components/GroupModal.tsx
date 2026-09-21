@@ -1261,7 +1261,7 @@ const styles = StyleSheet.create({
   replyPreviewText: { color: "#cbd5e1", fontSize: 12, lineHeight: 16 },
   messageBubbleImage: { padding: 0, overflow: "hidden" },
   messageImage: { width: 220, height: 220 },
-  messageImageSpinner: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  messageImageSpinner: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" },
   messagePad: { paddingHorizontal: 12, paddingVertical: 8 },
   composerContainer: {
     paddingHorizontal: 12,

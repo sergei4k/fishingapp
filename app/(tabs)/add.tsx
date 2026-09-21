@@ -9,7 +9,6 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import * as MediaLibrary from 'expo-media-library';
 import { File, Paths } from 'expo-file-system';
 import * as Location from 'expo-location';
-import { Buffer } from 'buffer';
 import ExifParser from 'exif-parser';
 import MapboxGL from '@rnmapbox/maps';
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
@@ -313,10 +312,8 @@ export default function Add() {
     }
 
     try {
-      const res = await fetch(photo.uri);
-      const ab = await res.arrayBuffer();
-      const buf = Buffer.from(new Uint8Array(ab));
-      const tags = ExifParser.create(buf).parse().tags;
+      const bytes = await new File(photo.uri).arrayBuffer();
+      const tags = ExifParser.create(bytes).parse().tags;
       return coordsFromExif(tags);
     } catch (e) {
       console.warn('EXIF parse failed:', e);

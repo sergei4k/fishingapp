@@ -29,5 +29,5 @@ export default function ImageWithLoader({ loaderColor = "#38bdf8", style, ...pro
 
 const styles = StyleSheet.create({
   wrapper: { overflow: "hidden" },
-  indicator: { ...StyleSheet.absoluteFillObject, alignSelf: "center" },
+  indicator: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignSelf: "center" },
 });

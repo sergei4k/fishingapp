@@ -1,5 +1,5 @@
 import "dotenv/config";
-const { withStringsXml } = require("@expo/config-plugins");
+const { withStringsXml } = require("expo/config-plugins");
 
 const MAPBOX_ACCESS_TOKEN =
   process.env.EXPO_PUBLIC_MAPBOX_TOKEN ||
@@ -77,6 +77,8 @@ export default {
       }],
       "expo-router",
       "expo-font",
+      "expo-image",
+      ["expo-build-properties", { ios: { deploymentTarget: "16.4" } }],
       [
         "expo-splash-screen",
         {

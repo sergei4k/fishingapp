@@ -315,7 +315,7 @@ export default function Map() {
     requestLocation();
   }, []);
 
-  const requestLocation = async () => {
+  async function requestLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -347,7 +347,7 @@ export default function Map() {
     } catch (e) {
       console.error("Location error:", e);
     }
-  };
+  }
 
   const centerOnUser = () => {
     if (userLocation) {
@@ -1793,7 +1793,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   styleSheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
     backgroundColor: "rgba(2, 12, 27, 0.58)",
   },
   styleSheetAnimation: {
@@ -1965,7 +1965,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   previewCardContent: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
     flexDirection: "row",
   },
   previewCardImage: {
@@ -2322,7 +2322,7 @@ waterbodySave: {
     zIndex: 10001,
   },
   welcomeBackdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
     backgroundColor: "rgba(0, 0, 0, 0.58)",
     zIndex: 10000,
   },
@@ -2339,10 +2339,10 @@ waterbodySave: {
     zIndex: 1,
   },
   welcomeBackgroundImage: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
   },
   welcomeBackgroundScrim: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
     backgroundColor: "rgba(2, 12, 27, 0.62)",
   },
   welcomeCardTitle: {
