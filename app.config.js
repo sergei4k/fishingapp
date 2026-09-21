@@ -78,7 +78,7 @@ export default {
       "expo-router",
       "expo-font",
       "expo-image",
-      ["expo-build-properties", { ios: { deploymentTarget: "16.4" } }],
+      ["expo-build-properties", { ios: { deploymentTarget: "16.4", enableSceneSupport: true } }],
       [
         "expo-splash-screen",
         {
