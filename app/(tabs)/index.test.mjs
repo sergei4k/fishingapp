@@ -43,15 +43,15 @@ test("account creation enables the welcome once before signing the user in", () 
 
 test("welcome card moves map controls clear of the card", () => {
   assert.match(source, /showWelcomeCard && styles\.controlsWithWelcome/);
-  assert.match(source, /controlsWithWelcome:\s*\{\s*bottom: 244,/);
+  assert.match(source, /controlsWithWelcome:\s*\{\s*bottom: 224,/);
 });
 
 test("welcome card is a full-screen first-run experience", () => {
   assert.match(source, /<View style=\{styles\.welcomeBackdrop\} pointerEvents="auto" \/>/);
   assert.match(source, /style=\{\[styles\.welcomeCard, \{ top: 0, bottom: 0 \}\]\}/);
-  assert.match(source, /welcomeBackdrop:\s*\{\s*\.\.\.StyleSheet\.absoluteFillObject,/);
+  assert.match(source, /welcomeBackdrop:\s*\{\s*position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,/);
   assert.match(source, /welcomeCard:\s*\{[\s\S]*?left: 0,[\s\S]*?right: 0,/);
-  assert.match(source, /welcomeBackgroundImage:\s*\{\s*\.\.\.StyleSheet\.absoluteFillObject,/);
+  assert.match(source, /welcomeBackgroundImage:\s*\{\s*position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,/);
   assert.match(source, /welcomeCardContent:\s*\{[\s\S]*?alignItems: "center",[\s\S]*?justifyContent: "center",/);
 });
 
@@ -72,6 +72,11 @@ test("welcome card guides the user to the Add Catch tab without an in-card butto
 
 test("welcome card title uses the app display font", () => {
   assert.match(source, /welcomeCardTitle:\s*\{[\s\S]*?fontFamily: theme\.fonts\.displayBold/);
+});
+
+test("marker refresh does not depend on water body state", () => {
+  assert.match(source, /refreshSpots\(\);\s*\}, \[refreshMarkers, refreshPublicMarkers, refreshSpots\]\)/);
+  assert.match(source, /useEffect\(\(\) => \{\s*refreshWaterBodies\(\);\s*\}, \[refreshWaterBodies\]\);/);
 });
 
 test("welcome card body has comfortable multi-line spacing", () => {

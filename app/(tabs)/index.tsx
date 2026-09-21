@@ -625,8 +625,7 @@ export default function Map() {
       refreshMarkers();
       refreshPublicMarkers();
       refreshSpots();
-      refreshWaterBodies();
-    }, [refreshMarkers, refreshPublicMarkers, refreshSpots, refreshWaterBodies])
+    }, [refreshMarkers, refreshPublicMarkers, refreshSpots])
   );
 
   useFocusEffect(
@@ -667,8 +666,11 @@ export default function Map() {
     refreshMarkers();
     refreshPublicMarkers();
     refreshSpots();
+  }, [refreshMarkers, refreshPublicMarkers, refreshSpots]);
+
+  useEffect(() => {
     refreshWaterBodies();
-  }, [refreshMarkers, refreshPublicMarkers, refreshSpots, refreshWaterBodies]);
+  }, [refreshWaterBodies]);
 
   const syncCommentCountInMap = useCallback((targetCatchId: string, count: number) => {
     const patchCatch = (current: any) => {
