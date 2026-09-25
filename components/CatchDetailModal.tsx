@@ -1,4 +1,5 @@
 import { useAuth, useRequireAuth } from "@/lib/auth";
+import { formatCatchDate } from "@/lib/dateFormat";
 import { theme } from '../lib/theme';
 import { filterGearOptions, getGearLabel, getGearPickerTab, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON, type GearPickerTab } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
@@ -13,7 +14,7 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Image as ExpoImage } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
-import { Animated, ActivityIndicator, Alert, Dimensions, FlatList, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { Animated, ActivityIndicator, Alert, Dimensions, FlatList, InteractionManager, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -86,6 +87,7 @@ export type EditableFields = {
 type Props = {
   catch: CatchDetail | null;
   onClose: () => void;
+  onShowOnMap?: () => void;
   onLikeChange?: (catchId: string, delta: number, isLiked: boolean, likeId: string | null) => void;
   onCommentAdded?: (catchId: string) => void;
   onCommentCountSynced?: (catchId: string, count: number) => void;
@@ -103,6 +105,7 @@ type Props = {
 export default function CatchDetailModal({
   catch: item,
   onClose,
+  onShowOnMap,
   onLikeChange,
   onCommentAdded,
   onCommentCountSynced,
@@ -126,10 +129,7 @@ export default function CatchDetailModal({
   const [photoIndex, setPhotoIndex] = useState(0);
   const [photoLoading, setPhotoLoading] = useState(true);
   const [loadedPhotos, setLoadedPhotos] = useState<Record<number, boolean>>({});
-  const [heartPhotoIndex, setHeartPhotoIndex] = useState<number | null>(null);
-  const lastPhotoTapAt = useRef(0);
-  const photoHeartScale = useRef(new Animated.Value(0.6)).current;
-  const photoHeartOpacity = useRef(new Animated.Value(0)).current;
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
 
   const [likeCount, setLikeCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
@@ -198,8 +198,7 @@ export default function CatchDetailModal({
     setPhotoIndex(0);
     setPhotoLoading(true);
     setLoadedPhotos({});
-    setHeartPhotoIndex(null);
-    lastPhotoTapAt.current = 0;
+    setFullscreenPhoto(null);
     setLikeCount(0);
     setIsLiked(false);
     setLikeId(null);
@@ -342,33 +341,6 @@ export default function CatchDetailModal({
     } else await createLike();
   };
 
-  const animatePhotoLike = (index: number) => {
-    setHeartPhotoIndex(index);
-    photoHeartScale.setValue(0.6);
-    photoHeartOpacity.setValue(0);
-    Animated.parallel([
-      Animated.spring(photoHeartScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 10 }),
-      Animated.sequence([
-        Animated.timing(photoHeartOpacity, { toValue: 1, duration: 120, useNativeDriver: true }),
-        Animated.delay(260),
-        Animated.timing(photoHeartOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
-      ]),
-    ]).start(() => setHeartPhotoIndex(null));
-  };
-
-  const handlePhotoTap = (index: number) => {
-    const now = Date.now();
-    if (now - lastPhotoTapAt.current > 280) {
-      lastPhotoTapAt.current = now;
-      return;
-    }
-
-    lastPhotoTapAt.current = 0;
-    if (!requireAuth() || !item || !user) return;
-    animatePhotoLike(index);
-    if (!isLiked) void createLike();
-  };
-
   const deleteComment = async (commentId: string) => {
     try {
       await pb.collection("comments").delete(commentId);
@@ -491,10 +463,7 @@ export default function CatchDetailModal({
   ];
 
   const formatDate = (val?: string) => {
-    if (!val) return t("recently");
-    const num = Number(val);
-    const d = !isNaN(num) && num > 0 ? new Date(num) : new Date(val);
-    return isNaN(d.getTime()) ? t("recently") : d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
+    return formatCatchDate(val, language) || t("recently");
   };
 
   const canEdit = !!onSave || !!onDelete;
@@ -515,9 +484,6 @@ export default function CatchDetailModal({
             <TouchableOpacity style={styles.closeBtn} onPress={onClose} hitSlop={8}>
               <Ionicons name="arrow-back" size={20} color="#e6eef8" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {getSpeciesLabel(item?.species, language)}
-            </Text>
             {canShowMenu ? (
               <View>
                 <TouchableOpacity style={styles.closeBtn} onPress={() => setShowMenu((v) => !v)} hitSlop={8}>
@@ -546,7 +512,7 @@ export default function CatchDetailModal({
                         style={styles.dropdownItem}
                         onPress={() => { setShowMenu(false); onReportCatch(item.id, item.userId); }}
                       >
-                        <Ionicons name="flag-outline" size={15} color="#fbbf24" style={{ marginRight: 10 }} />
+                        <Ionicons name="flag-outline" size={15} color="#fbbf24" style={{ marginRight: 15 }} />
                         <Text style={styles.dropdownItemText}>{t("reportContent")}</Text>
                       </TouchableOpacity>
                     )}
@@ -555,8 +521,8 @@ export default function CatchDetailModal({
                         style={styles.dropdownItem}
                         onPress={() => { setShowMenu(false); onBlockUser(item.userId!); }}
                       >
-                        <Ionicons name="ban-outline" size={15} color="#f87171" style={{ marginRight: 10 }} />
-                        <Text style={[styles.dropdownItemText, { color: "#f87171" }]}>{t("blockUser")}</Text>
+                        <Ionicons name="ban-outline" size={15} color="#f87171" style={{ marginRight: 15 }} />
+                        <Text style={[styles.dropdownItemText, { color: "#ffffff" }]}>{t("blockUser")}</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -575,9 +541,8 @@ export default function CatchDetailModal({
           >
             {/* User row */}
             {(item?.username || item?.name || item?.avatarUrl) && (
-              <TouchableOpacity
+              <Pressable
                 style={styles.userRow}
-                activeOpacity={item.userId && onUserPress ? 0.7 : 1}
                 onPress={() => item.userId && onUserPress && onUserPress(item.userId)}
               >
                 <View style={styles.avatar}>
@@ -591,7 +556,8 @@ export default function CatchDetailModal({
                   <Text style={styles.userName}>{item.username || item.name}</Text>
                   {item.verified ? <VerifiedBadge size={12} /> : null}
                 </View>
-              </TouchableOpacity>
+                <Text style={styles.userDate}>{formatDate(item.date)}</Text>
+              </Pressable>
             )}
 
             {/* Photo carousel */}
@@ -608,29 +574,18 @@ export default function CatchDetailModal({
                     setPhotoLoading(!loadedPhotos[nextIndex]);
                     setPhotoIndex(nextIndex);
                   }}
-                >
-                  {photos.map((uri, i) => (
-                    <View key={i} style={styles.catchPhotoPage}>
-                      <Pressable onPress={() => handlePhotoTap(i)} style={styles.catchPhotoPressable}>
-                        <CatchPhoto
-                          uri={uri}
+                    >
+                      {photos.map((uri, i) => (
+                        <View key={i} style={styles.catchPhotoPage}>
+                        <Pressable onPress={() => setFullscreenPhoto(uri)} style={styles.catchPhotoPressable}>
+                          <CatchPhoto
+                            uri={uri}
                           onLoadingChange={(loading) => {
                             setLoadedPhotos((current) => ({ ...current, [i]: !loading }));
-                            if (i === photoIndex) setPhotoLoading(loading);
-                          }}
-                        />
-                        {heartPhotoIndex === i && (
-                          <Animated.View
-                            pointerEvents="none"
-                            style={[
-                              styles.photoLikeHeart,
-                              { opacity: photoHeartOpacity, transform: [{ scale: photoHeartScale }] },
-                            ]}
-                          >
-                            <Ionicons name="heart" size={84} color="#ffffff" />
-                          </Animated.View>
-                        )}
-                      </Pressable>
+                              if (i === photoIndex) setPhotoLoading(loading);
+                            }}
+                          />
+                        </Pressable>
                     </View>
                   ))}
                 </ScrollView>
@@ -779,7 +734,6 @@ export default function CatchDetailModal({
                   ) : null}
                 </>
               )}
-              <Text style={styles.detailDate}>{formatDate(item?.date)}</Text>
               {item?.waterBodyName ? (
                 <TouchableOpacity
                   style={styles.waterBodyRow}
@@ -883,12 +837,15 @@ export default function CatchDetailModal({
                 ) : (
                   <TouchableOpacity
                     style={styles.btnMap}
-                    onPress={() => {
-                      if (item?.lat != null && item?.lon != null) {
-                        onClose();
-                        router.push({
-                          pathname: "/",
-                          params: { focusLat: item.lat, focusLon: item.lon, catchId: item.id },
+                      onPress={() => {
+                        if (item?.lat != null && item?.lon != null) {
+                          onShowOnMap?.();
+                          onClose();
+                          InteractionManager.runAfterInteractions(() => {
+                          router.push({
+                            pathname: "/",
+                            params: { focusLat: item.lat, focusLon: item.lon, catchId: item.id },
+                          });
                         });
                       } else {
                         Alert.alert(t("noCoordinates"), t("noCoordinatesMessage"));
@@ -903,6 +860,19 @@ export default function CatchDetailModal({
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+
+        <Modal visible={!!fullscreenPhoto} transparent animationType="fade" onRequestClose={() => setFullscreenPhoto(null)}>
+          <View style={styles.fullscreenBackdrop}>
+            {fullscreenPhoto ? <ExpoImage source={{ uri: fullscreenPhoto }} contentFit="contain" style={styles.fullscreenImage} /> : null}
+            <TouchableOpacity
+              style={[styles.fullscreenClose, { top: safeTop + 12 }]}
+              onPress={() => setFullscreenPhoto(null)}
+              accessibilityLabel={language === "ru" ? "Закрыть фото" : "Close photo"}
+            >
+              <Ionicons name="close" size={24} color="#ffffff" />
+            </TouchableOpacity>
+          </View>
+        </Modal>
 
         {/* Species picker */}
         <Modal
@@ -1061,11 +1031,6 @@ const styles = StyleSheet.create({
   catchPhotoPressable: { flex: 1 },
   catchPhoto: { flex: 1, backgroundColor: theme.colors.surface, overflow: "hidden" },
   catchPhotoImage: { width: "100%", height: "100%" },
-  photoLikeHeart: {
-    position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   catchPhotoLoader: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
     alignItems: "center",
@@ -1082,6 +1047,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: theme.colors.surface,
   },
+  fullscreenBackdrop: { flex: 1, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
+  fullscreenImage: { width: "100%", height: "100%" },
+  fullscreenClose: { position: "absolute", right: 16, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)" },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1114,6 +1082,7 @@ const styles = StyleSheet.create({
   avatarImg: { width: 40, height: 40, borderRadius: 20 },
   avatarText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
   userName: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  userDate: { color: "#bfc0c1", fontSize: 14, fontWeight: "500", marginLeft: "auto" as any },
   userHandle: { color: "#94a3b8", fontSize: 13 },
   dotRow: { flexDirection: "row", justifyContent: "center", marginTop: 8, gap: 6 },
   dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#334155" },
@@ -1191,7 +1160,6 @@ const styles = StyleSheet.create({
   detailGearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
   detailGearThumb: { width: 56, height: 56 },
   detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
-  detailDate: { color: "#94a3b8", fontSize: 14, marginTop: 4, marginBottom: 8 },
   waterBodyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: "#0c3147" },
   waterBodyText: { flex: 1 },
   waterBodyLabel: { color: "#94a3b8", fontSize: 12 },

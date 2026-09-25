@@ -9,8 +9,40 @@ const authSource = readFileSync(new URL("../../lib/auth.tsx", import.meta.url), 
 test("map catch filters cross-fade instead of replacing the marker source", () => {
   assert.match(source, /const CATCH_VIEW_FADE = \{ duration: 240, delay: 0 \}/);
   assert.match(source, /const switchMapView = \(nextView: "public" \| "mine"\)/);
-  assert.match(source, /iconOpacityTransition: CATCH_VIEW_FADE/);
   assert.match(source, /circleOpacityTransition: CATCH_VIEW_FADE/);
+});
+
+test("individual catch pins appear only at closer zoom levels", () => {
+  assert.match(source, /const CATCH_PIN_MIN_ZOOM = 12;/);
+  assert.match(source, /const \[showCatchPins, setShowCatchPins\] = useState\(false\);/);
+  assert.match(source, /const \[catchLayersVisible, setCatchLayersVisible\] = useState\(false\);/);
+  assert.match(source, /const shouldShowCatchPins = state\.properties\.zoom >= CATCH_PIN_MIN_ZOOM;/);
+  assert.match(source, /visibility: !showHeatmap && catchLayersVisible \? "visible" : "none"/);
+  assert.match(source, /setTimeout\(\(\) => setCatchLayersVisible\(false\), CATCH_VIEW_FADE\.duration\)/);
+  assert.doesNotMatch(source, /mapLoaded/);
+});
+
+test("water body markers use geometry centers", () => {
+  assert.match(source, /function centerOfPolygon\(/);
+  assert.match(source, /function midpointOnLines\(/);
+  assert.match(source, /return midpointOnLines\(\[geometry\.coordinates\]\);/);
+  assert.match(source, /const coordinate = midpointOnLines\(group\.lines\)/);
+});
+
+test("water body markers render above overlapping catch markers", () => {
+  assert.ok(source.indexOf('id="water-body-markers"') > source.indexOf('id="catches"'));
+});
+
+test("water body markers show only a bold catch count", () => {
+  assert.match(source, /id="water-body-catch-counts"[\s\S]*?textFont: \["DIN Offc Pro Bold", "Arial Unicode MS Bold"\]/);
+  assert.match(source, /circleStrokeWidth: 2,/);
+  assert.doesNotMatch(source, /id="water-body-marker-labels"/);
+});
+
+test("water body sheet uses white text and a white show-more button", () => {
+  assert.match(source, /waterBodyLoadMore: \{[\s\S]*?backgroundColor: "#ffffff"/);
+  assert.match(source, /waterBodyLoadMoreText: \{ color: "#0f2236"/);
+  assert.match(source, /waterBodySheetLocationText: \{ color: "#ffffff"/);
 });
 
 test("map catch filter uses an animated sliding thumb", () => {
@@ -79,6 +111,12 @@ test("marker refresh does not depend on water body state", () => {
   assert.match(source, /useEffect\(\(\) => \{\s*refreshWaterBodies\(\);\s*\}, \[refreshWaterBodies\]\);/);
 });
 
+test("individual catch pins include catches attached to a water body", () => {
+  assert.match(source, /features: ownValid\.map\(ownFeature\),/);
+  assert.match(source, /\.\.\.ownValid\.filter\(\(m\) => m\.is_public\)\.map\(ownFeature\),/);
+  assert.doesNotMatch(source, /!m\.water_body_id/);
+});
+
 test("water body sheet shows loading feedback while catches are fetched", () => {
   assert.match(source, /const \[publicMarkersLoaded, setPublicMarkersLoaded\] = useState\(false\);/);
   assert.match(source, /!catchesLoaded \|\| \(mapView === "public" && !publicMarkersLoaded\)/);
@@ -90,6 +128,22 @@ test("water body thumbnails load in batches", () => {
   assert.match(source, /const WATER_BODY_CATCH_BATCH_SIZE = 9;/);
   assert.match(source, /waterBodySheetCatches\.slice\(0, visibleWaterBodyCatchCount\)/);
   assert.match(source, /setVisibleWaterBodyCatchCount\(\(count\) => count \+ WATER_BODY_CATCH_BATCH_SIZE\)/);
+});
+
+test("showing a catch on the map closes the water body sheet", () => {
+  assert.match(source, /onShowOnMap=\{\(\) => \{[\s\S]*?setWaterBodyPreview\(null\);[\s\S]*?\}\}/);
+});
+
+test("public map catch details provide the report menu with the catch owner", () => {
+  assert.match(source, /author_user_id: m\.user_id,/);
+  assert.match(source, /authorUserId: p\.author_user_id \?\? null,/);
+  assert.match(source, /const handleReportCatch = useCallback\(async \(catchId: string, reportedUserId\?: string \| null\)/);
+  assert.match(source, /onReportCatch=\{handleReportCatch\}/);
+});
+
+test("water body sheet does not show an inactive save control", () => {
+  assert.doesNotMatch(source, /bookmark-outline/);
+  assert.doesNotMatch(source, /waterbodySave/);
 });
 
 test("welcome card body has comfortable multi-line spacing", () => {

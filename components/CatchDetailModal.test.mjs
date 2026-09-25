@@ -4,15 +4,29 @@ import test from "node:test";
 
 const source = readFileSync(new URL("./CatchDetailModal.tsx", import.meta.url), "utf8");
 
-test("catch photos remain in the detail modal without opening a fullscreen viewer", () => {
-  assert.doesNotMatch(source, /fullscreenPhotos/);
-  assert.doesNotMatch(source, /openFullscreenPhoto/);
-  assert.doesNotMatch(source, /Fullscreen photo viewer/);
+test("tapping a catch photo opens a fullscreen viewer", () => {
+  assert.match(source, /const \[fullscreenPhoto, setFullscreenPhoto\] = useState<string \| null>\(null\);/);
+  assert.match(source, /<Pressable onPress=\{\(\) => setFullscreenPhoto\(uri\)\}/);
+  assert.match(source, /<Modal visible=\{!!fullscreenPhoto\} transparent animationType="fade"/);
 });
 
-test("double-tapping a catch photo animates a heart and only adds a missing like", () => {
-  assert.match(source, /const handlePhotoTap/);
-  assert.match(source, /const animatePhotoLike/);
-  assert.match(source, /if \(!isLiked\) void createLike\(\)/);
-  assert.match(source, /name="heart"/);
+test("photo likes remain available from the dedicated like button", () => {
+  assert.match(source, /<TouchableOpacity style=\{styles\.likeBtn\} onPress=\{toggleLike\}>/);
+  assert.doesNotMatch(source, /const handlePhotoTap/);
+});
+
+test("show on map lets the parent dismiss its overlays before navigation", () => {
+  assert.match(source, /onShowOnMap\?: \(\) => void/);
+  assert.match(source, /onShowOnMap\?\.\(\);\s*onClose\(\);\s*InteractionManager\.runAfterInteractions\(\(\) => \{\s*router\.push/);
+});
+
+test("catch date is right-aligned in the author row", () => {
+  assert.match(source, /<Text style=\{styles\.userDate\}>\{formatDate\(item\.date\)\}<\/Text>/);
+  assert.match(source, /userDate: \{[^}]*marginLeft: "auto" as any \}/);
+  assert.doesNotMatch(source, /styles\.detailDate/);
+});
+
+test("catch dates use abbreviated month names in English and Russian", () => {
+  assert.match(source, /import \{ formatCatchDate \} from "@\/lib\/dateFormat"/);
+  assert.match(source, /return formatCatchDate\(val, language\) \|\| t\("recently"\);/);
 });

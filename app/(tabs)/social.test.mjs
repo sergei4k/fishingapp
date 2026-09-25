@@ -23,3 +23,25 @@ test("unfollowing asks for confirmation before deleting the follow record", () =
   assert.match(toggleFollow, /text: t\("unfollow"\),\s*style: "destructive"/);
   assert.match(toggleFollow, /await pb\.collection\("follows"\)\.delete\(existing\.id\)/);
 });
+
+test("other-user profiles mirror the overlapping-avatar identity layout", () => {
+  assert.match(source, /<View style=\{styles\.upIdentityRow\}>[\s\S]*?<TouchableOpacity[\s\S]*?<View style=\{styles\.upIdentity\}>/);
+  assert.match(source, /upIdentityRow: \{ flexDirection: "row", alignItems: "flex-start"/);
+  assert.match(source, /upAvatar: \{ width: 96, height: 96/);
+  assert.match(source, /selectedUser\?\.name && selectedUser\?\.username \? <Text style=\{styles\.upIdentityDot\}>•<\/Text> : null/);
+});
+
+test("other-user banner fades into the profile background", () => {
+  assert.match(source, /<LinearGradient id="other-profile-banner-fade"/);
+  assert.match(source, /stopOpacity="0"/);
+  assert.match(source, /stopOpacity="0\.9"/);
+  assert.match(source, /upBannerFade: \{ position: "absolute", bottom: 0/);
+});
+
+test("other-user catch details use the same root modal as feed catches", () => {
+  assert.equal((source.match(/<CatchDetailModal/g) ?? []).length, 1);
+  assert.match(source, /<CatchDetailModal\s*catch=\{detailCatch\}\s*onClose=\{closeDetail\}\s*onShowOnMap=\{closeOverlaysForMap\}/);
+  assert.match(source, /const \[pendingUserCatch, setPendingUserCatch\] = useState<CatchItem \| null>\(null\);/);
+  assert.match(source, /const openUserCatchDetail = \(item: CatchItem\) => \{\s*setPendingUserCatch\(item\);[\s\S]*?setSelectedUser\(null\);/);
+  assert.match(source, /if \(!pendingUserCatch \|\| selectedUser\) return;[\s\S]*?setDetailCatch\(toCatchDetail\(pendingUserCatch\)\)/);
+});

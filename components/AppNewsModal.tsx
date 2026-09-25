@@ -1,6 +1,6 @@
 import { Text } from "@/components/AppText";
 import { AppNewsItem, AppNewsLanguage } from "@/lib/appNews";
-import { formatEuropeanDate } from "@/lib/dateFormat";
+import { formatCatchDate } from "@/lib/dateFormat";
 import { theme } from "@/lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -102,7 +102,7 @@ export default function AppNewsModal({
                     <View style={styles.typeChip}>
                       <Text style={styles.typeText}>{typeLabels[language][item.type]}</Text>
                     </View>
-                    <Text style={styles.date}>{formatEuropeanDate(item.publishedAt)}</Text>
+                    <Text style={styles.date}>{formatCatchDate(item.publishedAt, language)}</Text>
                   </View>
                   <Text style={styles.cardTitle}>{item.title}</Text>
                   <Text style={styles.body}>{item.body}</Text>

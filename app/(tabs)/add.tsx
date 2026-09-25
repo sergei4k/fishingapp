@@ -13,11 +13,11 @@ import ExifParser from 'exif-parser';
 import MapboxGL from '@rnmapbox/maps';
 import { MAPBOX_ACCESS_TOKEN, useMapboxReady } from "@/lib/mapbox";
 import { matchWaterBody, type WaterBodyMatch } from "@/lib/waterBodyMatch";
-import { fetchWaterBodies } from "@/lib/waterBodies";
+import { fetchMapboxWaterBody, type MapboxWaterBody } from "@/lib/waterBodies";
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Toast from "react-native-toast-message";
 import { useLanguage } from "@/lib/language";
 import { useNetwork } from "@/lib/network";
@@ -52,6 +52,8 @@ type LocationSearchResult = {
 // cache. Falls back to the original uri if manipulation fails.
 const MAX_DIM = 1600;
 const PB_UPLOAD_TIMEOUT_MS = 12000;
+const WATER_BODY_REQUEST_TIMEOUT_MS = 10000;
+const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
 async function compressPhoto(uri: string): Promise<string> {
   try {
@@ -89,6 +91,10 @@ async function withPbTimeout<T>(requestKey: string, task: () => Promise<T>, time
   }
 }
 
+async function withWaterBodyRequestTimeout<T>(requestKey: string, task: () => Promise<T>, timeoutMs = WATER_BODY_REQUEST_TIMEOUT_MS): Promise<T> {
+  return withPbTimeout(requestKey, task, timeoutMs);
+}
+
 export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
@@ -116,12 +122,24 @@ export default function Add() {
   const [imageCoords, setImageCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [waterBody, setWaterBody] = useState<WaterBodyMatch | null>(null);
   const [detectingWater, setDetectingWater] = useState(false);
+  const [pendingWaterBody, setPendingWaterBody] = useState<{
+    lat: number;
+    lon: number;
+    feature: MapboxWaterBody;
+  } | null>(null);
+  const [waterBodyNameModalVisible, setWaterBodyNameModalVisible] = useState(false);
+  const [waterBodyNameInput, setWaterBodyNameInput] = useState("");
+  const [savingWaterBodyName, setSavingWaterBodyName] = useState(false);
   const [locationPickerVisible, setLocationPickerVisible] = useState(false);
   const [pendingCoord, setPendingCoord] = useState<{ lat: number; lon: number } | null>(null);
-  const [pickerCenter, setPickerCenter] = useState<[number, number]>([0, 0]);
+  const [pickerCenter, setPickerCenter] = useState<[number, number]>([37.618423, 55.751244]);
+  const [locationMapLoaded, setLocationMapLoaded] = useState(false);
+  const [locationPickerCatchMarkers, setLocationPickerCatchMarkers] = useState<GeoJSON.FeatureCollection>(EMPTY_FEATURE_COLLECTION);
+  const [locationPickerWaterBodies, setLocationPickerWaterBodies] = useState<GeoJSON.FeatureCollection>(EMPTY_FEATURE_COLLECTION);
   const [locationSearchQuery, setLocationSearchQuery] = useState("");
   const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
   const [searchingLocation, setSearchingLocation] = useState(false);
+  const waterBodyDetectionRequestRef = useRef(0);
 
   useEffect(() => {
     if (!locationPickerVisible) return;
@@ -164,9 +182,80 @@ export default function Add() {
     return () => clearTimeout(timeout);
   }, [language, locationPickerVisible, locationSearchQuery]);
 
+  useEffect(() => {
+    if (!locationPickerVisible) return;
+    let active = true;
+
+    const loadMapContext = async () => {
+      try {
+        const catchFilter = user
+          ? pb.filter("is_public = true || user_id = {:userId}", { userId: user.id })
+          : "is_public = true";
+        const catches = await pb.collection("catches").getFullList({
+          filter: catchFilter,
+          fields: "id,lat,lon,water_body_id",
+          requestKey: null,
+        });
+        if (!active) return;
+
+        const validCatches = catches.filter((catchItem: any) =>
+          Number.isFinite(Number(catchItem.lat)) && Number.isFinite(Number(catchItem.lon)) &&
+          Number(catchItem.lat) !== 0 && Number(catchItem.lon) !== 0,
+        );
+        setLocationPickerCatchMarkers({
+          type: "FeatureCollection",
+          features: validCatches.map((catchItem: any) => ({
+            type: "Feature" as const,
+            geometry: { type: "Point" as const, coordinates: [Number(catchItem.lon), Number(catchItem.lat)] },
+            properties: { id: catchItem.id },
+          })),
+        });
+
+        const waterBodyIds = [...new Set(validCatches.map((catchItem: any) => catchItem.water_body_id).filter(Boolean))];
+        if (!waterBodyIds.length) {
+          setLocationPickerWaterBodies(EMPTY_FEATURE_COLLECTION);
+          return;
+        }
+        const filter = waterBodyIds.map((_, index) => `id = {:id${index}}`).join(" || ");
+        const params = Object.fromEntries(waterBodyIds.map((id, index) => [`id${index}`, id]));
+        const waterBodies = await pb.collection("water_bodies").getFullList({
+          filter: pb.filter(filter, params),
+          fields: "id,geometry",
+          requestKey: null,
+        });
+        if (!active) return;
+        setLocationPickerWaterBodies({
+          type: "FeatureCollection",
+          features: waterBodies.flatMap((waterBody: any) => {
+            try {
+              const geometry = typeof waterBody.geometry === "string" ? JSON.parse(waterBody.geometry) : waterBody.geometry;
+              return geometry?.type && geometry.coordinates ? [{
+                type: "Feature" as const,
+                geometry,
+                properties: { id: waterBody.id },
+              }] : [];
+            } catch {
+              return [];
+            }
+          }),
+        });
+      } catch {
+        if (!active) return;
+        setLocationPickerCatchMarkers(EMPTY_FEATURE_COLLECTION);
+        setLocationPickerWaterBodies(EMPTY_FEATURE_COLLECTION);
+      }
+    };
+
+    void loadMapContext();
+    return () => { active = false; };
+  }, [locationPickerVisible, user]);
+
   const openLocationPicker = async () => {
     setLocationSearchQuery("");
     setLocationSearchResults([]);
+    setLocationMapLoaded(false);
+    setPickerCenter([37.618423, 55.751244]);
+    setLocationPickerVisible(true);
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
@@ -176,81 +265,171 @@ export default function Add() {
         setPendingCoord({ lat: pos.coords.latitude, lon: pos.coords.longitude });
       }
     } catch { /* use default center */ }
-    setLocationPickerVisible(true);
   };
   const router = useRouter();
 
   const detectWaterBody = async (lat: number, lon: number) => {
+    const requestId = ++waterBodyDetectionRequestRef.current;
+    const requestKey = `water-body-detect-${requestId}`;
     setDetectingWater(true);
     setWaterBody(null);
+    setPendingWaterBody(null);
     try {
+      try {
+        const resolved = await withWaterBodyRequestTimeout(requestKey, () => pb.send<{ id?: string; name?: string }>("/water-bodies/lookup", {
+          method: "POST",
+          body: { latitude: lat, longitude: lon },
+          requestKey,
+        }));
+        if (requestId !== waterBodyDetectionRequestRef.current) return;
+        if (resolved.id && resolved.name) {
+          setWaterBody({ id: resolved.id, name: resolved.name, isShorelineMatch: false });
+          return;
+        }
+      } catch (error) {
+        if (requestId !== waterBodyDetectionRequestRef.current) return;
+        console.warn("Stored water body lookup failed:", error);
+      }
+
       const storedSearchDelta = 0.03;
-      const records = await pb.collection("water_bodies").getFullList({
+      const records = await withWaterBodyRequestTimeout(requestKey, () => pb.collection("water_bodies").getFullList({
         filter: pb.filter(
-          "lat >= {:minLat} && lat <= {:maxLat} && lon >= {:minLon} && lon <= {:maxLon}",
+          "lat >= {:nearMinLat} && lat <= {:nearMaxLat} && lon >= {:nearMinLon} && lon <= {:nearMaxLon}",
           {
-            minLat: lat - storedSearchDelta,
-            maxLat: lat + storedSearchDelta,
-            minLon: lon - storedSearchDelta,
-            maxLon: lon + storedSearchDelta,
+            nearMinLat: lat - storedSearchDelta,
+            nearMaxLat: lat + storedSearchDelta,
+            nearMinLon: lon - storedSearchDelta,
+            nearMaxLon: lon + storedSearchDelta,
           },
         ),
-        fields: "id,osm_id,name,geometry",
-        requestKey: null,
-      });
-      const storedMatch = matchWaterBody(
-        records
-          .filter((record: any) => record.name)
-          .map((record: any) => ({ id: record.id, name: record.name, geometry: record.geometry })),
-        lat,
-        lon,
-      );
-      if (storedMatch) {
-        setWaterBody(storedMatch);
+        fields: "id,mapbox_id,name,geometry",
+        requestKey,
+      }));
+      if (requestId !== waterBodyDetectionRequestRef.current) return;
+      const storedCandidates = records
+        .filter((record: any) => record.name)
+        .map((record: any) => {
+          let geometry = record.geometry;
+          try {
+            if (typeof geometry === "string") geometry = JSON.parse(geometry);
+          } catch {
+            geometry = null;
+          }
+          return { id: record.id, name: record.name, geometry, mapboxId: record.mapbox_id || "" };
+        });
+      const fallbackStoredMatch = matchWaterBody(storedCandidates, lat, lon);
+      if (fallbackStoredMatch) {
+        setWaterBody(fallbackStoredMatch);
         return;
       }
 
-      const delta = 0.015;
-      const boundaries = await fetchWaterBodies([lon - delta, lat - delta, lon + delta, lat + delta]);
-      const boundaryMatch = matchWaterBody(
-        boundaries.map((body) => {
-          const osmId = body.id.replace("way_", "way/").replace("rel_", "relation/");
-          const record = records.find((item: any) => item.osm_id === osmId);
-          return {
-            id: record?.id,
-            osmId,
-            waterType: body.type,
-            name: record?.name ?? body.name ?? "",
-            geometry: body.geometry,
-          };
-        }).filter((body): body is NonNullable<typeof body> => !!body?.name),
-        lat,
-        lon,
-      );
-      if (!boundaryMatch?.id && boundaryMatch?.osmId && boundaryMatch.waterType && boundaryMatch.geometry) {
-        try {
-          const registered = await pb.send<{ id: string; name: string }>("/water-bodies/resolve", {
-            method: "POST",
-            body: {
-              osmId: boundaryMatch.osmId,
-              name: boundaryMatch.name,
-              waterType: boundaryMatch.waterType,
-              latitude: lat,
-              longitude: lon,
-              geometry: boundaryMatch.geometry,
-            },
-          });
-          setWaterBody({ ...boundaryMatch, id: registered.id, name: registered.name });
-          return;
-        } catch (error) {
-          console.warn("Water body registration failed:", error);
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WATER_BODY_REQUEST_TIMEOUT_MS);
+      let feature: MapboxWaterBody | null = null;
+      try {
+        feature = await fetchMapboxWaterBody(lat, lon, MAPBOX_ACCESS_TOKEN, controller.signal);
+      } catch (error) {
+        if (fallbackStoredMatch) setWaterBody(fallbackStoredMatch);
+        if (error instanceof Error && error.name !== "AbortError") {
+          console.warn("Mapbox water detection failed:", error);
         }
+        return;
+      } finally {
+        clearTimeout(timeout);
       }
-      setWaterBody(boundaryMatch);
-    } catch {
+
+      if (requestId !== waterBodyDetectionRequestRef.current) return;
+      if (!feature) {
+        if (fallbackStoredMatch) setWaterBody(fallbackStoredMatch);
+        return;
+      }
+
+      let existing;
+      try {
+        existing = await withWaterBodyRequestTimeout(requestKey, () => pb.collection("water_bodies").getList(1, 1, {
+            filter: pb.filter("mapbox_id = {:featureId}", { featureId: feature.featureId }),
+            fields: "id,name",
+            requestKey,
+        }));
+      } catch (error) {
+        if (requestId !== waterBodyDetectionRequestRef.current) return;
+        console.warn("Mapbox water body lookup failed:", error);
+        setPendingWaterBody({ lat, lon, feature });
+        setWaterBodyNameInput("");
+        setWaterBodyNameModalVisible(true);
+        return;
+      }
+      if (requestId !== waterBodyDetectionRequestRef.current) return;
+      const existingWaterBody = existing.items[0];
+      if (existingWaterBody?.name) {
+        setWaterBody({ id: existingWaterBody.id, name: existingWaterBody.name, isShorelineMatch: false });
+        return;
+      }
+
+      if (feature.isMarine) {
+        const registered = await withWaterBodyRequestTimeout(requestKey, () => pb.send<{ id?: string; name?: string }>("/water-bodies/mapbox", {
+          method: "POST",
+          body: {
+            name: feature.name,
+            featureId: feature.featureId,
+            accessToken: MAPBOX_ACCESS_TOKEN,
+            waterType: feature.type,
+            latitude: lat,
+            longitude: lon,
+            resolveOfficialName: true,
+          },
+          requestKey,
+        }), 30000);
+        if (requestId !== waterBodyDetectionRequestRef.current) return;
+        if (registered.id && registered.name) {
+          setWaterBody({ id: registered.id, name: registered.name, isShorelineMatch: false });
+        }
+        return;
+      }
+
+      setPendingWaterBody({ lat, lon, feature });
+      setWaterBodyNameInput("");
+      setWaterBodyNameModalVisible(true);
+    } catch (error) {
+      console.warn("Water body detection failed:", error);
       // Waterbody attribution is optional and must not block saving a catch.
     } finally {
-      setDetectingWater(false);
+      if (requestId === waterBodyDetectionRequestRef.current) setDetectingWater(false);
+    }
+  };
+
+  const saveWaterBodyName = async () => {
+    const name = waterBodyNameInput.trim();
+    if (!name || !pendingWaterBody) return;
+    const requestId = waterBodyDetectionRequestRef.current;
+    const requestKey = `water-body-name-${requestId}`;
+    const pending = pendingWaterBody;
+
+    setSavingWaterBodyName(true);
+    try {
+      const registered = await withWaterBodyRequestTimeout(requestKey, () => pb.send<{ id: string; name: string }>("/water-bodies/mapbox", {
+        method: "POST",
+        body: {
+          name,
+          featureId: pending.feature.featureId,
+          accessToken: MAPBOX_ACCESS_TOKEN,
+          waterType: pending.feature.type,
+          latitude: pending.lat,
+          longitude: pending.lon,
+        },
+        requestKey,
+      }), 30000);
+      if (requestId !== waterBodyDetectionRequestRef.current) return;
+      setWaterBody({ id: registered.id, name: registered.name, isShorelineMatch: false });
+      setPendingWaterBody(null);
+      setWaterBodyNameModalVisible(false);
+      setWaterBodyNameInput("");
+    } catch (error) {
+      if (requestId !== waterBodyDetectionRequestRef.current) return;
+      console.warn("Manual water body registration failed:", error);
+      Alert.alert(t("error"), language === "ru" ? "Не удалось сохранить водоём." : "Unable to save water body.");
+    } finally {
+      setSavingWaterBodyName(false);
     }
   };
 
@@ -434,6 +613,7 @@ export default function Add() {
   ).filter(Boolean);
 
   const resetForm = () => {
+    waterBodyDetectionRequestRef.current += 1;
     setCurrentStep(getResetCatchFormStep());
     setImage(null);
     setExtraPhotos([]);
@@ -451,10 +631,15 @@ export default function Add() {
     setImageCoords(null);
     setWaterBody(null);
     setDetectingWater(false);
+    setPendingWaterBody(null);
+    setWaterBodyNameModalVisible(false);
+    setWaterBodyNameInput("");
+    setSavingWaterBodyName(false);
     setIsPublic(true);
     setLocationPickerVisible(false);
     setPendingCoord(null);
-    setPickerCenter([0, 0]);
+    setPickerCenter([37.618423, 55.751244]);
+    setLocationMapLoaded(false);
     setLocationSearchQuery("");
     setLocationSearchResults([]);
     setSearchingLocation(false);
@@ -463,6 +648,14 @@ export default function Add() {
   const handleUpload = async () => {
     if (!getCatchFormReadiness({ hasPhoto: !!image }).ready) {
       Alert.alert(t("error"), language === "ru" ? "Добавьте фото улова, чтобы сохранить запись." : "Add a catch photo before saving.");
+      return;
+    }
+
+    if (detectingWater || pendingWaterBody) {
+      Alert.alert(
+        t("error"),
+        language === "ru" ? "Дождитесь определения водоёма и сохраните его название." : "Wait for water body detection and save its name.",
+      );
       return;
     }
 
@@ -688,11 +881,11 @@ export default function Add() {
           </View>
           </>)}
 
-          <Modal visible={locationPickerVisible} animationType="slide" onRequestClose={() => setLocationPickerVisible(false)}>
+          <Modal visible={locationPickerVisible} animationType="slide" onRequestClose={() => { setLocationPickerVisible(false); setLocationMapLoaded(false); }}>
             <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
               <View style={{ paddingTop: safeTop + 12, paddingBottom: 16, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
                 <Text style={{ color: "#fff", fontSize: 16, fontWeight: "700" }}>{t("locationPickerTitle")}</Text>
-                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setPendingCoord(null); setLocationSearchQuery(""); setLocationSearchResults([]); }} style={styles.closeBtn} hitSlop={8}>
+                <TouchableOpacity onPress={() => { setLocationPickerVisible(false); setLocationMapLoaded(false); setPendingCoord(null); setLocationSearchQuery(""); setLocationSearchResults([]); }} style={styles.closeBtn} hitSlop={8}>
                   <Ionicons name="close" size={22} color="#94a3b8" />
                 </TouchableOpacity>
               </View>
@@ -743,15 +936,32 @@ export default function Add() {
                   <>
                     <MapboxGL.MapView
                       style={{ flex: 1 }}
-                      styleURL="mapbox://styles/mapbox/dark-v11"
+                      styleURL="mapbox://styles/mapbox/streets-v12"
                       scaleBarEnabled={false}
+                      onDidFinishLoadingMap={() => setLocationMapLoaded(true)}
                       onMapIdle={(state) => {
                         const [lon, lat] = state.properties.center;
                         setPendingCoord({ lat, lon });
                       }}
                     >
                       <MapboxGL.Camera zoomLevel={12} centerCoordinate={pickerCenter} animationMode="none" animationDuration={0} />
+                      <MapboxGL.ShapeSource id="location-picker-water-bodies" shape={locationPickerWaterBodies}>
+                        <MapboxGL.FillLayer id="location-picker-water-fills" style={{ fillColor: "#0369a1", fillOpacity: 0.2 }} />
+                        <MapboxGL.LineLayer id="location-picker-water-outlines" style={{ lineColor: "#7dd3fc", lineWidth: 2, lineOpacity: 0.9 }} />
+                      </MapboxGL.ShapeSource>
+                      <MapboxGL.ShapeSource id="location-picker-catches" shape={locationPickerCatchMarkers}>
+                        <MapboxGL.CircleLayer
+                          id="location-picker-catch-points"
+                          style={{ circleRadius: 4, circleColor: "#38bdf8", circleOpacity: 0.9, circleStrokeColor: "#ffffff", circleStrokeWidth: 1 }}
+                        />
+                      </MapboxGL.ShapeSource>
                     </MapboxGL.MapView>
+                    {!locationMapLoaded ? (
+                      <View pointerEvents="none" style={styles.locationMapLoading}>
+                        <ActivityIndicator size="small" color="#ffffff" />
+                        <Text style={styles.locationMapLoadingText}>{language === "ru" ? "Загружаем карту..." : "Loading map..."}</Text>
+                      </View>
+                    ) : null}
                     <View pointerEvents="none" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, alignItems: "center", justifyContent: "center" }}>
                       <Ionicons name="location-sharp" size={36} color="#ef4444" style={{ marginBottom: 18 }} />
                     </View>
@@ -935,8 +1145,15 @@ export default function Add() {
                     ? t("detectingWater")
                     : waterBody
                       ? (language === "ru" ? `Улов будет добавлен к водоёму: ${waterBody.name}` : `This catch will be added to: ${waterBody.name}`)
+                      : pendingWaterBody
+                        ? (language === "ru" ? "Водоём найден. Укажите его название." : "Water found. Add its name.")
                       : (language === "ru" ? "Водоём у места улова не найден" : "No waterbody found at this catch location")}
                 </Text>
+                {pendingWaterBody && !detectingWater ? (
+                  <TouchableOpacity onPress={() => setWaterBodyNameModalVisible(true)} style={styles.nameWaterBodyBtn}>
+                    <Text style={styles.nameWaterBodyBtnText}>{language === "ru" ? "Назвать" : "Name it"}</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           ) : (
@@ -964,6 +1181,41 @@ export default function Add() {
             />
           </View>
           </>)}
+
+          <Modal
+            visible={waterBodyNameModalVisible}
+            animationType="fade"
+            transparent
+            onRequestClose={() => setWaterBodyNameModalVisible(false)}
+          >
+            <View style={styles.nameWaterBodyOverlay}>
+              <View style={styles.nameWaterBodyCard}>
+                <Ionicons name="water" size={28} color="#38bdf8" />
+                <Text style={styles.nameWaterBodyTitle}>{language === "ru" ? "Как называется этот водоём?" : "What is this water body called?"}</Text>
+                <Text style={styles.nameWaterBodyHint}>{language === "ru" ? "Название будет доступно для будущих уловов рядом." : "This name will be reused for future catches nearby."}</Text>
+                <TextInput
+                  style={styles.nameWaterBodyInput}
+                  placeholder={language === "ru" ? "Название водоёма" : "Water body name"}
+                  placeholderTextColor="#64748b"
+                  value={waterBodyNameInput}
+                  onChangeText={setWaterBodyNameInput}
+                  autoCapitalize="words"
+                  autoFocus
+                  maxLength={200}
+                  returnKeyType="done"
+                  onSubmitEditing={saveWaterBodyName}
+                />
+                <View style={styles.nameWaterBodyActions}>
+                  <TouchableOpacity onPress={() => setWaterBodyNameModalVisible(false)} disabled={savingWaterBodyName} style={styles.nameWaterBodyCancel}>
+                    <Text style={styles.nameWaterBodyCancelText}>{t("cancel")}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={saveWaterBodyName} disabled={!waterBodyNameInput.trim() || savingWaterBodyName} style={[styles.nameWaterBodySave, (!waterBodyNameInput.trim() || savingWaterBodyName) && styles.nameWaterBodySaveDisabled]}>
+                    {savingWaterBodyName ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.nameWaterBodySaveText}>{language === "ru" ? "Сохранить" : "Save"}</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
 
           <Modal
             visible={moreModalVisible}
@@ -1130,7 +1382,7 @@ export default function Add() {
               <Ionicons name="arrow-forward" size={17} color="#ffffff" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={[styles.uploadBtn, styles.actionPrimary, (!readiness.ready || isUploading) && { opacity: 0.55 }]} onPress={handleUpload} disabled={!readiness.ready || isUploading}>
+            <TouchableOpacity style={[styles.uploadBtn, styles.actionPrimary, (!readiness.ready || isUploading || detectingWater || !!pendingWaterBody) && { opacity: 0.55 }]} onPress={handleUpload} disabled={!readiness.ready || isUploading || detectingWater || !!pendingWaterBody}>
               <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
             </TouchableOpacity>
           )}
@@ -1225,6 +1477,19 @@ const styles = StyleSheet.create({
   waterBodyStatusMatched: { backgroundColor: "#0c3147" },
   waterBodyStatusText: { flex: 1, color: "#94a3b8", fontSize: 13 },
   waterBodyStatusTextMatched: { color: "#bae6fd", fontWeight: "600" },
+  nameWaterBodyBtn: { backgroundColor: theme.colors.primaryDark, borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
+  nameWaterBodyBtnText: { color: "#ffffff", fontSize: 12, fontWeight: "700" },
+  nameWaterBodyOverlay: { flex: 1, backgroundColor: "rgba(2, 10, 18, 0.78)", alignItems: "center", justifyContent: "center", padding: 24 },
+  nameWaterBodyCard: { width: "100%", maxWidth: 420, backgroundColor: theme.colors.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, padding: 20, alignItems: "center" },
+  nameWaterBodyTitle: { color: "#ffffff", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
+  nameWaterBodyHint: { color: "#94a3b8", fontSize: 13, lineHeight: 19, textAlign: "center", marginTop: 8 },
+  nameWaterBodyInput: { alignSelf: "stretch", backgroundColor: "#0f2236", borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, color: "#ffffff", fontSize: 16, marginTop: 18, paddingHorizontal: 12, paddingVertical: 11 },
+  nameWaterBodyActions: { alignSelf: "stretch", flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 16 },
+  nameWaterBodyCancel: { minHeight: 40, justifyContent: "center", paddingHorizontal: 12 },
+  nameWaterBodyCancelText: { color: "#94a3b8", fontSize: 14, fontWeight: "700" },
+  nameWaterBodySave: { minWidth: 92, minHeight: 40, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.primaryDark, borderRadius: 9, paddingHorizontal: 14 },
+  nameWaterBodySaveDisabled: { opacity: 0.5 },
+  nameWaterBodySaveText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
   noCoordsRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14, paddingHorizontal: 4 },
   noCoordsText: { color: "#ef4444", fontSize: 15, fontWeight: "600", flex: 1 },
   addLocationBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
@@ -1261,6 +1526,8 @@ const styles = StyleSheet.create({
   },
   locationSearchResultTitle: { color: "#e6eef8", fontSize: 14, fontWeight: "600" },
   locationSearchResultSub: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
+  locationMapLoading: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(7, 28, 48, 0.7)" },
+  locationMapLoadingText: { color: "#ffffff", fontSize: 13 },
   publicRowDisabled: { opacity: 0.5 },
   selectedPreviewBox: {
     width: 96, height: 90,

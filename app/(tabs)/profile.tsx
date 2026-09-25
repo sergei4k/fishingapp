@@ -1,5 +1,5 @@
 import { getSpeciesLabel } from "@/lib/species";
-import { formatEuropeanDate } from "@/lib/dateFormat";
+import { formatCatchDate } from "@/lib/dateFormat";
 import { theme } from '../../lib/theme';
 import { getGearLabel, getGearOptions } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
@@ -25,6 +25,7 @@ import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, RefreshControl, Sc
 import { Text } from "@/components/AppText";
 import Swipeable from "react-native-gesture-handler/Swipeable";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 
@@ -35,10 +36,10 @@ export default function Profile() {
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
 
-  const formatDate = (val: any) => formatEuropeanDate(val);
+  const formatDate = (val: any) => formatCatchDate(val, language);
 
   const formatJoinedDate = (val: any) => {
-    const date = formatEuropeanDate(val);
+    const date = formatCatchDate(val, language);
     if (!date) return "";
     return language === "ru" ? `С ${date}` : `Joined ${date}`;
   };
@@ -399,6 +400,15 @@ export default function Profile() {
       {/* Banner */}
       <View style={styles.bannerContainer}>
         <ImageWithLoader source={bannerSource} contentFit="cover" style={styles.bannerImage} />
+        <Svg pointerEvents="none" style={styles.bannerFade} width="100%" height="72">
+          <Defs>
+            <LinearGradient id="profile-banner-fade" x1="0" y1="0" x2="0" y2="1">
+              <Stop offset="0%" stopColor="#0f172a" stopOpacity="0" />
+              <Stop offset="100%" stopColor="#0f172a" stopOpacity="0.9" />
+            </LinearGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#profile-banner-fade)" />
+        </Svg>
         <TouchableOpacity
           onPress={handlePickBanner}
           disabled={uploadingBanner}
@@ -416,8 +426,8 @@ export default function Profile() {
         </TouchableOpacity>
       </View>
 
-      {/* Avatar overlapping banner */}
-      <View style={styles.avatarWrapper}>
+      {/* Avatar overlaps the banner; identity sits beside it. */}
+      <View style={styles.profileIdentityRow}>
         <TouchableOpacity
           style={styles.profileAvatar}
           onPress={() => setAvatarPreviewVisible(true)}
@@ -433,28 +443,29 @@ export default function Profile() {
               style={styles.profileAvatarImage}
             />
           ) : (
-                    <Ionicons name="person" size={52} color="#94a3b8" />
+            <Ionicons name="person" size={52} color="#94a3b8" />
           )}
         </TouchableOpacity>
+        <View style={styles.profileIdentity}>
+          {(user.name || user.username) ? (
+            <View style={styles.profileUsernameRow}>
+              {user.name ? <Text style={styles.profileName}>{user.name}</Text> : null}
+              {user.name && user.username ? <Text style={styles.profileIdentityDot}>•</Text> : null}
+              {user.username ? <Text style={styles.profileUsername}>{user.username}</Text> : null}
+              {parseBadges(user.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
+            </View>
+          ) : null}
+          {user.city ? (
+            <View style={styles.profileLocationRow}>
+              <Ionicons name="location-outline" size={13} color="#e6eef8" />
+              <Text style={styles.profileLocationText}>{user.city}</Text>
+            </View>
+          ) : null}
+          {!!formatJoinedDate(user.created) && (
+            <Text style={styles.profileJoined}>{formatJoinedDate(user.created)}</Text>
+          )}
+        </View>
       </View>
-
-      {/* Name / username */}
-      {user.name ? <Text style={styles.profileName}>{user.name}</Text> : null}
-      {user.username ? (
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 }}>
-          <Text style={styles.profileUsername}>{user.username}</Text>
-          {parseBadges(user.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
-        </View>
-      ) : null}
-      {user.city ? (
-        <View style={styles.profileLocationRow}>
-          <Ionicons name="location-outline" size={13} color="#64748b" />
-          <Text style={styles.profileLocationText}>{user.city}</Text>
-        </View>
-      ) : null}
-      {!!formatJoinedDate(user.created) && (
-        <Text style={styles.profileJoined}>{formatJoinedDate(user.created)}</Text>
-      )}
       <BadgeChip badges={parseBadges(user.badges)} language={language} />
       {user.bio ? (
         <View style={styles.profileBioCard}>
@@ -468,12 +479,10 @@ export default function Profile() {
           <Text style={styles.statNum}>{catches.length}</Text>
           <Text style={styles.statLabel}>{language === "ru" ? "Уловов" : "Catches"}</Text>
         </View>
-        <View style={styles.statDivider} />
         <TouchableOpacity style={styles.statItem} onPress={() => openFollowList("followers")}>
           <Text style={styles.statNum}>{followerCount}</Text>
           <Text style={styles.statLabel}>{language === "ru" ? "Подписчики" : "Followers"}</Text>
         </TouchableOpacity>
-        <View style={styles.statDivider} />
         <TouchableOpacity style={styles.statItem} onPress={() => openFollowList("following")}>
           <Text style={styles.statNum}>{followingCount}</Text>
           <Text style={styles.statLabel}>{language === "ru" ? "Подписки" : "Following"}</Text>
@@ -759,6 +768,10 @@ export default function Profile() {
           isPublic: selectedCatch.isPublic,
         } : null}
         onClose={closeCatch}
+        onShowOnMap={() => {
+          setFollowListModal(null);
+          setAvatarPreviewVisible(false);
+        }}
         onSave={handleSave}
         onDelete={handleDelete}
         onTogglePublic={handleTogglePublic}
@@ -785,6 +798,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   bannerImage: { width: "100%", height: "100%" },
+  bannerFade: { position: "absolute", bottom: 0, left: 0, right: 0 },
   editBannerBtn: {
     position: "absolute",
     right: 12,
@@ -805,10 +819,10 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.35)",
     borderRadius: 20,
   },
-  avatarWrapper: { alignItems: "center", marginTop: -54 },
+  profileIdentityRow: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingHorizontal: 14, marginTop: -54 },
   profileAvatar: {
-    width: 120,
-    height: 120,
+    width: 110,
+    height: 110,
     borderRadius: 60,
     backgroundColor: "#0f3460",
     alignItems: "center",
@@ -817,13 +831,16 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "#0f172a",
   },
-  profileAvatarImage: { width: 110, height: 110, borderRadius: 55 },
+  profileAvatarImage: { width: 110, height: 110, borderRadius: 55, flexDirection: "row", alignItems: "center" },
   profileAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
-  profileName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
-  profileUsername: { color: "#94a3b8", fontSize: 14, textAlign: "center", marginTop: 3 },
-  profileLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 5 },
-  profileLocationText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
-  profileJoined: { color: "#64748b", fontSize: 12, textAlign: "center", marginTop: 5 },
+  profileIdentity: { flex: 1, minWidth: 0, marginTop: 64 },
+  profileName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", flexShrink: 1 },
+  profileUsernameRow: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
+  profileIdentityDot: { color: "#e6eef8", fontSize: 18 },
+  profileUsername: { color: "#e6eef8", fontSize: 18, flexShrink: 1 },
+  profileLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
+  profileLocationText: { color: "#e6eef8", fontSize: 14, flexShrink: 1 },
+  profileJoined: { color: "#e6eef8", fontSize: 14, marginTop: 5, marginBottom: 8 },
   profileBioCard: {
     marginHorizontal: 16,
     marginTop: 12,
@@ -846,7 +863,6 @@ const styles = StyleSheet.create({
   statItem: { flex: 1, alignItems: "center" },
   statNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
   statLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
-  statDivider: { width: 1, height: 32, backgroundColor: "#1e293b" },
 
   actionRow: {
     flexDirection: "row",
@@ -902,7 +918,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#1e293b",
   },
-  statsMetricLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 4 },
+  statsMetricLabel: { color: "#e6eef8", fontSize: 12, marginBottom: 4 },
   statsMetricValue: { color: "#e6eef8", fontSize: 18, fontFamily: theme.fonts.displaySemibold },
   statsSection: {
     backgroundColor: theme.colors.surface,

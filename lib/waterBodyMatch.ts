@@ -8,6 +8,7 @@ type LineCoordinates = Position[];
 type MultiLineCoordinates = LineCoordinates[];
 
 export type WaterBodyGeometry =
+  | { type: "Point"; coordinates: Position }
   | { type: "Polygon"; coordinates: PolygonCoordinates }
   | { type: "MultiPolygon"; coordinates: MultiPolygonCoordinates }
   | { type: "LineString"; coordinates: LineCoordinates }
@@ -30,11 +31,33 @@ export type WaterBodyMatch = {
   geometry?: WaterBodyGeometry | string | null;
 };
 
+function isPosition(value: unknown): value is Position {
+  return Array.isArray(value)
+    && value.length >= 2
+    && Number.isFinite(value[0])
+    && Number.isFinite(value[1]);
+}
+
+function isLine(value: unknown): value is LineCoordinates {
+  return Array.isArray(value) && value.length >= 2 && value.every(isPosition);
+}
+
+function isPolygon(value: unknown): value is PolygonCoordinates {
+  return Array.isArray(value)
+    && value.length > 0
+    && value.every((ring) => Array.isArray(ring) && ring.length >= 4 && ring.every(isPosition));
+}
+
 function parseGeometry(geometry: WaterBodyMatchCandidate["geometry"]): WaterBodyGeometry | null {
   if (!geometry) return null;
   try {
     const parsed = typeof geometry === "string" ? JSON.parse(geometry) : geometry;
-    return ["Polygon", "MultiPolygon", "LineString", "MultiLineString"].includes(parsed?.type) ? parsed : null;
+    if (parsed?.type === "Point" && isPosition(parsed.coordinates)) return parsed;
+    if (parsed?.type === "LineString" && isLine(parsed.coordinates)) return parsed;
+    if (parsed?.type === "MultiLineString" && Array.isArray(parsed.coordinates) && parsed.coordinates.length > 0 && parsed.coordinates.every(isLine)) return parsed;
+    if (parsed?.type === "Polygon" && isPolygon(parsed.coordinates)) return parsed;
+    if (parsed?.type === "MultiPolygon" && Array.isArray(parsed.coordinates) && parsed.coordinates.length > 0 && parsed.coordinates.every(isPolygon)) return parsed;
+    return null;
   } catch {
     return null;
   }
@@ -100,6 +123,10 @@ export function matchWaterBody(
   const matches = candidates.flatMap((candidate) => {
     const geometry = parseGeometry(candidate.geometry);
     if (!geometry) return [];
+    if (geometry.type === "Point") {
+      const distance = distanceToSegmentMeters(point, geometry.coordinates, geometry.coordinates);
+      return distance <= shorelineRadiusMeters ? [{ candidate, containsPoint: false, distance }] : [];
+    }
     if (geometry.type === "LineString" || geometry.type === "MultiLineString") {
       const distance = Math.min(...geometryLines(geometry).map((line) => distanceToLineMeters(point, line)));
       return distance <= waterwayRadiusMeters ? [{ candidate, containsPoint: false, distance }] : [];

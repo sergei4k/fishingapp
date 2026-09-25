@@ -3,6 +3,7 @@ import { theme } from '../../lib/theme';
 import Toast from "react-native-toast-message";
 import { useAuth, useRequireAuth } from "@/lib/auth";
 import { pb, isNetworkError } from "@/lib/pocketbase";
+import { formatCatchDate } from "@/lib/dateFormat";
 import { getGearLabel } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
 import { getSpeciesLabel } from "@/lib/species";
@@ -21,13 +22,13 @@ import { AppNewsItem, countUnreadNews, fetchAppNews, getLatestNewsTimestamp, rea
 import { Ionicons } from "@expo/vector-icons";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
-import { useFocusEffect } from "expo-router";
-import { useLocalSearchParams } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import Reanimated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, FlatList, Linking, Modal, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 const PAGE_SIZE = 15;
 
@@ -100,6 +101,29 @@ type CatchItem = Record<string, any> & {
   _likeId: string | null;
   image_uri: string | null;
 };
+
+function toCatchDetail(item: CatchItem): CatchDetail {
+  return {
+    id: item.id,
+    userId: item.user_id,
+    imageUrl: item.image_uri,
+    extraPhotos: item.extraPhotos ?? [],
+    species: item.species,
+    description: item.description,
+    length: item.length_cm != null ? String(item.length_cm) : item.length ?? "",
+    weight: item.weight_kg != null ? String(item.weight_kg) : item.weight ?? "",
+    date: item.created_at ?? item.date,
+    gear: item.gear ?? item.gear_id ?? item.gearId ?? null,
+    username: item._username,
+    verified: item._badges.includes("verified"),
+    avatarUrl: item._avatarUrl ?? undefined,
+    lat: item.lat,
+    lon: item.lon,
+    waterBodyId: item.water_body_id ?? item.waterBodyId,
+    waterBodyName: item.water_body_name ?? item.waterBodyName,
+    isPublic: item.is_public ?? item.isPublic,
+  };
+}
 
 
 
@@ -564,6 +588,7 @@ export default function Social() {
 
   // Catch detail modal
   const [detailCatch, setDetailCatch] = useState<CatchDetail | null>(null);
+  const [pendingUserCatch, setPendingUserCatch] = useState<CatchItem | null>(null);
 
   const syncCommentCountInLists = useCallback((catchId: string, count: number) => {
     const patch = (items: CatchItem[]) => {
@@ -826,30 +851,24 @@ export default function Social() {
 
   // ── Catch detail modal ───────────────────────────────────────────────────
 
-  const openDetail = (item: CatchItem) => setDetailCatch({
-    id: item.id,
-    userId: item.user_id,
-    imageUrl: item.image_uri,
-    extraPhotos: item.extraPhotos ?? [],
-    species: item.species,
-    description: item.description,
-    length: item.length_cm != null ? String(item.length_cm) : item.length ?? "",
-    weight: item.weight_kg != null ? String(item.weight_kg) : item.weight ?? "",
-    date: item.created_at ?? item.date,
-    gear: item.gear ?? item.gear_id ?? item.gearId ?? null,
-    username: item._username,
-    verified: item._badges.includes("verified"),
-    avatarUrl: item._avatarUrl ?? undefined,
-    lat: item.lat,
-    lon: item.lon,
-    waterBodyId: item.water_body_id ?? item.waterBodyId,
-    waterBodyName: item.water_body_name ?? item.waterBodyName,
-    isPublic: item.is_public ?? item.isPublic,
-  });
+  const openDetail = (item: CatchItem) => setDetailCatch(toCatchDetail(item));
   const openUserCatchDetail = (item: CatchItem) => {
-    openDetail(item);
+    setPendingUserCatch(item);
+    setProfileMenuVisible(false);
+    setUserFollowListModal(null);
+    setAvatarPreviewVisible(false);
+    setSelectedUser(null);
   };
   const closeDetail = () => setDetailCatch(null);
+
+  useEffect(() => {
+    if (!pendingUserCatch || selectedUser) return;
+    const timer = setTimeout(() => {
+      setDetailCatch(toCatchDetail(pendingUserCatch));
+      setPendingUserCatch(null);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [pendingUserCatch, selectedUser]);
 
   const pruneBlockedUser = useCallback((blockedId: string) => {
     const remove = (items: CatchItem[]) => items.filter((item) => item.user_id !== blockedId);
@@ -1125,6 +1144,14 @@ export default function Social() {
     setSearchResults([]);
   };
 
+  const closeOverlaysForMap = () => {
+    setProfileMenuVisible(false);
+    setUserFollowListModal(null);
+    setAvatarPreviewVisible(false);
+    setSelectedUser(null);
+    closeSearch();
+  };
+
   // ── Follow / User profile ─────────────────────────────────────────────────
 
   const isFollowing = (targetId: string) => myFollows.some((f) => f.following_id === targetId);
@@ -1284,18 +1311,12 @@ export default function Social() {
   // ── Helpers ───────────────────────────────────────────────────────────────
 
   const formatDate = (val: any) => {
-    if (!val) return "";
-    const num = Number(val);
-    const d = !isNaN(num) && num > 0 ? new Date(num) : new Date(val);
-    if (isNaN(d.getTime())) return "";
-    return d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US");
+    return formatCatchDate(val, language);
   };
 
   const formatJoinedDate = (val: any) => {
-    if (!val) return "";
-    const d = new Date(val);
-    if (isNaN(d.getTime())) return "";
-    const date = d.toLocaleDateString(language === "ru" ? "ru-RU" : "en-US", { month: "long", year: "numeric" });
+    const date = formatCatchDate(val, language);
+    if (!date) return "";
     return language === "ru" ? `С ${date}` : `Joined ${date}`;
   };
 
@@ -1324,10 +1345,16 @@ export default function Social() {
               <Ionicons name="person" size={22} color="#94a3b8" />
             )}
           </View>
-          <View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <View style={styles.feedUserInfo}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
               <Text style={styles.feedUsername}>{item._username}</Text>
               {item._badges.includes("verified") ? <VerifiedBadge size={13} /> : null}
+              {(item.water_body_name ?? item.waterBodyName) ? (
+                <View style={styles.feedWaterBody}>
+                  <Text style={styles.feedWaterBodyDot}>•</Text>
+                  <Text style={[styles.feedUsername, styles.feedWaterBodyText]} numberOfLines={1}>{item.water_body_name ?? item.waterBodyName}</Text>
+                </View>
+              ) : null}
             </View>
             <Text style={styles.feedDate}>{formatDate(item.created_at)}</Text>
           </View>
@@ -1417,10 +1444,16 @@ export default function Social() {
               <Ionicons name="person" size={14} color="#94a3b8" />
             )}
           </View>
-          {item._username ? (
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
+{item._username ? (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 3, flexShrink: 1, minWidth: 0 }}>
                 <Text style={styles.catchUser}>{item._username}</Text>
                 {item._badges.includes("verified") ? <VerifiedBadge size={12} /> : null}
+                {(item.water_body_name ?? item.waterBodyName) ? (
+                  <View style={styles.catchWaterBody}>
+                    <Text style={styles.catchWaterBodyDot}>•</Text>
+                    <Text style={[styles.catchUser, styles.catchWaterBodyText]} numberOfLines={1}>{item.water_body_name ?? item.waterBodyName}</Text>
+                  </View>
+                ) : null}
               </View>
             ) : null}
         </View>
@@ -1775,7 +1808,7 @@ export default function Social() {
                   <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
                   <View style={styles.catchCounts}>
                     <View style={styles.catchCountBtn}>
-<LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={13} />
+                        <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={13} />
                       <Text style={[styles.catchCountText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
                     </View>
                     <TouchableOpacity onPress={() => openUserCatchDetail(item)} style={styles.catchCountBtn}>
@@ -1802,6 +1835,15 @@ export default function Social() {
                     contentFit="cover"
                     style={styles.upBannerImage}
                   />
+                  <Svg pointerEvents="none" style={styles.upBannerFade} width="100%" height="72">
+                    <Defs>
+                      <LinearGradient id="other-profile-banner-fade" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0%" stopColor="#0f172a" stopOpacity="0" />
+                        <Stop offset="100%" stopColor="#0f172a" stopOpacity="0.9" />
+                      </LinearGradient>
+                    </Defs>
+                    <Rect x="0" y="0" width="100%" height="100%" fill="url(#other-profile-banner-fade)" />
+                  </Svg>
                   <View style={[styles.upHeaderRow, { paddingTop: safeTop }]}>
                     <TouchableOpacity onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }} style={styles.upHeaderBtn} hitSlop={8}>
                       <Ionicons name="arrow-back" size={20} color="#e6eef8" />
@@ -1821,7 +1863,7 @@ export default function Social() {
                   </View>
                 </View>
 
-                <View style={styles.upAvatarWrapper}>
+                <View style={styles.upIdentityRow}>
                   <TouchableOpacity
                     style={styles.upAvatar}
                     onPress={() => setAvatarPreviewVisible(true)}
@@ -1836,27 +1878,26 @@ export default function Social() {
                       <Ionicons name="person" size={44} color="#94a3b8" />
                     )}
                   </TouchableOpacity>
+                  <View style={styles.upIdentity}>
+                    {(selectedUser?.name || selectedUser?.username) ? (
+                      <View style={styles.upUsernameRow}>
+                        {selectedUser?.name ? <Text style={styles.upName}>{selectedUser.name}</Text> : null}
+                        {selectedUser?.name && selectedUser?.username ? <Text style={styles.upIdentityDot}>•</Text> : null}
+                        {selectedUser?.username ? <Text style={styles.upUsername}>{selectedUser.username}</Text> : null}
+                        {parseBadges(selectedUser?.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
+                      </View>
+                    ) : null}
+                    {selectedUser?.city ? (
+                      <View style={styles.upLocationRow}>
+                        <Ionicons name="location-outline" size={13} color="#64748b" />
+                        <Text style={styles.upLocationText}>{selectedUser.city}</Text>
+                      </View>
+                    ) : null}
+                    {!!formatJoinedDate(selectedUser?.created) && (
+                      <Text style={styles.upJoined}>{formatJoinedDate(selectedUser.created)}</Text>
+                    )}
+                  </View>
                 </View>
-
-                {/* Name + username */}
-                {selectedUser?.name ? (
-                  <Text style={styles.upName}>{selectedUser.name}</Text>
-                ) : null}
-                {selectedUser?.username ? (
-                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3 }}>
-                    <Text style={styles.upUsername}>@{selectedUser.username}</Text>
-                    {parseBadges(selectedUser?.badges).includes("verified") ? <VerifiedBadge size={14} /> : null}
-                  </View>
-                ) : null}
-                {selectedUser?.city ? (
-                  <View style={styles.upLocationRow}>
-                    <Ionicons name="location-outline" size={13} color="#64748b" />
-                    <Text style={styles.upLocationText}>{selectedUser.city}</Text>
-                  </View>
-                ) : null}
-                {!!formatJoinedDate(selectedUser?.created) && (
-                  <Text style={styles.upJoined}>{formatJoinedDate(selectedUser.created)}</Text>
-                )}
 
                 <BadgeChip badges={parseBadges(selectedUser?.badges)} language={language} />
 
@@ -1872,12 +1913,10 @@ export default function Social() {
                     <Text style={styles.upStatNum}>{userCatchCount}</Text>
                     <Text style={styles.upStatLabel}>{language === "ru" ? "Уловов" : "Catches"}</Text>
                   </View>
-                  <View style={styles.statDivider} />
                   <TouchableOpacity style={styles.upStatItem} onPress={() => openUserFollowList("followers")}>
                     <Text style={styles.upStatNum}>{userFollowerCount}</Text>
                     <Text style={styles.upStatLabel}>{language === "ru" ? "Подписчики" : "Followers"}</Text>
                   </TouchableOpacity>
-                  <View style={styles.statDivider} />
                   <TouchableOpacity style={styles.upStatItem} onPress={() => openUserFollowList("following")}>
                     <Text style={styles.upStatNum}>{userFollowingCount}</Text>
                     <Text style={styles.upStatLabel}>{language === "ru" ? "Подписки" : "Following"}</Text>
@@ -1908,22 +1947,6 @@ export default function Social() {
                 )}
               </View>
             }
-          />
-          <CatchDetailModal
-            catch={detailCatch}
-            onClose={closeDetail}
-            onLikeChange={applyLikeToLists}
-            onCommentAdded={applyCommentToLists}
-            onCommentCountSynced={syncCommentCountInLists}
-            onReportCatch={handleReportCatch}
-            onReportComment={handleReportComment}
-            onBlockUser={handleBlockUser}
-            blockedUserIds={blockedUserIds}
-            onUserPress={(userId) => {
-              closeDetail();
-              const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
-              openUser({ id: userId, username: item?._username ?? "", name: "", avatarUrl: item?._avatarUrl ?? null, badges: item?._badges ?? [] });
-            }}
           />
           <Modal
             visible={userFollowListModal !== null}
@@ -2040,8 +2063,9 @@ export default function Social() {
       </Modal>
 
       <CatchDetailModal
-        catch={selectedUser ? null : detailCatch}
+        catch={detailCatch}
         onClose={closeDetail}
+        onShowOnMap={closeOverlaysForMap}
         onLikeChange={applyLikeToLists}
         onCommentAdded={applyCommentToLists}
         onCommentCountSynced={syncCommentCountInLists}
@@ -2283,6 +2307,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   feedCardUser: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  feedUserInfo: { flex: 1, minWidth: 0 },
   feedAvatar: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center",
@@ -2290,6 +2315,9 @@ const styles = StyleSheet.create({
   feedAvatarImage: { width: 38, height: 38, borderRadius: 19 },
   feedAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 14 },
   feedUsername: { color: "#ffffff", fontWeight: "600", fontSize: 14 },
+  feedWaterBody: { flexDirection: "row", alignItems: "baseline", gap: 4, maxWidth: 150, flexShrink: 1, minWidth: 0 },
+  feedWaterBodyDot: { color: "#ffffff", fontSize: 17, lineHeight: 14, fontWeight: "900" },
+  feedWaterBodyText: { color: "#ffffff", flexShrink: 1, minWidth: 0 },
   feedDate: { color: "#94a3b8", fontSize: 12, marginTop: 1 },
   feedPhoto: { width: "100%", height: 280 },
   feedDotRow: { position: "absolute", bottom: 8, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 6 },
@@ -2340,6 +2368,9 @@ const styles = StyleSheet.create({
   catchGearThumb: { width: 22, height: 22 },
   catchGearText: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
   catchUser: { color: "#ffffff", fontSize: 12, marginTop: 1 },
+  catchWaterBody: { flexDirection: "row", alignItems: "baseline", gap: 4, maxWidth: 110, flexShrink: 1, minWidth: 0 },
+  catchWaterBodyDot: { color: "#ffffff", fontSize: 15, lineHeight: 12, fontWeight: "900" },
+  catchWaterBodyText: { color: "#ffffff", flexShrink: 1, minWidth: 0 },
   catchDesc: { color: "#94a3b8", fontSize: 13, marginTop: 3 },
   catchDate: { color: "#94a3b8", fontSize: 12, marginTop: 4 },
   catchCounts: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 12 },
@@ -2403,7 +2434,6 @@ const styles = StyleSheet.create({
     color: "#94a3b8", fontSize: 12, marginTop: 2,
     textTransform: "uppercase", letterSpacing: 0.4,
   },
-  statDivider: { width: 1, backgroundColor: "#1e293b" },
 
   // Search modal
   searchModalHeader: {
@@ -2580,6 +2610,7 @@ const styles = StyleSheet.create({
   // ── Other-user profile modal ─────────────────────────────────────────────
   upBannerContainer: { height: 180, backgroundColor: theme.colors.surface, overflow: "hidden" },
   upBannerImage: { width: "100%", height: "100%" },
+  upBannerFade: { position: "absolute", bottom: 0, left: 0, right: 0 },
   upHeaderRow: {
     position: "absolute",
     top: 0,
@@ -2620,30 +2651,33 @@ const styles = StyleSheet.create({
   upDropdownItem: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 14 },
   upDropdownItemText: { color: "#cbd5e1", fontSize: 15, fontWeight: "600" },
   upDropdownDivider: { height: 1, backgroundColor: "#1e293b" },
-  upAvatarWrapper: { alignItems: "center", marginTop: -44 },
-  upAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 3, borderColor: "#0f172a" },
-  upAvatarImage: { width: 88, height: 88, borderRadius: 44 },
+  upIdentityRow: { flexDirection: "row", alignItems: "flex-start", gap: 14, paddingHorizontal: 14, marginTop: -54 },
+  upAvatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: "#0f3460", alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 3, borderColor: "#0f172a" },
+  upAvatarImage: { width: 96, height: 96, borderRadius: 48 },
   upAvatarText: { color: "#ffffff", fontWeight: "700", fontSize: 26 },
-  upName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 6 },
-  upUsername: { color: "#ffffff", fontSize: 14, textAlign: "center" },
-  upLocationRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 5 },
-  upLocationText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
-  upJoined: { color: "#64748b", fontSize: 12, textAlign: "center", marginTop: 5 },
+  upIdentity: { flex: 1, minWidth: 0, marginTop: 64 },
+  upName: { color: "#e6eef8", fontSize: 18, fontWeight: "700", flexShrink: 1 },
+  upUsernameRow: { flexDirection: "row", alignItems: "center", gap: 5, minWidth: 0 },
+  upIdentityDot: { color: "#e6eef8", fontSize: 18 },
+  upUsername: { color: "#e6eef8", fontSize: 18, flexShrink: 1 },
+  upLocationRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 5 },
+  upLocationText: { color: "#e6eef8", fontSize: 14, flexShrink: 1 },
+  upJoined: { color: "#e6eef8", fontSize: 14, marginTop: 5, marginBottom: 8 },
   upBioCard: {
-    marginHorizontal: 20,
-    marginTop: 14,
+    marginHorizontal: 16,
+    marginTop: 12,
     backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.border,
     borderRadius: theme.radius.card,
     padding: 14,
   },
-  upBio: { color: "#cbd5e1", fontSize: 13, lineHeight: 19, textAlign: "center" },
-  upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 10, marginHorizontal: 16, paddingVertical: 10 },
+  upBio: { color: "#cbd5e1", fontSize: 14, lineHeight: 22 },
+  upStatsRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginTop: 16, marginHorizontal: 16, paddingVertical: 14 },
   upStatItem: { flex: 1, alignItems: "center" },
   upStatNum: { color: "#e6eef8", fontSize: 20, fontWeight: "700" },
   upStatLabel: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
-  upActionRow: { flexDirection: "row", alignItems: "center", marginTop: 6, marginHorizontal: 16 },
+  upActionRow: { flexDirection: "row", alignItems: "center", marginTop: 12, marginHorizontal: 16 },
   upActionBtn: { flex: 1, backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 10, alignItems: "center" },
   upActionBtnFollowing: { backgroundColor: "#1e293b" },
   upActionBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },

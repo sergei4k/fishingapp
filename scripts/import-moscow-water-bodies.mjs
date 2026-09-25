@@ -175,7 +175,8 @@ async function worker() {
     nextIndex += 1;
     const recordId = existingByOsmId.get(body.osm_id);
     if (recordId) {
-      await pb.collection("water_bodies").update(recordId, body);
+      const { lat, lon, ...importUpdate } = body;
+      await pb.collection("water_bodies").update(recordId, importUpdate);
       updated += 1;
     } else {
       await pb.collection("water_bodies").create(body);
