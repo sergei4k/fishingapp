@@ -297,7 +297,7 @@ export default function CatchDetailModal({
         }
         const commentIds = commentsResult.map((c: any) => c.id);
         const commentLikes = commentIds.length
-          ? await pb.collection("comment_likes").getFullList({ filter: commentIds.map((id) => `comment_id = "${id}"`).join(" || "), requestKey: null })
+          ? await pb.collection("comment_likes").getFullList({ filter: commentIds.map((id) => `comment_id = "${id}"`).join(" || "), requestKey: null }).catch(() => [] as any[])
           : [];
         const commentLikeStats = new Map<string, { count: number; mine: any | null }>();
         for (const like of commentLikes as any[]) {

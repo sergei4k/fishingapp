@@ -115,3 +115,7 @@ test("the detail view shows the rod and reel saved on the catch", () => {
 test("an empty rod or reel slot is left out of the detail view", () => {
   assert.match(source, /\.filter\(\(entry\) => entry\.name !== ""\)/);
 });
+
+test("comments still load when comment likes are unavailable", () => {
+  assert.match(source, /pb\.collection\("comment_likes"\)\.getFullList\([\s\S]*?\.catch\(\(\) => \[\] as any\[\]\)/);
+});
