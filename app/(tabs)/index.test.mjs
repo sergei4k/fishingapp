@@ -22,6 +22,10 @@ test("individual catch pins appear only at closer zoom levels", () => {
   assert.doesNotMatch(source, /mapLoaded/);
 });
 
+test("main map configures Mapbox Standard labels for the selected language", () => {
+  assert.match(source, /mapStyleKey === "standard" \? <MapboxGL\.StyleImport id="basemap" existing config=\{\{ language \}\} \/> : null/);
+});
+
 test("water body markers use geometry centers", () => {
   assert.match(source, /function centerOfPolygon\(/);
   assert.match(source, /function midpointOnLines\(/);
@@ -134,6 +138,10 @@ test("showing a catch on the map closes the water body sheet", () => {
   assert.match(source, /onShowOnMap=\{\(\) => \{[\s\S]*?setWaterBodyPreview\(null\);[\s\S]*?\}\}/);
 });
 
+test("water body previews use the coordinates of the marker that was tapped", () => {
+  assert.match(source, /const \[lon, lat\] = feature\.geometry\.coordinates;/);
+});
+
 test("public map catch details provide the report menu with the catch owner", () => {
   assert.match(source, /author_user_id: m\.user_id,/);
   assert.match(source, /authorUserId: p\.author_user_id \?\? null,/);
@@ -148,4 +156,8 @@ test("water body sheet does not show an inactive save control", () => {
 
 test("welcome card body has comfortable multi-line spacing", () => {
   assert.match(source, /welcomeCardMessage:\s*\{[\s\S]*?fontSize:\s*17,[\s\S]*?lineHeight:\s*24,/);
+});
+
+test("map catch pins pass the saved rod and reel into the catch detail modal", () => {
+  assert.match(source, /rod: catchItem\.rod,\s*reel: catchItem\.reel,/);
 });

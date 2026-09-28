@@ -1,5 +1,5 @@
 function canPublishCatch(isPublic, image) {
-  return !isPublic || String(image || "").trim().length > 0;
+  return true;
 }
 
 module.exports = { canPublishCatch };

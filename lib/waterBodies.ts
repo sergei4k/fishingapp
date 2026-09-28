@@ -17,7 +17,7 @@ export interface WaterBody {
 
 export type MapboxWaterBody = {
   featureId: string;
-  name: string;
+  name: string | null;
   type: WaterBodyType;
   isMarine: boolean;
 };
@@ -241,7 +241,7 @@ export async function fetchMapboxWaterBody(
   signal?: AbortSignal,
 ): Promise<MapboxWaterBody | null> {
   const url = new URL(`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lon},${lat}.json`);
-  url.searchParams.set("layers", "water,natural_label");
+  url.searchParams.set("layers", "water,natural_label,landuse");
   url.searchParams.set("radius", "1000");
   url.searchParams.set("limit", "50");
   url.searchParams.set("access_token", accessToken);
@@ -265,9 +265,15 @@ export async function fetchMapboxWaterBody(
     && feature.properties.tilequery.geometry === "polygon"
     && (feature.properties.tilequery.distance ?? Infinity) <= DEFAULT_SHORELINE_RADIUS_METERS
   );
-  if (!water) return null;
+  const harbor = features.find((feature) =>
+    feature.properties?.tilequery?.layer === "landuse"
+    && feature.properties.tilequery.geometry === "polygon"
+    && ["harbor", "harbour", "port"].includes(feature.properties.class ?? "")
+    && (feature.properties.tilequery.distance ?? Infinity) <= DEFAULT_SHORELINE_RADIUS_METERS
+  );
+  if (!water && !harbor) return null;
 
-  const waterType = normalizeType(undefined, water.properties?.class, water.properties?.type);
+  const waterType = normalizeType(undefined, water?.properties?.class, water?.properties?.type);
   const label = features
     .filter((feature) => feature.id != null
       && feature.properties?.tilequery?.layer === "natural_label"
@@ -283,7 +289,7 @@ export async function fetchMapboxWaterBody(
     ? waterType
     : normalizeType(undefined, label?.properties?.class, label?.properties?.type);
   const isMarine = ["sea", "ocean", "bay", "sound", "gulf", "strait"].includes(type);
-  return { featureId, name: label?.properties?.name || "Water body", type, isMarine };
+  return { featureId, name: label?.properties?.name || null, type, isMarine };
 }
 
 export async function fetchWaterBodies(

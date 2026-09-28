@@ -19,15 +19,32 @@ onRecordUpdateRequest((e) => {
 
 onRecordCreateRequest((e) => {
   const u = require(`${__hooks}/group_chat_utils.js`);
-  if (u.hasObjectionableText(u.recordOrBodyString(e, "description"))) throw new Error("objectionable content");
+  const fields = ["description", "rod", "reel"];
+  if (fields.some((key) => u.hasObjectionableText(u.recordOrBodyString(e, key)))) throw new Error("objectionable content");
   e.next();
 }, "catches");
 
 onRecordUpdateRequest((e) => {
   const u = require(`${__hooks}/group_chat_utils.js`);
-  if (u.hasObjectionableText(u.recordOrBodyString(e, "description"))) throw new Error("objectionable content");
+  const fields = ["description", "rod", "reel"];
+  if (fields.some((key) => u.hasObjectionableText(u.recordOrBodyString(e, key)))) throw new Error("objectionable content");
   e.next();
 }, "catches");
+
+// Reusable rod and reel rows, and the name snapshots stored on a catch.
+onRecordCreateRequest((e) => {
+  const u = require(`${__hooks}/group_chat_utils.js`);
+  const fields = ["name", "model", "manufacturer"];
+  if (fields.some((key) => u.hasObjectionableText(u.recordOrBodyString(e, key)))) throw new Error("objectionable content");
+  e.next();
+}, "tackle");
+
+onRecordUpdateRequest((e) => {
+  const u = require(`${__hooks}/group_chat_utils.js`);
+  const fields = ["name", "model", "manufacturer"];
+  if (fields.some((key) => u.hasObjectionableText(u.recordOrBodyString(e, key)))) throw new Error("objectionable content");
+  e.next();
+}, "tackle");
 
 onRecordCreateRequest((e) => {
   const u = require(`${__hooks}/group_chat_utils.js`);

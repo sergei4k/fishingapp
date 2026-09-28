@@ -21,11 +21,12 @@ test("only links an existing named water body that matches the queried point", (
 });
 
 test("verifies the claimed polygon with Mapbox before saving it", () => {
-  assert.match(source, /layers=water%2Cnatural_label&radius=1000&limit=50/);
+  assert.match(source, /layers=water%2Cnatural_label%2Clanduse&radius=1000&limit=50/);
   assert.match(source, /\$http\.send\(\{ url: query, method: "GET", timeout: 10 \}\)/);
   assert.match(source, /Array\.isArray\(mapboxResponse\.json\.features\)/);
   assert.match(source, /tilequery\?\.layer === "water"/);
   assert.match(source, /tilequery\?\.geometry === "polygon"/);
+  assert.match(source, /\["harbor", "harbour", "port"\]/);
   assert.match(source, /Number\(feature\.properties\?\.tilequery\?\.distance\) <= 100/);
   assert.match(source, /verifiedFeatureId !== featureId/);
   assert.match(source, /resolvedGeometry \|\| \{ type: "Point", coordinates: \[longitude, latitude\] \}/);

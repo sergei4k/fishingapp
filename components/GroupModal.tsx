@@ -490,7 +490,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
       formData.append("name", editName.trim());
       formData.append("description", editDesc.trim());
       if (editAvatarUri) {
-        formData.append("avatar", { uri: editAvatarUri, name: "avatar.jpg", type: "image/jpeg" } as any);
+        formData.append("avatar", new File(editAvatarUri));
       }
       const updated = await pb.collection("groups").update(liveGroup.id, formData);
       setLiveGroup(updated);
@@ -647,7 +647,7 @@ export default function GroupModal({ group, currentUserId, language, onClose, on
         form.append("reply_text", replyPayload.reply_text);
         form.append("reply_has_image", String(replyPayload.reply_has_image));
       }
-      form.append("image", { uri: uploadUri, name: `chat.jpg`, type: "image/jpeg" } as any);
+      form.append("image", new File(uploadUri));
       const created = await pb.collection("group_messages").create(form, { requestKey: null });
       setMessages((prev) => {
         const withoutTemp = prev.filter((m) => m.id !== tempId);

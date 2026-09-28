@@ -198,7 +198,7 @@ routerAdd("POST", "/water-bodies/mapbox", (e) => {
   let mapboxResponse;
   try {
     const query = `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${longitude},${latitude}.json`
-      + `?layers=water%2Cnatural_label&radius=1000&limit=50&access_token=${encodeURIComponent(accessToken)}`;
+      + `?layers=water%2Cnatural_label%2Clanduse&radius=1000&limit=50&access_token=${encodeURIComponent(accessToken)}`;
     mapboxResponse = $http.send({ url: query, method: "GET", timeout: 10 });
   } catch (_) {
     return e.json(502, { error: "mapbox_unreachable" });
@@ -212,6 +212,13 @@ routerAdd("POST", "/water-bodies/mapbox", (e) => {
     && feature.properties?.tilequery?.geometry === "polygon"
     && Number(feature.properties?.tilequery?.distance) <= 100
   );
+  const harborFeature = mapboxFeatures.find((feature) =>
+    feature.properties?.tilequery?.layer === "landuse"
+    && feature.properties?.tilequery?.geometry === "polygon"
+    && ["harbor", "harbour", "port"].includes(String(feature.properties?.class || ""))
+    && Number(feature.properties?.tilequery?.distance) <= 100
+  );
+  const maritimeFeature = waterFeature || harborFeature;
   const labelFeature = mapboxFeatures
     .filter((feature) => feature.id != null
       && feature.properties?.tilequery?.layer === "natural_label"
@@ -222,7 +229,7 @@ routerAdd("POST", "/water-bodies/mapbox", (e) => {
   const verifiedFeatureId = canonicalFeatureId || (labelFeature?.id != null
     ? `natural_label:${labelFeature.id}`
     : `point:${latitude.toFixed(5)}:${longitude.toFixed(5)}`);
-  if (!waterFeature || verifiedFeatureId !== featureId
+  if (!maritimeFeature || verifiedFeatureId !== featureId
     || (canonicalRegion && (waterType !== canonicalRegion.type || name !== canonicalRegion.name))) {
     return e.json(400, { error: "invalid_mapbox_feature" });
   }

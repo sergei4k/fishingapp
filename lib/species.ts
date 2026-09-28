@@ -1,3 +1,5 @@
+import { parsePhotoCatches } from "@/lib/photoCatches";
+
 export type SpeciesHabitat = "freshwater" | "saltwater";
 export type SpeciesOption = { id: string; labelRu: string; labelEn: string; scientificName: string; habitat: SpeciesHabitat };
 
@@ -10,6 +12,7 @@ const speciesOptions: SpeciesOption[] = [
   { id: "leshch",     labelRu: "Лещ",      labelEn: "Bream",        scientificName: "Abramis brama", habitat: "freshwater" },
   { id: "nalim",      labelRu: "Налим",    labelEn: "Burbot",       scientificName: "Lota lota", habitat: "freshwater" },
   { id: "som",        labelRu: "Сом",      labelEn: "Catfish",      scientificName: "Silurus glanis", habitat: "freshwater" },
+  { id: "channel_catfish", labelRu: "Канальный сом", labelEn: "Channel Catfish", scientificName: "Ictalurus punctatus", habitat: "freshwater" },
   { id: "forel",      labelRu: "Форель",   labelEn: "Trout",        scientificName: "Oncorhynchus mykiss", habitat: "freshwater" },
   { id: "sig",        labelRu: "Озёрный сиг", labelEn: "Lake Whitefish", scientificName: "Coregonus clupeaformis", habitat: "freshwater" },
   { id: "kharius",    labelRu: "Хариус",   labelEn: "Grayling",     scientificName: "Thymallus thymallus", habitat: "freshwater" },
@@ -24,6 +27,9 @@ const speciesOptions: SpeciesOption[] = [
   { id: "ukleya",     labelRu: "Уклея",        labelEn: "Bleak",           scientificName: "Alburnus alburnus", habitat: "freshwater" },
   { id: "zhereh",      labelRu: "Жерех",             labelEn: "Asp",              scientificName: "Aspius aspius", habitat: "freshwater" },
   { id: "bass",        labelRu: "Басс",              labelEn: "Largemouth Bass",  scientificName: "Micropterus salmoides", habitat: "freshwater" },
+  { id: "smallmouth_bass", labelRu: "Малоротый басс", labelEn: "Smallmouth Bass", scientificName: "Micropterus dolomieu", habitat: "freshwater" },
+  { id: "rock_bass",   labelRu: "Каменный окунь",    labelEn: "Rock Bass",        scientificName: "Ambloplites rupestris", habitat: "freshwater" },
+  { id: "longear_sunfish", labelRu: "Длинноухий солнечник", labelEn: "Longear Sunfish", scientificName: "Lepomis megalotis", habitat: "freshwater" },
   { id: "black_sea_bass", labelRu: "Чёрный морской окунь", labelEn: "Black Sea Bass", scientificName: "Centropristis striata", habitat: "saltwater" },
   { id: "stripedbass", labelRu: "Полосатый окунь",   labelEn: "Striped Bass",     scientificName: "Morone saxatilis", habitat: "saltwater" },
   { id: "losos",       labelRu: "Лосось",            labelEn: "Salmon",           scientificName: "Salmo salar", habitat: "saltwater" },
@@ -49,12 +55,14 @@ const speciesOptions: SpeciesOption[] = [
   { id: "bluefish",      labelRu: "Луфарь",            labelEn: "Bluefish",           scientificName: "Pomatomus saltatrix", habitat: "saltwater" },
   { id: "false_albacore", labelRu: "Ложный альбакор",   labelEn: "False Albacore",     scientificName: "Euthynnus alletteratus", habitat: "saltwater" },
   { id: "atlantic_mackerel", labelRu: "Атлантическая скумбрия", labelEn: "Atlantic Mackerel", scientificName: "Scomber scombrus", habitat: "saltwater" },
+  { id: "spanish_mackerel", labelRu: "Испанская макрель", labelEn: "Spanish Mackerel", scientificName: "Scomberomorus maculatus", habitat: "saltwater" },
   { id: "dogfish",       labelRu: "Катран",            labelEn: "Dogfish",            scientificName: "Squalus acanthias", habitat: "saltwater" },
   { id: "atlantic_wolffish", labelRu: "Атлантическая зубатка", labelEn: "Atlantic Wolffish", scientificName: "Anarhichas lupus", habitat: "saltwater" },
   { id: "atlantic_cod",  labelRu: "Атлантическая треска", labelEn: "Atlantic Cod",       scientificName: "Gadus morhua", habitat: "saltwater" },
   { id: "atlantic_herring", labelRu: "Атлантическая сельдь", labelEn: "Atlantic Herring", scientificName: "Clupea harengus", habitat: "saltwater" },
   { id: "coho_salmon",   labelRu: "Кижуч",             labelEn: "Coho Salmon",       scientificName: "Oncorhynchus kisutch", habitat: "saltwater" },
   { id: "scorpionfish",  labelRu: "Скорпена",          labelEn: "Scorpionfish",      scientificName: "Scorpaena porcus", habitat: "saltwater" },
+  { id: "northern_puffer", labelRu: "Северный иглобрюх", labelEn: "Northern Puffer", scientificName: "Sphoeroides maculatus", habitat: "saltwater" },
   { id: "goby",          labelRu: "Бычок",             labelEn: "Round Goby",         scientificName: "Neogobius melanostomus", habitat: "freshwater" },
   { id: "white_eye_bream", labelRu: "Белоглазка",     labelEn: "White-Eye Bream",    scientificName: "Ballerus sapa", habitat: "freshwater" },
   { id: "arapayma",      labelRu: "Арапайма",           labelEn: "Arapaima",            scientificName: "Arapaima gigas", habitat: "freshwater" },
@@ -116,4 +124,11 @@ export function getSpeciesLabel(id?: string | null, language: "ru" | "en" = "ru"
   );
   if (!f) return id.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   return language === "ru" ? f.labelRu : f.labelEn;
+}
+
+export function getCatchSpeciesLabel(photoCatches: unknown, fallbackSpecies: string | null | undefined, language: "ru" | "en" = "ru"): string {
+  const entries = parsePhotoCatches(photoCatches);
+  const species = [...new Set(entries.map((entry) => entry?.species).filter((value): value is string => !!value))];
+  if (species.length) return species.map((id) => getSpeciesLabel(id, language)).join(" • ");
+  return fallbackSpecies ? getSpeciesLabel(fallbackSpecies, language) : "";
 }

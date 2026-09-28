@@ -2,24 +2,26 @@ export type CatchFormRequirements = {
   hasPhoto: boolean;
 };
 
-export const CATCH_FORM_STEP_COUNT = 2;
+export const CATCH_FORM_STEP_COUNT = 3;
+
+/** Photos, catch details, then the rod and reel used. */
+export const CATCH_FORM_TACKLE_STEP = 2;
 
 export type CatchFormReadiness = {
   ready: boolean;
   missing: Array<"photo">;
 };
 
-export function getCatchFormReadiness({ hasPhoto }: CatchFormRequirements): CatchFormReadiness {
-  const missing: CatchFormReadiness["missing"] = hasPhoto ? [] : ["photo"];
-  return { ready: missing.length === 0, missing };
+export function getCatchFormReadiness(_requirements: CatchFormRequirements): CatchFormReadiness {
+  return { ready: true, missing: [] };
 }
 
-export function canMakeCatchPublic({ hasPhoto }: CatchFormRequirements): boolean {
-  return hasPhoto;
+export function canMakeCatchPublic(_requirements: CatchFormRequirements): boolean {
+  return true;
 }
 
-export function canAdvanceCatchFormStep(step: number, requirements: CatchFormRequirements): boolean {
-  return step !== 0 || getCatchFormReadiness(requirements).ready;
+export function canAdvanceCatchFormStep(_step: number, _requirements: CatchFormRequirements): boolean {
+  return true;
 }
 
 export function getResetCatchFormStep(): number {

@@ -1,5 +1,6 @@
 import { pb, isNetworkError } from './pocketbase';
 import { getCatches, replaceCatches, updateCatch, CatchItem } from './storage';
+import { File } from 'expo-file-system';
 
 const isPocketBaseId = (id: string) => /^[a-z0-9]{15}$/.test(id);
 
@@ -48,6 +49,30 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
       }
     }
 
+    if (existing && existing.rod && !record.rod) {
+      try {
+        await pb.collection("catches").update(record.id, { rod: existing.rod });
+      } catch (e) {
+        console.warn("Failed to backfill rod to PocketBase:", e);
+      }
+    }
+
+    if (existing && existing.reel && !record.reel) {
+      try {
+        await pb.collection("catches").update(record.id, { reel: existing.reel });
+      } catch (e) {
+        console.warn("Failed to backfill reel to PocketBase:", e);
+      }
+    }
+
+    if (existing && Array.isArray(existing.photoCatches) && existing.photoCatches.length && !record.photo_catches) {
+      try {
+        await pb.collection("catches").update(record.id, { photo_catches: existing.photoCatches });
+      } catch (e) {
+        console.warn("Failed to backfill photo catches to PocketBase:", e);
+      }
+    }
+
     if (existing) {
       // Keep local image path, sync public status and imageUrl from PocketBase
       syncedCatches.push({
@@ -59,6 +84,9 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         lon: record.lon ?? existing.lon ?? null,
         waterBodyId: record.water_body_id ?? existing.waterBodyId,
         waterBodyName: record.water_body_name ?? existing.waterBodyName,
+        rod: record.rod ?? existing.rod,
+        reel: record.reel ?? existing.reel,
+        photoCatches: record.photo_catches ?? existing.photoCatches,
         extraPhotos: serverExtraPhotos.length ? serverExtraPhotos : existing.extraPhotos,
         pendingSync: false,
       });
@@ -71,6 +99,8 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         length: record.length_cm != null ? String(record.length_cm) : '',
         weight: record.weight_kg != null ? String(record.weight_kg) : '',
         gear: recordGear ?? undefined,
+        rod: record.rod ?? undefined,
+        reel: record.reel ?? undefined,
         lat: record.lat ?? null,
         lon: record.lon ?? null,
         waterBodyId: record.water_body_id ?? undefined,
@@ -97,6 +127,7 @@ export async function syncCatchesFromPB(userId: string): Promise<void> {
         isPublic: record.is_public ?? false,
         imageUrl,
         extraPhotos: serverExtraPhotos,
+        photoCatches: record.photo_catches ?? undefined,
         pendingSync: false,
       };
       syncedCatches.push(item);
@@ -148,6 +179,9 @@ export async function pushPendingCatches(userId: string): Promise<void> {
         if (item.waterBodyName) formData.append('water_body_name', item.waterBodyName);
         formData.append('description', item.description || '');
         formData.append('gear', item.gear ?? '');
+        if (item.rod) formData.append('rod', item.rod);
+        if (item.reel) formData.append('reel', item.reel);
+        if (item.photoCatches) formData.append('photo_catches', JSON.stringify(item.photoCatches));
         if (item.length) formData.append('length_cm', String(Number(item.length)));
         if (item.weight) formData.append('weight_kg', String(Number(item.weight)));
         const createdMs = new Date(item.date).getTime();
@@ -155,11 +189,11 @@ export async function pushPendingCatches(userId: string): Promise<void> {
         formData.append('is_public', item.isPublic ? 'true' : 'false');
 
         if (item.image && !/^https?:/.test(item.image)) {
-          formData.append('image', { uri: item.image, name: 'catch.jpg', type: 'image/jpeg' } as any);
+          formData.append('image', new File(item.image));
         }
         (item.extraPhotos ?? []).forEach((uri: string, i: number) => {
           if (uri && !/^https?:/.test(uri)) {
-            formData.append('images', { uri, name: `catch_extra_${i}.jpg`, type: 'image/jpeg' } as any);
+            formData.append('images', new File(uri));
           }
         });
 

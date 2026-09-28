@@ -25,9 +25,25 @@ import { isProfane } from "@/lib/profanity";
 import SignInPrompt from "@/components/SignInPrompt";
 import { getSpeciesHabitat, getSpeciesLabel as getSpeciesLabelTranslated, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
 import { filterGearOptions, getGearOptions, getGearLabel, getGearPickerTab, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON, type GearPickerTab } from "@/lib/gear";
-import { CATCH_FORM_STEP_COUNT, canAdvanceCatchFormStep, getCatchFormReadiness, getResetCatchFormStep } from "@/lib/catchFormFlow";
+import { CATCH_FORM_STEP_COUNT, CATCH_FORM_TACKLE_STEP, getResetCatchFormStep } from "@/lib/catchFormFlow";
+import { createTackleItem, loadTackleItems } from "@/lib/tackleStore";
+import {
+  MAX_TACKLE_TEXT_LENGTH,
+  TACKLE_FIELDS,
+  buildTackleDraft,
+  emptyTackleDraft,
+  getMissingTackleFields,
+  getTackleCatchLabel,
+  getTackleFieldLabel,
+  getTackleItemsByKind,
+  getTackleKindLabel,
+  getTackleSectionLabel,
+  type TackleDraft,
+  type TackleItem,
+  type TackleKind,
+} from "@/lib/tackle";
 import gearPhotos from "@/lib/gearPhotos";
-import { ActivityIndicator, Alert, DeviceEventEmitter, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, DeviceEventEmitter, Dimensions, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -46,12 +62,24 @@ type LocationSearchResult = {
   center: [number, number];
 };
 
+type PhotoCatchDetails = {
+  species: string | null;
+  gear: string | null;
+  length: string;
+  weight: string;
+};
+
+const EMPTY_PHOTO_CATCH: PhotoCatchDetails = { species: null, gear: null, length: "", weight: "" };
+
 // Lightly compress a photo before upload: cap the long edge at 1600px (no
 // upscaling) and re-encode JPEG at 0.82 quality. Cuts multi-MB phone photos to
 // ~1MB with no visible difference on a phone screen, so they load fast on a cold
 // cache. Falls back to the original uri if manipulation fails.
 const MAX_DIM = 1600;
-const PB_UPLOAD_TIMEOUT_MS = 12000;
+const TRIP_PHOTO_FRAME_WIDTH = Dimensions.get("window").width - 52;
+// Mobile uploads can take longer than 12 seconds on cellular connections. Do
+// not cancel a successful public catch before PocketBase can receive its photo.
+const PB_UPLOAD_TIMEOUT_MS = 45000;
 const WATER_BODY_REQUEST_TIMEOUT_MS = 10000;
 const EMPTY_FEATURE_COLLECTION: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
 
@@ -106,6 +134,9 @@ export default function Add() {
   const [image, setImage] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [extraPhotos, setExtraPhotos] = useState<string[]>([]);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const [photoCatches, setPhotoCatches] = useState<PhotoCatchDetails[]>([]);
+  const tripPhotoScrollRef = useRef<ScrollView>(null);
   const [description, setDescription] = useState("");
   const [length, setLength] = useState("");
   const [weight, setWeight] = useState("");
@@ -139,7 +170,34 @@ export default function Add() {
   const [locationSearchQuery, setLocationSearchQuery] = useState("");
   const [locationSearchResults, setLocationSearchResults] = useState<LocationSearchResult[]>([]);
   const [searchingLocation, setSearchingLocation] = useState(false);
+  const [tackleItems, setTackleItems] = useState<TackleItem[]>([]);
+  const [loadingTackle, setLoadingTackle] = useState(false);
+  const [selectedRodId, setSelectedRodId] = useState<string | null>(null);
+  const [selectedReelId, setSelectedReelId] = useState<string | null>(null);
+  const [tackleDraftKind, setTackleDraftKind] = useState<TackleKind | null>(null);
+  const [tackleDraft, setTackleDraft] = useState<TackleDraft>(emptyTackleDraft("rod"));
+  const [savingTackle, setSavingTackle] = useState(false);
   const waterBodyDetectionRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (currentStep !== CATCH_FORM_TACKLE_STEP) return;
+    if (!user) return;
+    let active = true;
+
+    const loadLibrary = async () => {
+      setLoadingTackle(true);
+      try {
+        const items = await loadTackleItems(user.id);
+        if (!active) return;
+        setTackleItems(items);
+      } finally {
+        if (active) setLoadingTackle(false);
+      }
+    };
+
+    void loadLibrary();
+    return () => { active = false; };
+  }, [currentStep, user]);
 
   useEffect(() => {
     if (!locationPickerVisible) return;
@@ -366,7 +424,7 @@ export default function Add() {
         return;
       }
 
-      if (feature.isMarine) {
+      if (feature.name) {
         const registered = await withWaterBodyRequestTimeout(requestKey, () => pb.send<{ id?: string; name?: string }>("/water-bodies/mapbox", {
           method: "POST",
           body: {
@@ -376,7 +434,7 @@ export default function Add() {
             waterType: feature.type,
             latitude: lat,
             longitude: lon,
-            resolveOfficialName: true,
+            resolveOfficialName: feature.isMarine,
           },
           requestKey,
         }), 30000);
@@ -387,9 +445,11 @@ export default function Add() {
         return;
       }
 
-      setPendingWaterBody({ lat, lon, feature });
-      setWaterBodyNameInput("");
-      setWaterBodyNameModalVisible(true);
+      if (!feature.name) {
+        setPendingWaterBody({ lat, lon, feature });
+        setWaterBodyNameInput("");
+        setWaterBodyNameModalVisible(true);
+      }
     } catch (error) {
       console.warn("Water body detection failed:", error);
       // Waterbody attribution is optional and must not block saving a catch.
@@ -469,33 +529,33 @@ export default function Add() {
     return null;
   };
 
-  const pickPhoto = async (): Promise<PickedPhoto | null> => {
+  const pickPhotos = async (selectionLimit: number): Promise<PickedPhoto[]> => {
     if (Platform.OS === "ios") {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(t("error"), t("photoError"));
-        return null;
+        return [];
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
-        allowsEditing: true,
-        aspect: [4, 3],
+        allowsEditing: false,
+        allowsMultipleSelection: true,
+        selectionLimit,
         quality: 1,
         exif: true,
       });
-      if (result.canceled) return null;
-      const asset = result.assets?.[0];
-      return asset ? { uri: asset.uri, assetId: asset.assetId, exif: asset.exif } : null;
+      if (result.canceled) return [];
+      return (result.assets ?? []).map((asset) => ({ uri: asset.uri, assetId: asset.assetId, exif: asset.exif }));
     }
 
     const result = await DocumentPicker.getDocumentAsync({
       type: 'image/*',
       copyToCacheDirectory: true,
+      multiple: selectionLimit > 1,
     });
-    if (result.canceled) return null;
-    const asset = result.assets?.[0];
-    return asset ? { uri: asset.uri } : null;
+    if (result.canceled) return [];
+    return (result.assets ?? []).map((asset) => ({ uri: asset.uri }));
   };
 
   const coordsFromPhoto = async (photo: PickedPhoto) => {
@@ -529,14 +589,18 @@ export default function Add() {
     }
   };
 
-  const pickImageAndGetGps = async () => {
+  const pickImagesAndGetGps = async () => {
     try {
-      const pickedPhoto = await pickPhoto();
-      if (!pickedPhoto) return;
+      const pickedPhotos = await pickPhotos(6);
+      const [primary, ...additional] = pickedPhotos;
+      if (!primary) return;
 
-      setImage(pickedPhoto.uri);
+      setImage(primary.uri);
+      setExtraPhotos(additional.map((photo) => photo.uri).slice(0, 5));
+      setActivePhotoIndex(0);
+      setPhotoCatches(pickedPhotos.map(() => ({ ...EMPTY_PHOTO_CATCH })));
 
-      const coords = await coordsFromPhoto(pickedPhoto);
+      const coords = await coordsFromPhoto(primary);
 
       if (coords) {
         setImageCoords(coords);
@@ -551,18 +615,49 @@ export default function Add() {
     }
   };
 
-  const pickExtraPhoto = async () => {
+  const pickExtraPhotos = async () => {
     try {
-      const pickedPhoto = await pickPhoto();
-      if (!pickedPhoto) return;
-      setExtraPhotos(prev => [...prev, pickedPhoto.uri]);
+      const pickedPhotos = await pickPhotos(5 - extraPhotos.length);
+      const additions = pickedPhotos.map((photo) => photo.uri);
+      setExtraPhotos((current) => [...current, ...additions].slice(0, 5));
+      setPhotoCatches((current) => [...current, ...additions.map(() => ({ ...EMPTY_PHOTO_CATCH }))].slice(0, 6));
     } catch (e) {
       console.error('Extra photo error:', e);
     }
   };
 
-  const removeExtraPhoto = (index: number) => {
-    setExtraPhotos(prev => prev.filter((_, i) => i !== index));
+  const removeTripPhoto = (index: number) => {
+    const allPhotos = [image, ...extraPhotos].filter(Boolean) as string[];
+    const nextPhotos = allPhotos.filter((_, photoIndex) => photoIndex !== index);
+    const nextActiveIndex = Math.min(activePhotoIndex, Math.max(0, nextPhotos.length - 1));
+    setPhotoCatches((current) => {
+      const withActiveDetails = [...current];
+      withActiveDetails[activePhotoIndex] = { species: selectedSpecies, gear: selectedGear, length, weight };
+      const next = withActiveDetails.filter((_, photoIndex) => photoIndex !== index);
+      const details = next[nextActiveIndex] ?? EMPTY_PHOTO_CATCH;
+      setSelectedSpecies(details.species);
+      setSelectedGear(details.gear);
+      setLength(details.length);
+      setWeight(details.weight);
+      return next;
+    });
+    setImage(nextPhotos[0] ?? null);
+    setExtraPhotos(nextPhotos.slice(1));
+    setActivePhotoIndex(nextActiveIndex);
+  };
+
+  const selectPhoto = (index: number) => {
+    setPhotoCatches((current) => {
+      const next = [...current];
+      next[activePhotoIndex] = { species: selectedSpecies, gear: selectedGear, length, weight };
+      const details = next[index] ?? EMPTY_PHOTO_CATCH;
+      setSelectedSpecies(details.species);
+      setSelectedGear(details.gear);
+      setLength(details.length);
+      setWeight(details.weight);
+      return next;
+    });
+    setActivePhotoIndex(index);
   };
 
   const fishSpecies = [
@@ -612,6 +707,47 @@ export default function Add() {
     allGearOptions.find(g => g.id === id)!
   ).filter(Boolean);
 
+  const savedRods = getTackleItemsByKind(tackleItems, "rod");
+  const savedReels = getTackleItemsByKind(tackleItems, "reel");
+  const selectedRod = tackleItems.find(item => item.id === selectedRodId) ?? null;
+  const selectedReel = tackleItems.find(item => item.id === selectedReelId) ?? null;
+  const missingTackleFields = getMissingTackleFields(tackleDraft);
+
+  const selectTackle = (kind: TackleKind, id: string | null) => {
+    if (kind === "rod") setSelectedRodId(id);
+    else setSelectedReelId(id);
+  };
+
+  const openTackleDraft = (kind: TackleKind) => {
+    setTackleDraftKind(kind);
+    setTackleDraft(emptyTackleDraft(kind));
+  };
+
+  const saveTackleDraft = async () => {
+    if (!user || !tackleDraftKind) return;
+    const draft = buildTackleDraft(tackleDraftKind, tackleDraft);
+    if (!draft) return;
+
+    if ([draft.name, draft.model, draft.manufacturer].some((value) => isProfane(value))) {
+      Alert.alert(
+        t("error"),
+        language === "ru" ? "Название снасти содержит недопустимый текст." : "This tackle name contains objectionable text.",
+      );
+      return;
+    }
+
+    setSavingTackle(true);
+    try {
+      const saved = await createTackleItem(user.id, draft);
+      setTackleItems((current) => (current.some(item => item.id === saved.id) ? current : [...current, saved]));
+      selectTackle(saved.kind, saved.id);
+      setTackleDraftKind(null);
+      setTackleDraft(emptyTackleDraft(tackleDraftKind));
+    } finally {
+      setSavingTackle(false);
+    }
+  };
+
   const resetForm = () => {
     waterBodyDetectionRequestRef.current += 1;
     setCurrentStep(getResetCatchFormStep());
@@ -643,14 +779,14 @@ export default function Add() {
     setLocationSearchQuery("");
     setLocationSearchResults([]);
     setSearchingLocation(false);
+    setSelectedRodId(null);
+    setSelectedReelId(null);
+    setTackleDraftKind(null);
+    setTackleDraft(emptyTackleDraft("rod"));
+    setSavingTackle(false);
   };
 
   const handleUpload = async () => {
-    if (!getCatchFormReadiness({ hasPhoto: !!image }).ready) {
-      Alert.alert(t("error"), language === "ru" ? "Добавьте фото улова, чтобы сохранить запись." : "Add a catch photo before saving.");
-      return;
-    }
-
     if (detectingWater || pendingWaterBody) {
       Alert.alert(
         t("error"),
@@ -671,10 +807,19 @@ export default function Add() {
     try {
       const lat = imageCoords?.lat ?? null;
       const lon = imageCoords?.lon ?? null;
-      const effectivelyPublic = isPublic && lat != null && lon != null;
+      const shareLocation = isPublic && lat != null && lon != null;
+      const savedLat = shareLocation ? lat : null;
+      const savedLon = shareLocation ? lon : null;
 
-      const lengthNum = length ? Number(length) : null;
-      const weightNum = weight ? Number(weight) : null;
+      const photoUris = [image, ...extraPhotos].filter(Boolean) as string[];
+      const rodLabel = getTackleCatchLabel(selectedRod);
+      const reelLabel = getTackleCatchLabel(selectedReel);
+      const savedPhotoCatches = photoUris.map((_, index) => index === activePhotoIndex
+        ? { species: selectedSpecies, gear: selectedGear, length, weight }
+        : photoCatches[index] ?? EMPTY_PHOTO_CATCH);
+      const primaryPhotoCatch = savedPhotoCatches[0] ?? EMPTY_PHOTO_CATCH;
+      const lengthNum = primaryPhotoCatch.length ? Number(primaryPhotoCatch.length) : null;
+      const weightNum = primaryPhotoCatch.weight ? Number(primaryPhotoCatch.weight) : null;
       const createdAt = Date.now();
 
       // Compress once; reuse the result for both the upload and the local copy.
@@ -696,36 +841,31 @@ export default function Add() {
         try {
           const formData = new FormData();
           formData.append('user_id', user.id);
-          formData.append('species', selectedSpecies ?? '');
-          if (lat != null) formData.append('lat', String(lat));
-          if (lon != null) formData.append('lon', String(lon));
-          if (waterBody?.id) {
+          formData.append('species', primaryPhotoCatch.species ?? '');
+          if (savedLat != null) formData.append('lat', String(savedLat));
+          if (savedLon != null) formData.append('lon', String(savedLon));
+          if (shareLocation && waterBody?.id) {
             formData.append('water_body_id', waterBody.id);
           }
-          if (waterBody) {
+          if (shareLocation && waterBody) {
             formData.append('water_body_name', waterBody.name);
           }
           formData.append('description', description || '');
-          formData.append('gear', selectedGear ?? '');
+          formData.append('gear', primaryPhotoCatch.gear ?? '');
+          if (rodLabel) formData.append('rod', rodLabel);
+          if (reelLabel) formData.append('reel', reelLabel);
+          formData.append('photo_catches', JSON.stringify(savedPhotoCatches));
           if (lengthNum != null) formData.append('length_cm', String(lengthNum));
           if (weightNum != null) formData.append('weight_kg', String(weightNum));
           formData.append('created_at', String(createdAt));
-          formData.append('is_public', effectivelyPublic ? 'true' : 'false');
+          formData.append('is_public', 'true');
 
           if (uploadImage) {
-            formData.append('image', {
-              uri: uploadImage,
-              name: 'catch.jpg',
-              type: 'image/jpeg',
-            } as any);
+            formData.append('image', new File(uploadImage));
           }
 
           uploadExtras.forEach((uri, i) => {
-            formData.append('images', {
-              uri,
-              name: `catch_extra_${i}.jpg`,
-              type: 'image/jpeg',
-            } as any);
+            formData.append('images', new File(uri));
           });
 
           const uploadRequestKey = `create-catch-${createdAt}`;
@@ -796,17 +936,20 @@ export default function Add() {
         image: localImageUri ?? undefined,
         pbImageUrl: pbImageUrl,
         extraPhotos: persistedExtraPhotos,
+        photoCatches: savedPhotoCatches,
         description: description || '',
         length: lengthNum != null ? String(lengthNum) : '',
         weight: weightNum != null ? String(weightNum) : '',
-        species: selectedSpecies ?? undefined,
-        gear: selectedGear ?? undefined,
+        species: primaryPhotoCatch.species ?? undefined,
+        gear: primaryPhotoCatch.gear ?? undefined,
+        rod: rodLabel || undefined,
+        reel: reelLabel || undefined,
         date: new Date(createdAt).toISOString(),
-        lat,
-        lon,
-        waterBodyId: waterBody?.id,
-        waterBodyName: waterBody?.name,
-        isPublic: effectivelyPublic,
+        lat: savedLat,
+        lon: savedLon,
+        waterBodyId: shareLocation ? waterBody?.id : undefined,
+        waterBodyName: shareLocation ? waterBody?.name : undefined,
+        isPublic: true,
         pendingSync: savedOffline,
       });
 
@@ -832,12 +975,7 @@ export default function Add() {
     );
   }
 
-  const readiness = getCatchFormReadiness({ hasPhoto: !!image });
   const goToNextStep = () => {
-    if (!canAdvanceCatchFormStep(currentStep, { hasPhoto: !!image })) {
-      Alert.alert(t("error"), language === "ru" ? "Фото улова обязательно." : "A catch photo is required.");
-      return;
-    }
     setCurrentStep((step) => Math.min(step + 1, CATCH_FORM_STEP_COUNT - 1));
   };
 
@@ -871,13 +1009,38 @@ export default function Add() {
           </View>
 
           {currentStep === 0 && (<>
-          <Text style={styles.stepHeading}>{language === "ru" ? "Добавьте фото" : "Add a photo"}</Text>
-          <Text style={styles.stepHint}>{language === "ru" ? "Сначала выберите главное фото улова." : "Start by choosing the main catch photo."}</Text>
+          <Text style={styles.stepHeading}>{language === "ru" ? "Добавьте фото" : "Add photos"}</Text>
+          <Text style={styles.stepHint}>{language === "ru" ? "Можно выбрать несколько фото или продолжить без них." : "Choose multiple photos, or continue without any."}</Text>
           <View style={styles.imageRow}>
-            <TouchableOpacity onPress={pickImageAndGetGps} style={styles.photoBox}>
-              {image ? (<ExpoImage source={{ uri: image }} style={styles.photo} />) :
-              <Text style={styles.placeholderText}>{t("addPhoto")}</Text>}
-            </TouchableOpacity>
+            {image ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoSelectionGrid}>
+                {[image, ...extraPhotos].filter(Boolean).map((uri, index) => (
+                  <View key={`${uri}-${index}`} style={styles.photoSelectionItem}>
+                    <ExpoImage source={{ uri }} style={styles.photoSelectionImage} contentFit="cover" />
+                    <TouchableOpacity
+                      style={styles.removeThumbBtn}
+                      onPress={() => removeTripPhoto(index)}
+                      accessibilityLabel={language === "ru" ? "Удалить фото" : "Remove photo"}
+                    >
+                      <Ionicons name="close" size={14} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {extraPhotos.length < 5 && (
+                  <TouchableOpacity
+                    onPress={pickExtraPhotos}
+                    style={styles.addPhotoSelectionButton}
+                    accessibilityLabel={language === "ru" ? "Добавить фото" : "Add photos"}
+                  >
+                    <Ionicons name="add" size={28} color="#94a3b8" />
+                  </TouchableOpacity>
+                )}
+              </ScrollView>
+            ) : (
+              <TouchableOpacity onPress={pickImagesAndGetGps} style={styles.photoBox}>
+                <Text style={styles.placeholderText}>{t("addPhoto")}</Text>
+              </TouchableOpacity>
+            )}
           </View>
           </>)}
 
@@ -934,10 +1097,11 @@ export default function Add() {
               <View style={{ flex: 1 }}>
                 {mapboxReady ? (
                   <>
-                    <MapboxGL.MapView
-                      style={{ flex: 1 }}
-                      styleURL="mapbox://styles/mapbox/streets-v12"
-                      scaleBarEnabled={false}
+                        <MapboxGL.MapView
+                          style={{ flex: 1 }}
+                          styleURL="mapbox://styles/mapbox/streets-v12"
+                          localizeLabels={{ locale: language }}
+                          scaleBarEnabled={false}
                       onDidFinishLoadingMap={() => setLocationMapLoaded(true)}
                       onMapIdle={(state) => {
                         const [lon, lat] = state.properties.center;
@@ -995,34 +1159,16 @@ export default function Add() {
           <Text style={styles.stepHeading}>{language === "ru" ? "Детали улова" : "Catch details"}</Text>
           <Text style={styles.stepHint}>{language === "ru" ? "Все поля необязательны — добавьте столько, сколько знаете." : "Everything here is optional—add what you know."}</Text>
           <View style={styles.photoReviewRow}>
-            <TouchableOpacity
-              accessibilityLabel={language === "ru" ? "Изменить главное фото" : "Change main photo"}
-              onPress={pickImageAndGetGps}
-              style={styles.photoReviewButton}
-            >
-              <ExpoImage source={{ uri: image! }} style={styles.photoReview} contentFit="cover" />
-              <View style={styles.photoEditBadge}>
-                <Ionicons name="pencil" size={12} color="#ffffff" />
-              </View>
-            </TouchableOpacity>
-            <View style={styles.rightColumn}>
-              {extraPhotos.slice(0, 5).map((uri, i) => (
-                <View key={i} style={styles.extraThumbWrapper}>
-                  <ExpoImage source={{ uri }} style={styles.extraThumb} contentFit="cover" />
-                  <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeExtraPhoto(i)} accessibilityLabel={language === "ru" ? "Удалить дополнительное фото" : "Remove extra photo"}>
-                    <Ionicons name="close" size={9} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              {extraPhotos.length < 5 && (
-                <TouchableOpacity style={styles.addExtraBtn} onPress={pickExtraPhoto} accessibilityLabel={language === "ru" ? "Добавить дополнительное фото" : "Add an extra photo"}>
-                  <Ionicons name="add" size={16} color="#64748b" />
-                </TouchableOpacity>
-              )}
-            </View>
+            {image ? <View style={styles.tripPhotoCarouselWrap}><ScrollView ref={tripPhotoScrollRef} horizontal pagingEnabled showsHorizontalScrollIndicator={false} style={styles.tripPhotoCarousel} onMomentumScrollEnd={(event) => selectPhoto(Math.round(event.nativeEvent.contentOffset.x / TRIP_PHOTO_FRAME_WIDTH))}>
+              {[image, ...extraPhotos].map((uri, index) => <View key={uri} style={styles.tripPhotoPage}>
+                <ExpoImage source={{ uri }} style={styles.photoReview} contentFit="cover" />
+                <TouchableOpacity style={styles.removeThumbBtn} onPress={() => removeTripPhoto(index)} accessibilityLabel={language === "ru" ? "Удалить фото" : "Remove photo"}><Ionicons name="close" size={14} color="#fff" /></TouchableOpacity>
+              </View>)}
+            </ScrollView>{activePhotoIndex > 0 && <TouchableOpacity style={[styles.carouselArrow, styles.carouselArrowLeft]} onPress={() => tripPhotoScrollRef.current?.scrollTo({ x: (activePhotoIndex - 1) * TRIP_PHOTO_FRAME_WIDTH, animated: true })} accessibilityLabel={language === "ru" ? "Предыдущее фото" : "Previous photo"}><Ionicons name="chevron-back" size={16} color="#fff" /></TouchableOpacity>}{activePhotoIndex < extraPhotos.length && <TouchableOpacity style={[styles.carouselArrow, styles.carouselArrowRight]} onPress={() => tripPhotoScrollRef.current?.scrollTo({ x: (activePhotoIndex + 1) * TRIP_PHOTO_FRAME_WIDTH, animated: true })} accessibilityLabel={language === "ru" ? "Следующее фото" : "Next photo"}><Ionicons name="chevron-forward" size={16} color="#fff" /></TouchableOpacity>}</View> : <TouchableOpacity onPress={pickImagesAndGetGps} style={styles.photoReviewButton}><Ionicons name="images-outline" size={30} color="#94a3b8" /></TouchableOpacity>}
             <View style={styles.photoReviewCopy}>
-              <Text style={styles.photoReviewTitle}>{language === "ru" ? "Главное фото" : "Main photo"}</Text>
-              <Text style={styles.photoReviewHint}>{language === "ru" ? "Нажмите, чтобы изменить" : "Tap to change"}</Text>
+              <Text style={styles.photoReviewTitle}>{image ? `${activePhotoIndex + 1} / ${1 + extraPhotos.length}` : (language === "ru" ? "Фото не добавлены" : "No photos added")}</Text>
+              <Text style={styles.photoReviewHint}>{language === "ru" ? "Листайте, чтобы указать улов на фото" : "Swipe to set the catch for each photo"}</Text>
+              {extraPhotos.length < 5 && <TouchableOpacity onPress={pickExtraPhotos}><Text style={styles.addPhotoText}>{language === "ru" ? "Добавить фото" : "Add photos"}</Text></TouchableOpacity>}
             </View>
           </View>
           <View style={styles.inputs}>
@@ -1130,28 +1276,37 @@ export default function Add() {
           {imageCoords ? (
             <>
               <View style={styles.locationRow}>
-                <Ionicons name="location-sharp" size={13} color="#ffffff" style={{ marginRight: 6 }} />
-                <Text style={styles.coordsText}>
-                  {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
-                </Text>
-                <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, { marginLeft: "auto" }]}>
-                  <Text style={styles.addLocationBtnText}>{t("changeLocation")}</Text>
+                <View style={styles.locationCoords}>
+                  <Ionicons name="location-sharp" size={13} color="#ffffff" />
+                  <Text style={styles.coordsText}>
+                    {imageCoords.lat.toFixed(4)}, {imageCoords.lon.toFixed(4)}
+                  </Text>
+                </View>
+                <TouchableOpacity onPress={openLocationPicker} style={[styles.addLocationBtn, styles.changeLocationBtn]}>
+                  <Text style={[styles.addLocationBtnText, styles.changeLocationBtnText]}>{t("changeLocation")}</Text>
                 </TouchableOpacity>
               </View>
-              <View style={[styles.waterBodyStatus, waterBody && styles.waterBodyStatusMatched]}>
-                <Ionicons name={waterBody ? "water" : detectingWater ? "sync" : "water-outline"} size={15} color={waterBody ? "#38bdf8" : "#94a3b8"} />
-                <Text style={[styles.waterBodyStatusText, waterBody && styles.waterBodyStatusTextMatched]}>
-                  {detectingWater
-                    ? t("detectingWater")
-                    : waterBody
-                      ? (language === "ru" ? `Улов будет добавлен к водоёму: ${waterBody.name}` : `This catch will be added to: ${waterBody.name}`)
-                      : pendingWaterBody
-                        ? (language === "ru" ? "Водоём найден. Укажите его название." : "Water found. Add its name.")
-                      : (language === "ru" ? "Водоём у места улова не найден" : "No waterbody found at this catch location")}
-                </Text>
+              <View style={styles.waterBodyStatus}>
+                <View style={styles.waterBodyStatusContent}>
+                  <Text style={styles.waterBodyStatusLabel}>{language === "ru" ? "ВОДОЁМ" : "WATER BODY"}</Text>
+                  <Text style={[styles.waterBodyStatusText, waterBody && styles.waterBodyStatusTextMatched]}>
+                    {detectingWater
+                      ? t("detectingWater")
+                      : waterBody
+                        ? waterBody.name
+                        : pendingWaterBody
+                          ? (language === "ru" ? "Название не найдено" : "Name not found")
+                          : (language === "ru" ? "Не найден рядом с точкой улова" : "Not found near this catch location")}
+                  </Text>
+                  {waterBody ? (
+                    <Text style={styles.waterBodyStatusHint}>
+                      {language === "ru" ? "Улов будет добавлен сюда" : "This catch will be added here"}
+                    </Text>
+                  ) : null}
+                </View>
                 {pendingWaterBody && !detectingWater ? (
                   <TouchableOpacity onPress={() => setWaterBodyNameModalVisible(true)} style={styles.nameWaterBodyBtn}>
-                    <Text style={styles.nameWaterBodyBtnText}>{language === "ru" ? "Назвать" : "Name it"}</Text>
+                    <Text style={styles.nameWaterBodyBtnText}>{language === "ru" ? "Указать" : "Add name"}</Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -1167,9 +1322,9 @@ export default function Add() {
           )}
           <View style={[styles.publicRow, !imageCoords && styles.publicRowDisabled]}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.publicLabel}>{t("makePublic")}</Text>
+              <Text style={styles.publicLabel}>{language === "ru" ? "Показывать место на карте" : "Show location on map"}</Text>
               <Text style={styles.publicSub}>
-                {!imageCoords ? t("noCoordsPrivateNote") : t("makePublicSub")}
+                {!imageCoords ? t("noCoordsPrivateNote") : (language === "ru" ? "Отчёт всегда виден в ленте" : "Your report always appears in feeds")}
               </Text>
             </View>
             <Switch
@@ -1180,6 +1335,63 @@ export default function Add() {
               thumbColor="#ffffff"
             />
           </View>
+          </>)}
+
+          {currentStep === CATCH_FORM_TACKLE_STEP && (<>
+          <Text style={styles.stepHeading}>{getTackleSectionLabel(language)}</Text>
+          <Text style={styles.stepHint}>
+            {language === "ru"
+              ? "Необязательно. Сохранённые удилища и катушки будут доступны для следующих уловов."
+              : "Optional. Saved rods and reels stay available for your next catch."}
+          </Text>
+          {(["rod", "reel"] as TackleKind[]).map((kind) => {
+            const kindItems = kind === "rod" ? savedRods : savedReels;
+            const kindSelectedId = kind === "rod" ? selectedRodId : selectedReelId;
+            const kindSelected = kind === "rod" ? selectedRod : selectedReel;
+            const kindLabel = getTackleKindLabel(kind, language);
+            return (
+              <View key={kind} style={styles.speciesWrapper}>
+                <Text style={styles.speciesTitle}>{kindLabel}</Text>
+                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.speciesContainer} style={{ flex: 1 }}>
+                    {loadingTackle && kindItems.length === 0 ? (
+                      <View style={styles.moreButton}>
+                        <ActivityIndicator size="small" color="#ffffff" />
+                      </View>
+                    ) : kindItems.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.speciesItem, kindSelectedId === item.id && styles.speciesItemSelected]}
+                        onPress={() => selectTackle(kind, item.id)}
+                        accessibilityState={{ selected: kindSelectedId === item.id }}
+                      >
+                        <Text style={styles.speciesLabel} numberOfLines={1}>{item.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      style={styles.moreButton}
+                      onPress={() => openTackleDraft(kind)}
+                      accessibilityLabel={language === "ru" ? `Добавить: ${kindLabel.toLowerCase()}` : `Add ${kindLabel.toLowerCase()}`}
+                    >
+                      <Ionicons name="add" size={26} color="#ffffff" />
+                    </TouchableOpacity>
+                  </ScrollView>
+                </View>
+                <Text style={styles.selectedSpeciesText}>
+                  {kindSelected
+                    ? `${kindLabel}: ${kindSelected.name}`
+                    : (language === "ru" ? "Не выбрано" : "Not selected")}
+                </Text>
+                {kindSelected && (
+                  <TouchableOpacity onPress={() => selectTackle(kind, null)}>
+                    <Text style={styles.tackleClearText}>
+                      {language === "ru" ? "Очистить выбор" : "Clear selection"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
           </>)}
 
           <Modal
@@ -1369,6 +1581,61 @@ export default function Add() {
               </View>
             </SafeAreaView>
           </Modal>
+
+          {/* Rod / reel editor */}
+          <Modal
+            visible={tackleDraftKind !== null}
+            animationType="slide"
+            transparent={false}
+            statusBarTranslucent
+            onRequestClose={() => setTackleDraftKind(null)}
+          >
+            <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.modalOverlay, { paddingTop: safeTop }]}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.speciesTitle}>
+                    {tackleDraftKind
+                      ? `${language === "ru" ? "Добавить" : "Add"} ${getTackleKindLabel(tackleDraftKind, language).toLowerCase()}`
+                      : ""}
+                  </Text>
+                  <TouchableOpacity onPress={() => setTackleDraftKind(null)} style={styles.closeBtn} hitSlop={8}>
+                    <Ionicons name="close" size={18} color="#64748b" />
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.tackleForm}>
+                  {TACKLE_FIELDS.map((field) => (
+                    <View key={field} style={styles.tackleFormRow}>
+                      <Text style={styles.tackleFormLabel}>{getTackleFieldLabel(field, language)}</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={tackleDraft[field]}
+                        onChangeText={(text) => setTackleDraft((current) => ({ ...current, [field]: text }))}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                        maxLength={MAX_TACKLE_TEXT_LENGTH}
+                        returnKeyType="done"
+                        keyboardAppearance="dark"
+                      />
+                    </View>
+                  ))}
+                  <Text style={styles.tackleFormHint}>
+                    {language === "ru"
+                      ? "Сохранится в вашей снасти и будет доступно для будущих уловов."
+                      : "Saved to your tackle and available for future catches."}
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.confirmLocationBtn, (missingTackleFields.length > 0 || savingTackle) && styles.tackleSaveDisabled]}
+                    onPress={saveTackleDraft}
+                    disabled={missingTackleFields.length > 0 || savingTackle}
+                  >
+                    {savingTackle
+                      ? <ActivityIndicator size="small" color="#ffffff" />
+                      : <Text style={{ color: "#fff", fontWeight: "700", fontSize: 15 }}>{language === "ru" ? "Сохранить" : "Save"}</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </SafeAreaView>
+          </Modal>
         </ScrollView>
         <View style={styles.flowActions}>
           {currentStep > 0 ? (
@@ -1379,10 +1646,10 @@ export default function Add() {
           {currentStep < CATCH_FORM_STEP_COUNT - 1 ? (
             <TouchableOpacity style={styles.nextBtn} onPress={goToNextStep}>
               <Text style={styles.nextBtnText}>{language === "ru" ? "Далее" : "Continue"}</Text>
-              <Ionicons name="arrow-forward" size={17} color="#ffffff" />
+                  <Ionicons name="arrow-forward" size={17} color="#000000" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={[styles.uploadBtn, styles.actionPrimary, (!readiness.ready || isUploading || detectingWater || !!pendingWaterBody) && { opacity: 0.55 }]} onPress={handleUpload} disabled={!readiness.ready || isUploading || detectingWater || !!pendingWaterBody}>
+                <TouchableOpacity style={[styles.uploadBtn, styles.actionPrimary, (isUploading || detectingWater || !!pendingWaterBody) && { opacity: 0.55 }]} onPress={handleUpload} disabled={isUploading || detectingWater || !!pendingWaterBody}>
               <Text style={styles.uploadBtnText}>{isUploading ? t("uploading") : t("upload")}</Text>
             </TouchableOpacity>
           )}
@@ -1403,13 +1670,24 @@ const styles = StyleSheet.create({
   photoBox: { width: 200, height: 160, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", borderRadius: 8, overflow: "hidden" },
   placeholderText: { color: "#94a3b8", fontSize: 16, textAlign: "center" },
   photo: { width: 160, height: 160 },
-  photoReviewRow: { width: "100%", flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 18, padding: 10, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
+  photoSelectionGrid: { gap: 10, paddingRight: 4 },
+  photoSelectionItem: { width: 144, height: 144, borderRadius: theme.radius.control, overflow: "hidden", position: "relative" },
+  photoSelectionImage: { width: "100%", height: "100%" },
+  addPhotoSelectionButton: { width: 144, height: 144, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
+  photoReviewRow: { width: "100%", alignItems: "center", gap: 10, marginBottom: 18, padding: 10, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border },
   photoReviewButton: { width: 88, height: 88, borderRadius: theme.radius.control, overflow: "hidden", position: "relative" },
+  tripPhotoCarousel: { width: TRIP_PHOTO_FRAME_WIDTH, height: 220, borderRadius: theme.radius.control, overflow: "hidden" },
+  tripPhotoCarouselWrap: { width: TRIP_PHOTO_FRAME_WIDTH, height: 220, position: "relative" },
+  tripPhotoPage: { width: TRIP_PHOTO_FRAME_WIDTH, height: 220, position: "relative" },
+  carouselArrow: { position: "absolute", top: "50%", marginTop: -14, width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.42)", alignItems: "center", justifyContent: "center" },
+  carouselArrowLeft: { left: 8 },
+  carouselArrowRight: { right: 8 },
+  addPhotoText: { color: "#ffffff", fontSize: 13, fontWeight: "700", marginTop: 6 },
   photoReview: { width: "100%", height: "100%" },
   photoEditBadge: { position: "absolute", right: 5, bottom: 5, width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: theme.colors.primaryDark },
-  photoReviewCopy: { flex: 1, minWidth: 0 },
+  photoReviewCopy: { width: "100%", alignItems: "center" },
   photoReviewTitle: { color: theme.colors.text.primary, fontFamily: theme.fonts.bodySemibold, fontSize: 14 },
-  photoReviewHint: { color: theme.colors.text.secondary, fontSize: 12, marginTop: 3 },
+  photoReviewHint: { color: theme.colors.text.secondary, fontSize: 12, marginTop: 3, textAlign: "center" },
   rightColumn: { marginLeft: 10, flexDirection: "column", gap: 6 },
   extraThumbWrapper: { position: "relative" },
   extraThumb: { width: 56, height: 56, borderRadius: 6 },
@@ -1430,17 +1708,23 @@ const styles = StyleSheet.create({
   moreButton: { width: 64, height: 64, marginRight: 12, alignItems: "center", justifyContent: "center", borderRadius: 8, backgroundColor: "#06202b" },
   moreText: { color: "#ffffff", fontWeight: "700" },
   selectedSpeciesText: { color: "#ffffff", marginTop: 8, marginLeft: 6 },
+  tackleClearText: { color: "#94a3b8", fontSize: 13, marginTop: 8, marginLeft: 6 },
+  tackleForm: { width: "100%", paddingHorizontal: 16, gap: 12, marginTop: 8 },
+  tackleFormRow: { width: "100%" },
+  tackleFormLabel: { color: "#94a3b8", fontSize: 12, marginLeft: 4, marginBottom: 6 },
+  tackleFormHint: { color: "#64748b", fontSize: 12, lineHeight: 17, marginLeft: 4 },
+  tackleSaveDisabled: { opacity: 0.5 },
   publicRow: { width: "100%", flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: theme.colors.surface, borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16 },
   publicLabel: { color: "#e6eef8", fontSize: 15, fontWeight: "600", marginBottom: 2 },
   publicSub: { color: "#94a3b8", fontSize: 13 },
-  uploadBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 20, paddingVertical: 10, borderRadius: theme.radius.control },
-  uploadBtnText: { color: "#ffffff", fontWeight: "700", textAlign: "center" },
+  uploadBtn: { backgroundColor: theme.colors.offwhite, paddingHorizontal: 20, paddingVertical: 10, borderRadius: theme.radius.control },
+  uploadBtnText: { color: "#000000", fontWeight: "700", textAlign: "center" },
   flowActions: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: theme.colors.surface, borderTopWidth: 1, borderTopColor: theme.colors.border },
   actionSpacer: { flex: 1 },
   backBtn: { minHeight: 46, minWidth: 92, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control },
   backBtnText: { color: theme.colors.text.primary, fontFamily: theme.fonts.bodySemibold },
-  nextBtn: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginLeft: "auto", paddingHorizontal: 18, backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control },
-  nextBtnText: { color: "#ffffff", fontFamily: theme.fonts.bodyBold },
+  nextBtn: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginLeft: "auto", paddingHorizontal: 18, backgroundColor: theme.colors.offwhite, borderRadius: theme.radius.control },
+  nextBtnText: { color: theme.colors.text.black , fontFamily: theme.fonts.bodyBold },
   actionPrimary: { marginLeft: "auto" },
   saveCard: { width: "100%", backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.card, padding: 16, gap: 10 },
   readinessRow: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginBottom: 4 },
@@ -1464,21 +1748,24 @@ const styles = StyleSheet.create({
   speciesTabBtn: { flex: 1, alignItems: "center", borderRadius: 8, paddingVertical: 9 },
   speciesTabBtnActive: { backgroundColor: theme.colors.primaryDark },
   speciesTabText: { color: "#94a3b8", fontSize: 13, fontWeight: "700" },
-  speciesTabTextActive: { color: "#ffffff" },
+  speciesTabTextActive: { color: theme.colors.offwhite },
   modalItem: { flexDirection: "row", alignItems: "center", paddingVertical: 10, paddingHorizontal: 16, borderBottomColor: theme.colors.border, borderBottomWidth: 1, gap: 12 },
   modalItemLeft: { flex: 1 },
-  modalItemText: { color: "#e6eef8", fontSize: 16 },
+  modalItemText: { color: theme.colors.offwhite, fontSize: 16 },
   modalItemScientific: { color: "#94a3b8", fontSize: 13, fontStyle: "italic", marginTop: 3 },
   modalItemImage: { width: 76, height: 56, resizeMode: "contain", flexShrink: 0 },
   modalItemImagePlaceholder: { width: 76, height: 56, borderRadius: 8, backgroundColor: "#0f2236", alignItems: "center", justifyContent: "center", flexShrink: 0 },
   modalClose: { marginTop: 8, alignSelf: "flex-end", padding: 8 },
-  locationRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", width: "100%", marginBottom: 14, paddingHorizontal: 4, gap: 8 },
-  waterBodyStatus: { flexDirection: "row", alignItems: "center", gap: 7, width: "100%", marginTop: -8, marginBottom: 14, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, backgroundColor: "#0f2236" },
-  waterBodyStatusMatched: { backgroundColor: "#0c3147" },
-  waterBodyStatusText: { flex: 1, color: "#94a3b8", fontSize: 13 },
-  waterBodyStatusTextMatched: { color: "#bae6fd", fontWeight: "600" },
-  nameWaterBodyBtn: { backgroundColor: theme.colors.primaryDark, borderRadius: 7, paddingHorizontal: 9, paddingVertical: 5 },
-  nameWaterBodyBtnText: { color: "#ffffff", fontSize: 12, fontWeight: "700" },
+  locationRow: { alignItems: "center", width: "100%", marginBottom: 14, gap: 8 },
+  locationCoords: { flexDirection: "row", alignItems: "center", gap: 6 },
+  waterBodyStatus: { flexDirection: "row", alignItems: "center", gap: 12, width: "100%", marginTop: -8, marginBottom: 14, paddingHorizontal: 4, paddingVertical: 6 },
+  waterBodyStatusContent: { flex: 1, minWidth: 0 },
+  waterBodyStatusLabel: { color: "#94a3b8", fontSize: 10, lineHeight: 13, fontWeight: "700", letterSpacing: 0.8 },
+  waterBodyStatusText: { color: "#cbd5e1", fontSize: 14, lineHeight: 19, fontWeight: "600" },
+  waterBodyStatusTextMatched: { color: "#ffffff" },
+  waterBodyStatusHint: { color: "#94a3b8", fontSize: 12, lineHeight: 17, marginTop: 1 },
+  nameWaterBodyBtn: { backgroundColor: theme.colors.offwhite, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 7 },
+  nameWaterBodyBtnText: { color: theme.colors.background, fontSize: 12, fontWeight: "700" },
   nameWaterBodyOverlay: { flex: 1, backgroundColor: "rgba(2, 10, 18, 0.78)", alignItems: "center", justifyContent: "center", padding: 24 },
   nameWaterBodyCard: { width: "100%", maxWidth: 420, backgroundColor: theme.colors.surface, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, padding: 20, alignItems: "center" },
   nameWaterBodyTitle: { color: "#ffffff", fontSize: 18, fontWeight: "700", textAlign: "center", marginTop: 10 },
@@ -1492,8 +1779,10 @@ const styles = StyleSheet.create({
   nameWaterBodySaveText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
   noCoordsRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14, paddingHorizontal: 4 },
   noCoordsText: { color: "#ef4444", fontSize: 15, fontWeight: "600", flex: 1 },
-  addLocationBtn: { backgroundColor: theme.colors.primaryDark, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
-  addLocationBtnText: { color: "#fff", fontSize: 13, fontWeight: "700" },
+  addLocationBtn: { backgroundColor: theme.colors.offwhite, paddingHorizontal: 12, paddingVertical: 6, borderRadius: theme.radius.control, marginLeft: 8 },
+  addLocationBtnText: { color: theme.colors.background, fontSize: 13, fontWeight: "700" },
+  changeLocationBtn: { marginLeft: 0, marginTop: 4, minHeight: 40, justifyContent: "center", paddingHorizontal: 18, paddingVertical: 8 },
+  changeLocationBtnText: { fontSize: 14 },
   confirmLocationBtn: { backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 15, alignItems: "center" },
   locationSearchBox: {
     flexDirection: "row",

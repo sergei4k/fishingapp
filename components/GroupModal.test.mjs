@@ -13,7 +13,7 @@ test("chat details are hidden while reading messages and shown in chat settings"
 test("group chat photos are normalized to JPEG before upload", () => {
   assert.match(source, /expo-image-manipulator/);
   assert.match(source, /ImageManipulator\.SaveFormat\.JPEG/);
-  assert.match(source, /name: `chat\.jpg`, type: "image\/jpeg"/);
+  assert.match(source, /form\.append\("image", new File\(uploadUri\)\)/);
 });
 
 test("group chat realtime deletes still apply when PocketBase sends only the record id", () => {

@@ -947,6 +947,8 @@ export default function Map() {
       isPublic: isOwn ? catchItem.is_public : true,
       waterBodyId: catchItem.water_body_id,
       waterBodyName: catchItem.water_body_name,
+      rod: catchItem.rod,
+      reel: catchItem.reel,
     });
     const ownCatches = markers
       .filter((catchItem) => matchesWaterBody(catchItem) && (mapView === "mine" || catchItem.is_public))
@@ -1025,8 +1027,7 @@ export default function Map() {
     const feature = e.features?.[0];
     if (!feature) return;
     const p = feature.properties;
-    const lon = Number(p.center_lon);
-    const lat = Number(p.center_lat);
+    const [lon, lat] = feature.geometry.coordinates;
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) return;
     setSpotPreview({ id: p.id, name: p.name, description: p.description, is_public: !!p.is_public, user_id: p.user_id, lat, lon });
     setPreviewCatch(null);
@@ -1219,6 +1220,7 @@ export default function Map() {
           ref={cameraRef}
           defaultSettings={{ centerCoordinate: centerCoord, zoomLevel: 10 }}
         />
+        {mapStyleKey === "standard" ? <MapboxGL.StyleImport id="basemap" existing config={{ language }} /> : null}
 
         <MapboxGL.UserLocation visible androidRenderMode="compass" />
 
@@ -1813,6 +1815,7 @@ export default function Map() {
         catch={detailCatch ? {
           id: String(detailCatch.id),
           imageUrl: detailCatch.imageUrl ?? null,
+          photoCatches: detailCatch.photoCatches,
           species: detailCatch.species,
           description: detailCatch.description,
           length: detailCatch.length != null ? String(detailCatch.length) : undefined,

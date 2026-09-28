@@ -6,7 +6,10 @@ import { pb, isNetworkError } from "@/lib/pocketbase";
 import { formatCatchDate } from "@/lib/dateFormat";
 import { getGearLabel } from "@/lib/gear";
 import gearPhotos from "@/lib/gearPhotos";
-import { getSpeciesLabel } from "@/lib/species";
+import { getCatchSpeciesLabel, getSpeciesLabel } from "@/lib/species";
+import { getPhotoCatchEntry } from "@/lib/photoCatches";
+import { isProfane } from "@/lib/profanity";
+import { getTackleKindLabel } from "@/lib/tackle";
 import { pocketbaseThumbUrl } from "@/lib/imageUrls";
 import { useLanguage } from "@/lib/language";
 import { useNetwork } from "@/lib/network";
@@ -46,15 +49,19 @@ function LikeButton({ isLiked, onPress, size = 20, style }: {
   return (
     <TouchableOpacity style={style} onPress={handlePress}>
       <Animated.View style={{ transform: [{ scale }] }}>
-        <Ionicons name={isLiked ? "thumbs-up" : "thumbs-up-outline"} size={size} color={isLiked ? "#ffffff" : "#64748b"} />
+        <Ionicons name={isLiked ? "heart" : "heart-outline"} size={size} color={isLiked ? "#ffffff" : "#64748b"} />
       </Animated.View>
     </TouchableOpacity>
   );
 }
 
 // Swipeable photo carousel for a feed card (main image + extra photos)
-function FeedPhotoCarousel({ photos }: { photos: string[] }) {
-  const [active, setActive] = useState(0);
+function FeedPhotoCarousel({ photos, active, onPageChange, onPressPhoto }: {
+  photos: string[];
+  active: number;
+  onPageChange: (index: number) => void;
+  onPressPhoto?: () => void;
+}) {
   const [w, setW] = useState(Dimensions.get("window").width);
   return (
     <View onLayout={(e) => setW(e.nativeEvent.layout.width)}>
@@ -63,11 +70,13 @@ function FeedPhotoCarousel({ photos }: { photos: string[] }) {
         pagingEnabled
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={(e) => {
-          if (w > 0) setActive(Math.round(e.nativeEvent.contentOffset.x / w));
+          if (w > 0) onPageChange(Math.round(e.nativeEvent.contentOffset.x / w));
         }}
       >
         {photos.map((uri, i) => (
-          <ImageWithLoader key={i} source={{ uri }} style={{ width: w, height: 280 }} contentFit="cover" />
+          <TouchableOpacity key={i} activeOpacity={0.9} onPress={onPressPhoto}>
+            <ImageWithLoader source={{ uri }} style={{ width: w, height: 280 }} contentFit="cover" />
+          </TouchableOpacity>
         ))}
       </ScrollView>
       <View style={styles.feedDotRow} pointerEvents="none">
@@ -75,6 +84,43 @@ function FeedPhotoCarousel({ photos }: { photos: string[] }) {
           <View key={i} style={[styles.feedDot, i === active && styles.feedDotActive]} />
         ))}
       </View>
+    </View>
+  );
+}
+
+// Owns the active photo so the card can show that photo's own species, gear and
+// measurements. Lives outside any pressable so a swipe scrolls instead of
+// opening the catch, and hands the active index to its children.
+function FeedPhotoSection({ item, onPressPhoto, children }: {
+  item: CatchItem;
+  onPressPhoto: () => void;
+  children: (activeIndex: number) => React.ReactNode;
+}) {
+  const [active, setActive] = useState(0);
+  const photos = [item.image_uri, ...(item.extraPhotos ?? [])].filter(Boolean) as string[];
+  const activeIndex = Math.min(active, Math.max(photos.length - 1, 0));
+
+  let strip: React.ReactNode;
+  if (photos.length === 0) {
+    strip = (
+      <View style={styles.feedPhotoEmpty}>
+        <Ionicons name="camera-outline" size={40} color="#1e3a5f" />
+      </View>
+    );
+  } else if (photos.length === 1) {
+    strip = (
+      <TouchableOpacity activeOpacity={0.9} onPress={onPressPhoto}>
+        <ImageWithLoader source={{ uri: photos[0] }} style={styles.feedPhoto} contentFit="cover" />
+      </TouchableOpacity>
+    );
+  } else {
+    strip = <FeedPhotoCarousel photos={photos} active={activeIndex} onPageChange={setActive} onPressPhoto={onPressPhoto} />;
+  }
+
+  return (
+    <View>
+      {strip}
+      {children(activeIndex)}
     </View>
   );
 }
@@ -108,6 +154,7 @@ function toCatchDetail(item: CatchItem): CatchDetail {
     userId: item.user_id,
     imageUrl: item.image_uri,
     extraPhotos: item.extraPhotos ?? [],
+    photoCatches: item.photo_catches ?? item.photoCatches,
     species: item.species,
     description: item.description,
     length: item.length_cm != null ? String(item.length_cm) : item.length ?? "",
@@ -121,6 +168,8 @@ function toCatchDetail(item: CatchItem): CatchDetail {
     lon: item.lon,
     waterBodyId: item.water_body_id ?? item.waterBodyId,
     waterBodyName: item.water_body_name ?? item.waterBodyName,
+    rod: item.rod ?? null,
+    reel: item.reel ?? null,
     isPublic: item.is_public ?? item.isPublic,
   };
 }
@@ -589,6 +638,8 @@ export default function Social() {
   // Catch detail modal
   const [detailCatch, setDetailCatch] = useState<CatchDetail | null>(null);
   const [pendingUserCatch, setPendingUserCatch] = useState<CatchItem | null>(null);
+  const [feedCommentTarget, setFeedCommentTarget] = useState<string | null>(null);
+  const [feedCommentDrafts, setFeedCommentDrafts] = useState<Record<string, string>>({});
 
   const syncCommentCountInLists = useCallback((catchId: string, count: number) => {
     const patch = (items: CatchItem[]) => {
@@ -605,6 +656,17 @@ export default function Social() {
     setUserCatches(patch);
   }, []);
 
+  const submitFeedComment = async (item: CatchItem) => {
+    if (!requireAuth() || !user) return;
+    const text = (feedCommentDrafts[item.id] ?? "").trim();
+    if (!text || isProfane(text)) return;
+    try {
+      await pb.collection("comments").create({ catch_id: item.id, user_id: user.id, username: user.username || user.name || "", text }, { requestKey: null });
+      setFeedCommentDrafts((current) => ({ ...current, [item.id]: "" }));
+      setFeedCommentTarget(null);
+    } catch {}
+  };
+
   // ── Discover ──────────────────────────────────────────────────────────────
 
   const loadDiscover = useCallback(async (page: number) => {
@@ -612,7 +674,6 @@ export default function Social() {
     else setLoadingMoreDiscover(true);
     try {
       const result = await pb.collection("catches").getList(page, PAGE_SIZE, {
-        filter: "is_public = true",
         sort: "-created_at",
         requestKey: null,
       });
@@ -781,16 +842,24 @@ export default function Social() {
         return;
       }
 
+      if (e.action === "create") {
+        const created = e.record;
+        if (blockedUserIdSet.has(created.user_id)) return;
+
+        void enrichCatches([created], user?.id).then(([item]) => {
+          if (!item) return;
+          const prependIfMissing = (items: CatchItem[]) =>
+            items.some((existing) => existing.id === item.id) ? items : [item, ...items];
+          setDiscoverItems(prependIfMissing);
+          if (myFollows.some((follow) => follow.following_id === created.user_id)) {
+            setFeedItems(prependIfMissing);
+          }
+        });
+        return;
+      }
+
       if (e.action === "update") {
         const updated = e.record;
-        if (updated.is_public === false) {
-          const remove = (items: CatchItem[]) => items.filter((c) => c.id !== catchId);
-          setDiscoverItems(remove);
-          setFeedItems(remove);
-          setUserCatches(remove);
-          setDetailCatch((curr) => (curr?.id === catchId ? null : curr));
-          return;
-        }
         const patch = (items: CatchItem[]) =>
           items.map((c) => (c.id === catchId ? { ...c, ...updated, gear: updated.gear ?? updated.gear_id ?? updated.gearId ?? c.gear } : c));
         setDiscoverItems(patch);
@@ -802,7 +871,7 @@ export default function Social() {
       }
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("catches").unsubscribe("*"); };
-  }, [user?.id]);
+  }, [blockedUserIdSet, myFollows, user?.id]);
 
   // ── Like (direct from card) ───────────────────────────────────────────────
 
@@ -851,7 +920,25 @@ export default function Social() {
 
   // ── Catch detail modal ───────────────────────────────────────────────────
 
-  const openDetail = (item: CatchItem) => setDetailCatch(toCatchDetail(item));
+  const openDetail = (item: CatchItem) => {
+    setDetailCatch(toCatchDetail(item));
+    void pb.collection("catches").getOne(item.id, { requestKey: null })
+      .then((record) => {
+        setDetailCatch((current) => current?.id === item.id
+          ? toCatchDetail({
+              ...item,
+              species: record.species ?? item.species,
+              gear: record.gear ?? item.gear,
+              length_cm: record.length_cm ?? item.length_cm,
+              weight_kg: record.weight_kg ?? item.weight_kg,
+              photo_catches: record.photo_catches ?? item.photo_catches ?? item.photoCatches,
+              rod: record.rod ?? item.rod,
+              reel: record.reel ?? item.reel,
+            })
+          : current);
+      })
+      .catch(() => {});
+  };
   const openUserCatchDetail = (item: CatchItem) => {
     setPendingUserCatch(item);
     setProfileMenuVisible(false);
@@ -1023,7 +1110,7 @@ export default function Social() {
       }
       const filterStr = visibleFollows.map((f) => `user_id = "${f.following_id}"`).join(" || ");
       const result = await pb.collection("catches").getList(page, PAGE_SIZE, {
-        filter: `is_public = true && (${filterStr})`,
+        filter: `(${filterStr})`,
         sort: "-created_at",
         requestKey: null,
       });
@@ -1225,7 +1312,7 @@ export default function Social() {
       const [fullUser, records, publicCatchCount, catchCountResult, followersResult, followingResult] = await Promise.all([
         pb.collection("users").getOne(targetUser.id, { requestKey: null }).catch(() => null),
         pb.collection("catches").getFullList({
-          filter: `user_id = "${targetUser.id}" && is_public = true`,
+          filter: `user_id = "${targetUser.id}"`,
           sort: "-created_at",
           requestKey: null,
         }).catch(() => [] as any[]),
@@ -1323,110 +1410,138 @@ export default function Social() {
   // ── Feed card (Fishbrain-style) ───────────────────────────────────────────
 
   const renderFeedCard = ({ item }: { item: CatchItem }) => (
-    <TouchableOpacity activeOpacity={0.95} onPress={() => openDetail(item)} style={styles.feedCard}>
+    <View style={styles.feedCard}>
       {/* Header: avatar + username + follow */}
-      <View style={styles.feedCardHeader}>
-        <TouchableOpacity
-          style={styles.feedCardUser}
-          onPress={() =>
-            openUser({
-              id: item.user_id,
-              username: item._username,
-              name: "",
-              avatarUrl: item._avatarUrl,
-              badges: item._badges,
-            })
-          }
-        >
-          <View style={styles.feedAvatar}>
-            {item._avatarUrl ? (
-              <ImageWithLoader source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.feedAvatarImage} />
-            ) : (
-              <Ionicons name="person" size={22} color="#94a3b8" />
-            )}
-          </View>
-          <View style={styles.feedUserInfo}>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
-              <Text style={styles.feedUsername}>{item._username}</Text>
-              {item._badges.includes("verified") ? <VerifiedBadge size={13} /> : null}
-              {(item.water_body_name ?? item.waterBodyName) ? (
-                <View style={styles.feedWaterBody}>
-                  <Text style={styles.feedWaterBodyDot}>•</Text>
-                  <Text style={[styles.feedUsername, styles.feedWaterBodyText]} numberOfLines={1}>{item.water_body_name ?? item.waterBodyName}</Text>
-                </View>
-              ) : null}
-            </View>
-            <Text style={styles.feedDate}>{formatDate(item.created_at)}</Text>
-          </View>
-        </TouchableOpacity>
-        {user && item.user_id !== user.id && (
+      <TouchableOpacity activeOpacity={0.95} onPress={() => openDetail(item)}>
+        <View style={styles.feedCardHeader}>
           <TouchableOpacity
-            style={[styles.followBtn, isFollowing(item.user_id) && styles.followingBtn]}
-            onPress={() => toggleFollow({ id: item.user_id, username: item._username })}
+            style={styles.feedCardUser}
+            onPress={() =>
+              openUser({
+                id: item.user_id,
+                username: item._username,
+                name: "",
+                avatarUrl: item._avatarUrl,
+                badges: item._badges,
+              })
+            }
           >
-            <Text style={[styles.followBtnText, isFollowing(item.user_id) && styles.followingBtnText]}>
-              {isFollowing(item.user_id) ? t("followingBtn") : t("follow")}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Photo(s) */}
-      {(() => {
-        const photos = [item.image_uri, ...(item.extraPhotos ?? [])].filter(Boolean) as string[];
-        if (photos.length === 0) {
-          return (
-            <View style={styles.feedPhotoEmpty}>
-              <Ionicons name="camera-outline" size={40} color="#1e3a5f" />
+            <View style={styles.feedAvatar}>
+              {item._avatarUrl ? (
+                <ImageWithLoader source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.feedAvatarImage} />
+              ) : (
+                <Ionicons name="person" size={22} color="#94a3b8" />
+              )}
             </View>
-          );
-        }
-        if (photos.length === 1) {
-          return <ImageWithLoader source={{ uri: photos[0] }} style={styles.feedPhoto} contentFit="cover" />;
-        }
-        return <FeedPhotoCarousel photos={photos} />;
-      })()}
-
-      {/* Body */}
-      <View style={styles.feedCardBody}>
-        <Text style={styles.feedSpecies}>{getSpeciesLabel(item.species, language)}</Text>
-        {item.gear ? (
-          <View style={styles.feedGearRow}>
-            {gearPhotos[item.gear] ? (
-              <ExpoImage source={gearPhotos[item.gear]} style={styles.feedGearThumb} contentFit="contain" />
-            ) : null}
-            <Text style={styles.feedGearText}>{getGearLabel(item.gear, language)}</Text>
-          </View>
-        ) : null}
-        {(item.length_cm || item.weight_kg) ? (
-          <Text style={styles.feedMeta}>
-            {item.length_cm ? `${item.length_cm} cm` : ""}
-            {item.length_cm && item.weight_kg ? "  ·  " : ""}
-            {item.weight_kg ? `${item.weight_kg} kg` : ""}
-          </Text>
-        ) : null}
-        {item.description ? (
-          <Text style={styles.feedDesc} numberOfLines={3}>{item.description}</Text>
-        ) : null}
-
-        {/* Like / comment row */}
-        <View style={styles.feedActions}>
-          <View style={styles.feedActionBtn}>
-            <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={20} />
-            <Text style={[styles.feedActionText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
-          </View>
-          <TouchableOpacity style={styles.feedActionBtn} onPress={() => openDetail(item)}>
-            <Ionicons name="chatbubble-outline" size={20} color="#64748b" />
-            <Text style={styles.feedActionText}>{item._commentCount}</Text>
+            <View style={styles.feedUserInfo}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 }}>
+                <Text style={styles.feedUsername}>{item._username}</Text>
+                {item._badges.includes("verified") ? <VerifiedBadge size={13} /> : null}
+                {(item.water_body_name ?? item.waterBodyName) ? (
+                  <View style={styles.feedWaterBody}>
+                    <Text style={styles.feedWaterBodyDot}>•</Text>
+                    <Text style={[styles.feedUsername, styles.feedWaterBodyText]} numberOfLines={1}>{item.water_body_name ?? item.waterBodyName}</Text>
+                  </View>
+                ) : null}
+              </View>
+              <Text style={styles.feedDate}>{formatDate(item.created_at)}</Text>
+            </View>
           </TouchableOpacity>
+          {user && item.user_id !== user.id && (
+            <TouchableOpacity
+              style={[styles.followBtn, isFollowing(item.user_id) && styles.followingBtn]}
+              onPress={() => toggleFollow({ id: item.user_id, username: item._username })}
+            >
+              <Text style={[styles.followBtnText, isFollowing(item.user_id) && styles.followingBtnText]}>
+                {isFollowing(item.user_id) ? t("followingBtn") : t("follow")}
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      {/* Photo(s) and the details of whichever photo is showing */}
+      <FeedPhotoSection item={item} onPressPhoto={() => openDetail(item)}>
+        {(activeIndex) => {
+          const activePhoto = getPhotoCatchEntry(item.photo_catches, activeIndex);
+          const activeSpecies = activePhoto?.species || item.species;
+          const activeGear = activePhoto?.gear || item.gear;
+          const activeLength = activePhoto?.length || item.length_cm;
+          const activeWeight = activePhoto?.weight || item.weight_kg;
+          const activeTackle = (["rod", "reel"] as const)
+            .map((kind) => ({ kind, name: item[kind] ?? "" }))
+            .filter((entry) => entry.name !== "");
+          return (
+            <TouchableOpacity activeOpacity={0.95} onPress={() => openDetail(item)}>
+              <View style={styles.feedCardBody}>
+                {item.description ? <Text style={styles.feedCaption} numberOfLines={3}>{item.description}</Text> : null}
+                {activeSpecies ? <Text style={styles.feedSpecies}>{getSpeciesLabel(activeSpecies, language)}</Text> : null}
+                {activeGear ? (
+                  <View style={styles.feedGearRow}>
+                    {gearPhotos[activeGear] ? (
+                      <ExpoImage source={gearPhotos[activeGear]} style={styles.feedGearThumb} contentFit="contain" />
+                    ) : null}
+                    <Text style={styles.feedGearText}>{getGearLabel(activeGear, language)}</Text>
+                  </View>
+                ) : null}
+                {activeTackle.length > 0 && (
+                  <View style={styles.feedTackleRow}>
+                    {activeTackle.map((entry) => (
+                      <View key={entry.kind} style={styles.feedTackleItem}>
+                        <Text style={styles.feedTackleText} numberOfLines={1}>{getTackleKindLabel(entry.kind, language)}: {entry.name}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                {(activeLength || activeWeight) ? (
+                  <Text style={styles.feedMeta}>
+                    {activeLength ? `${activeLength} cm` : ""}
+                    {activeLength && activeWeight ? "  ·  " : ""}
+                    {activeWeight ? `${activeWeight} kg` : ""}
+                  </Text>
+                ) : null}
+
+                {/* Like / comment row */}
+                <View style={styles.feedActions}>
+                  <View style={styles.feedActionBtn}>
+                    <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={20} />
+                    <Text style={[styles.feedActionText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.feedActionBtn} onPress={() => setFeedCommentTarget(item.id)}>
+                    <Ionicons name="chatbubble-outline" size={20} color="#64748b" />
+                    <Text style={styles.feedActionText}>{item._commentCount}</Text>
+                  </TouchableOpacity>
+                </View>
+                {feedCommentTarget === item.id && <View style={styles.feedCommentInputRow}>
+                  <TextInput
+                    style={styles.feedCommentInput}
+                    value={feedCommentDrafts[item.id] ?? ""}
+                    onChangeText={(text) => setFeedCommentDrafts((current) => ({ ...current, [item.id]: text }))}
+                    placeholder={language === "ru" ? "Напишите комментарий" : "Write a comment"}
+                    placeholderTextColor="#64748b"
+                    returnKeyType="send"
+                    onSubmitEditing={() => submitFeedComment(item)}
+                  />
+                  <TouchableOpacity onPress={() => submitFeedComment(item)} style={styles.feedCommentSend} accessibilityLabel={language === "ru" ? "Отправить комментарий" : "Post comment"}>
+                    <Ionicons name="send" size={17} color="#ffffff" />
+                  </TouchableOpacity>
+                </View>}
+              </View>
+            </TouchableOpacity>
+          );
+        }}
+      </FeedPhotoSection>
+    </View>
   );
 
   // ── List card (following feed) ────────────────────────────────────────────
 
-  const renderListCard = ({ item }: { item: CatchItem }) => (
+  const renderListCard = ({ item }: { item: CatchItem }) => {
+    const listedTackle = (["rod", "reel"] as const)
+      .map((kind) => ({ kind, name: item[kind] ?? "" }))
+      .filter((entry) => entry.name !== "");
+
+    return (
     <TouchableOpacity style={styles.catchRow} onPress={() => openDetail(item)} activeOpacity={0.75}>
       {item.image_uri ? (
         <ImageWithLoader source={{ uri: pocketbaseThumbUrl(item.image_uri, "200x200")! }} style={styles.catchThumb} contentFit="cover" />
@@ -1457,7 +1572,7 @@ export default function Social() {
               </View>
             ) : null}
         </View>
-        <Text style={styles.catchSpecies}>{getSpeciesLabel(item.species, language)}</Text>
+        <Text style={styles.catchSpecies}>{getCatchSpeciesLabel(item.photo_catches, item.species, language)}</Text>
         {item.gear ? (
           <View style={styles.catchGearRow}>
             {gearPhotos[item.gear] ? (
@@ -1466,6 +1581,15 @@ export default function Social() {
             <Text style={styles.catchGearText}>{getGearLabel(item.gear, language)}</Text>
           </View>
         ) : null}
+        {listedTackle.length > 0 && (
+          <View style={styles.catchTackleRow}>
+            {listedTackle.map((entry) => (
+              <View key={entry.kind} style={styles.catchTackleItem}>
+                <Text style={styles.catchTackleText} numberOfLines={1}>{getTackleKindLabel(entry.kind, language)}: {entry.name}</Text>
+              </View>
+            ))}
+          </View>
+        )}
         {item.description ? <Text style={styles.catchDesc} numberOfLines={1}>{item.description}</Text> : null}
         <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
         <View style={styles.catchCounts}>
@@ -1480,7 +1604,8 @@ export default function Social() {
         </View>
       </View>
     </TouchableOpacity>
-  );
+    );
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1769,57 +1894,25 @@ export default function Social() {
         <SafeAreaView style={styles.container} edges={["left", "right", "bottom"]}>
           <FlatList
             data={loadingUserCatches ? [] : userCatches}
+            numColumns={2}
             keyExtractor={(i) => i.id}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.catchRow} onPress={() => openUserCatchDetail(item)} activeOpacity={0.75}>
+              <TouchableOpacity style={styles.userCatchGridItem} onPress={() => openUserCatchDetail(item)} activeOpacity={0.85}>
                 {item.image_uri ? (
-                  <ImageWithLoader source={{ uri: pocketbaseThumbUrl(item.image_uri, "200x200")! }} style={styles.catchThumb} contentFit="cover" />
+                  <ImageWithLoader source={{ uri: pocketbaseThumbUrl(item.image_uri, "400x400")! }} style={styles.userCatchGridPhoto} contentFit="cover" />
                 ) : (
-                  <View style={[styles.catchThumb, styles.catchThumbEmpty]}>
-                    <Ionicons name="camera-outline" size={20} color="#334155" />
+                  <View style={[styles.userCatchGridPhoto, styles.catchThumbEmpty]}>
+                    <Ionicons name="camera-outline" size={32} color="#334155" />
                   </View>
                 )}
-                <View style={styles.catchInfo}>
-                  <View style={styles.catchAuthorRow}>
-                    <View style={styles.catchAuthorAvatar}>
-                      {item._avatarUrl ? (
-                        <ImageWithLoader source={{ uri: item._avatarUrl }} contentFit="cover" style={styles.catchAuthorAvatarImg} />
-                      ) : (
-                        <Ionicons name="person" size={14} color="#94a3b8" />
-                      )}
-                    </View>
-                    {item._username ? (
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 3 }}>
-                        <Text style={styles.catchUser}>{item._username}</Text>
-                        {item._badges.includes("verified") ? <VerifiedBadge size={12} /> : null}
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.catchSpecies}>{getSpeciesLabel(item.species, language)}</Text>
-                  {item.gear ? (
-                    <View style={styles.catchGearRow}>
-                      {gearPhotos[item.gear] ? (
-                        <ExpoImage source={gearPhotos[item.gear]} style={styles.catchGearThumb} contentFit="contain" />
-                      ) : null}
-                      <Text style={styles.catchGearText}>{getGearLabel(item.gear, language)}</Text>
-                    </View>
-                  ) : null}
-                  {item.description ? <Text style={styles.catchDesc} numberOfLines={1}>{item.description}</Text> : null}
-                  <Text style={styles.catchDate}>{formatDate(item.created_at)}</Text>
-                  <View style={styles.catchCounts}>
-                    <View style={styles.catchCountBtn}>
-                        <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={13} />
-                      <Text style={[styles.catchCountText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => openUserCatchDetail(item)} style={styles.catchCountBtn}>
-                      <Ionicons name="chatbubble-outline" size={13} color="#64748b" />
-                      <Text style={styles.catchCountText}>{item._commentCount}</Text>
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.userCatchGridOverlay}>
+                  {getCatchSpeciesLabel(item.photo_catches, item.species, language) ? <Text style={styles.userCatchGridSpecies} numberOfLines={1}>{getCatchSpeciesLabel(item.photo_catches, item.species, language)}</Text> : null}
+                  <Text style={styles.userCatchGridDate}>{formatDate(item.created_at)}</Text>
                 </View>
               </TouchableOpacity>
             )}
-            contentContainerStyle={{ paddingBottom: 100 }}
+            columnWrapperStyle={styles.userCatchGridRow}
+            contentContainerStyle={styles.userCatchGridContent}
             ListEmptyComponent={
               !loadingUserCatches ? (
                 <Text style={styles.emptyText}>{t("noPublicCatches")}</Text>
@@ -2328,10 +2421,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#0b1a2e", alignItems: "center", justifyContent: "center",
   },
   feedCardBody: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4 },
-  feedSpecies: { color: "#ffffff", fontSize: 18, fontWeight: "700", marginBottom: 4 },
+  feedCaption: { color: "#ffffff", fontSize: 17, lineHeight: 23, marginBottom: 7 },
+  feedSpecies: { color: "#94a3b8", fontSize: 13, fontWeight: "600", marginBottom: 3 },
   feedGearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6, alignSelf: "flex-start" },
   feedGearThumb: { width: 28, height: 28 },
   feedGearText: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
+  feedTackleRow: { gap: 4, marginBottom: 6 },
+  feedTackleItem: { flexDirection: "row", alignItems: "center", gap: 5, maxWidth: "100%" },
+  feedTackleText: { color: "#cbd5e1", fontSize: 12, flexShrink: 1 },
   feedMeta: { color: "#7ea8c9", fontSize: 13, marginBottom: 6 },
   feedDesc: { color: "#94a3b8", fontSize: 14, lineHeight: 20, marginBottom: 8 },
   feedActions: {
@@ -2340,6 +2437,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1, borderTopColor: "#1e293b",
     marginTop: 4,
   },
+  feedCommentInputRow: { flexDirection: "row", alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: 10, paddingLeft: 12, marginBottom: 10 },
+  feedCommentInput: { flex: 1, color: "#ffffff", fontSize: 14, paddingVertical: 10 },
+  feedCommentSend: { padding: 10 },
   feedActionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   feedActionText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
 
@@ -2367,6 +2467,9 @@ const styles = StyleSheet.create({
   catchGearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, marginBottom: 2, alignSelf: "flex-start" },
   catchGearThumb: { width: 22, height: 22 },
   catchGearText: { color: "#ffffff", fontSize: 13, fontWeight: "600" },
+  catchTackleRow: { gap: 2, marginTop: 2 },
+  catchTackleItem: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: "100%" },
+  catchTackleText: { color: "#cbd5e1", fontSize: 11, flexShrink: 1 },
   catchUser: { color: "#ffffff", fontSize: 12, marginTop: 1 },
   catchWaterBody: { flexDirection: "row", alignItems: "baseline", gap: 4, maxWidth: 110, flexShrink: 1, minWidth: 0 },
   catchWaterBodyDot: { color: "#ffffff", fontSize: 15, lineHeight: 12, fontWeight: "900" },
@@ -2376,6 +2479,13 @@ const styles = StyleSheet.create({
   catchCounts: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 12 },
   catchCountBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   catchCountText: { color: "#94a3b8", fontSize: 12 },
+  userCatchGridContent: { paddingBottom: 100 },
+  userCatchGridRow: { gap: 8, marginBottom: 8, paddingHorizontal: 12 },
+  userCatchGridItem: { flex: 1, minWidth: 0, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface },
+  userCatchGridPhoto: { width: "100%", aspectRatio: 1 },
+  userCatchGridOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 10, paddingTop: 20, paddingBottom: 9, backgroundColor: "rgba(7, 24, 40, 0.66)" },
+  userCatchGridSpecies: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  userCatchGridDate: { color: "#cbd5e1", fontSize: 11, marginTop: 2 },
 
   // Comments sheet
   sheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },

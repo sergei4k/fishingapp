@@ -11,6 +11,9 @@ export type CatchItem = {
   length?: string;
   weight?: string;
   species?: string;
+  /** Name snapshot of the rod / reel used, so an offline catch keeps its tackle. */
+  rod?: string;
+  reel?: string;
   date: string; // ISO string
   lat?: number | null;
   lon?: number | null;

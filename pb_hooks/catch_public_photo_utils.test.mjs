@@ -11,8 +11,8 @@ test("allows public catches with a primary photo", () => {
   assert.equal(canPublishCatch(true, "catch.jpg"), true);
 });
 
-test("rejects public catches without a primary photo", () => {
-  assert.equal(canPublishCatch(true, ""), false);
-  assert.equal(canPublishCatch(true, "   "), false);
-  assert.equal(canPublishCatch(true, null), false);
+test("allows public catches without a primary photo", () => {
+  assert.equal(canPublishCatch(true, ""), true);
+  assert.equal(canPublishCatch(true, "   "), true);
+  assert.equal(canPublishCatch(true, null), true);
 });

@@ -2,6 +2,7 @@ import { useAuth, useRequireAuth } from "@/lib/auth";
 import { formatCatchDate } from "@/lib/dateFormat";
 import { theme } from '../lib/theme';
 import { filterGearOptions, getGearLabel, getGearPickerTab, GEAR_CATEGORY_COLOR, GEAR_CATEGORY_ICON, type GearPickerTab } from "@/lib/gear";
+import { getTackleKindLabel } from "@/lib/tackle";
 import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
 import { isProfane } from "@/lib/profanity";
@@ -9,9 +10,12 @@ import { pb } from "@/lib/pocketbase";
 import { getSpeciesHabitat, getSpeciesLabel, getSpeciesOptions, type SpeciesHabitat } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
 import { Ionicons } from "@expo/vector-icons";
+import MapboxGL from "@rnmapbox/maps";
 import FishLoader from "@/components/FishLoader";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { useMapboxReady } from "@/lib/mapbox";
 import { Image as ExpoImage } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, ActivityIndicator, Alert, Dimensions, FlatList, InteractionManager, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
@@ -58,6 +62,7 @@ export type CatchDetail = {
   id: string;
   imageUrl?: string | null;
   extraPhotos?: string[];
+  photoCatches?: Array<{ species?: string | null; gear?: string | null; length?: string; weight?: string }> | string;
   species?: string;
   description?: string;
   length?: string;
@@ -73,6 +78,9 @@ export type CatchDetail = {
   lon?: number | null;
   waterBodyId?: string;
   waterBodyName?: string;
+  /** Rod and reel names stored on the catch. */
+  rod?: string | null;
+  reel?: string | null;
   isPublic?: boolean;
 };
 
@@ -82,6 +90,11 @@ export type EditableFields = {
   description?: string;
   length?: string;
   weight?: string;
+  extraPhotos?: string[];
+  existingExtraPhotos?: string[];
+  removePrimaryPhoto?: boolean;
+  photoCatches?: Array<{ species?: string | null; gear?: string | null; length?: string; weight?: string }>;
+  location?: { lat: number; lon: number } | null;
 };
 
 type Props = {
@@ -122,11 +135,13 @@ export default function CatchDetailModal({
   const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
   const router = useRouter();
+  const mapboxReady = useMapboxReady();
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
   const safeBottom = insets.bottom;
 
   const [photoIndex, setPhotoIndex] = useState(0);
+  const photoCarouselRef = useRef<ScrollView>(null);
   const [photoLoading, setPhotoLoading] = useState(true);
   const [loadedPhotos, setLoadedPhotos] = useState<Record<number, boolean>>({});
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null);
@@ -135,10 +150,13 @@ export default function CatchDetailModal({
   const [isLiked, setIsLiked] = useState(false);
   const [likeId, setLikeId] = useState<string | null>(null);
   const pendingOps = useRef<Record<string, number>>({});
+  const pendingCommentLikeOps = useRef<Record<string, number>>({});
   const likeScale = useRef(new Animated.Value(1)).current;
+  const photoTapTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState("");
+  const [replyToComment, setReplyToComment] = useState<any | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [commentsInitialized, setCommentsInitialized] = useState(false);
@@ -149,6 +167,13 @@ export default function CatchDetailModal({
   const [editWeight, setEditWeight] = useState("");
   const [editSpecies, setEditSpecies] = useState<string | null>(null);
   const [editGear, setEditGear] = useState<string | null>(null);
+  const [editPhotoCatches, setEditPhotoCatches] = useState<Array<{ species?: string | null; gear?: string | null; length?: string; weight?: string }>>([]);
+  const [editPrimaryPhotoRemoved, setEditPrimaryPhotoRemoved] = useState(false);
+  const [editExistingExtraPhotos, setEditExistingExtraPhotos] = useState<string[]>([]);
+  const [editExtraPhotos, setEditExtraPhotos] = useState<string[]>([]);
+  const [editLocation, setEditLocation] = useState<{ lat: number; lon: number } | null>(null);
+  const [editLocationPickerVisible, setEditLocationPickerVisible] = useState(false);
+  const [editLocationCenter, setEditLocationCenter] = useState<[number, number]>([37.618423, 55.751244]);
   const [editSpeciesModal, setEditSpeciesModal] = useState(false);
   const [editSpeciesTab, setEditSpeciesTab] = useState<SpeciesHabitat>("freshwater");
   const [editGearModal, setEditGearModal] = useState(false);
@@ -158,7 +183,39 @@ export default function CatchDetailModal({
   const [showMenu, setShowMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const currentCatchId = item?.id ?? null;
+  let photoCatches: Array<{ species?: string | null; gear?: string | null; length?: string; weight?: string }> = [];
+  if (Array.isArray(item?.photoCatches)) photoCatches = item.photoCatches;
+  else if (typeof item?.photoCatches === "string") {
+    try {
+      const parsed = JSON.parse(item.photoCatches);
+      if (Array.isArray(parsed)) photoCatches = parsed;
+    } catch {}
+  }
+  const activePhotoCatch = photoCatches[photoIndex];
+  const displayedSpecies = activePhotoCatch?.species ?? item?.species;
+  const displayedGear = activePhotoCatch?.gear ?? item?.gear;
+  const displayedLength = activePhotoCatch?.length ?? item?.length;
+  const displayedWeight = activePhotoCatch?.weight ?? item?.weight;
+  const displayedTackle = (["rod", "reel"] as const)
+    .map((kind) => ({ kind, name: (kind === "rod" ? item?.rod : item?.reel) ?? "" }))
+    .filter((entry) => entry.name !== "");
   const commentCountSyncRef = useRef(onCommentCountSynced);
+
+  const selectPhotoIndex = (nextIndex: number) => {
+    if (editing) {
+      setEditPhotoCatches((current) => {
+        const next = [...current];
+        next[photoIndex] = { species: editSpecies, gear: editGear, length: editLength, weight: editWeight };
+        const details = next[nextIndex] ?? {};
+        setEditSpecies(details.species ?? null);
+        setEditGear(details.gear ?? null);
+        setEditLength(details.length ?? "");
+        setEditWeight(details.weight ?? "");
+        return next;
+      });
+    }
+    setPhotoIndex(nextIndex);
+  };
 
   const upsertComment = (list: any[], nextComment: any) => {
     if (!nextComment?.id) return list;
@@ -186,6 +243,10 @@ export default function CatchDetailModal({
     commentCountSyncRef.current = onCommentCountSynced;
   }, [onCommentCountSynced]);
 
+  useEffect(() => () => {
+    if (photoTapTimeout.current) clearTimeout(photoTapTimeout.current);
+  }, []);
+
   useEffect(() => {
     if (!currentCatchId || !commentsInitialized) return;
     commentCountSyncRef.current?.(currentCatchId, comments.length);
@@ -204,6 +265,7 @@ export default function CatchDetailModal({
     setLikeId(null);
     setComments([]);
     setNewComment("");
+    setReplyToComment(null);
     setShowComments(false);
     setCommentsInitialized(false);
     setEditing(false);
@@ -233,7 +295,21 @@ export default function CatchDetailModal({
           }).catch(() => [] as any[]);
           for (const u of users) userMap[u.id] = u;
         }
-        setComments(commentsResult.map((c: any) => ({ ...c, _avatarUrl: avatarUrlFromUser(userMap[c.user_id]) })));
+        const commentIds = commentsResult.map((c: any) => c.id);
+        const commentLikes = commentIds.length
+          ? await pb.collection("comment_likes").getFullList({ filter: commentIds.map((id) => `comment_id = "${id}"`).join(" || "), requestKey: null })
+          : [];
+        const commentLikeStats = new Map<string, { count: number; mine: any | null }>();
+        for (const like of commentLikes as any[]) {
+          const stats = commentLikeStats.get(like.comment_id) ?? { count: 0, mine: null };
+          stats.count += 1;
+          if (like.user_id === user?.id) stats.mine = like;
+          commentLikeStats.set(like.comment_id, stats);
+        }
+        setComments(commentsResult.map((c: any) => {
+          const stats = commentLikeStats.get(c.id) ?? { count: 0, mine: null };
+          return { ...c, _avatarUrl: avatarUrlFromUser(userMap[c.user_id]), _likeCount: stats.count, _likeId: stats.mine?.id ?? null };
+        }));
         setCommentsInitialized(true);
       } catch {}
     })();
@@ -287,7 +363,41 @@ export default function CatchDetailModal({
       .then((fn: () => void) => { unsub = fn; })
       .catch(() => {});
 
-    return () => { unsub?.(); unsubComments?.(); };
+    let unsubCommentLikes: (() => void) | null = null;
+    pb.collection("comment_likes").subscribe("*", (e) => {
+      const commentId = e.record?.comment_id;
+      if (!commentId) return;
+      const isOwn = e.record.user_id === user?.id;
+      if (isOwn) {
+        const key = `${commentId}:${e.action}`;
+        if (pendingCommentLikeOps.current[key] && Date.now() - pendingCommentLikeOps.current[key] < 5000) {
+          delete pendingCommentLikeOps.current[key];
+          return;
+        }
+      }
+      setComments((prev) => prev.map((comment) => {
+        if (comment.id !== commentId) return comment;
+        if (e.action === "create") {
+          return {
+            ...comment,
+            _likeCount: (comment._likeCount ?? 0) + 1,
+            _likeId: isOwn ? e.record.id : comment._likeId,
+          };
+        }
+        if (e.action === "delete") {
+          return {
+            ...comment,
+            _likeCount: Math.max(0, (comment._likeCount ?? 0) - 1),
+            _likeId: isOwn ? null : comment._likeId,
+          };
+        }
+        return comment;
+      }));
+    }, { requestKey: null } as any)
+      .then((fn: () => void) => { unsubCommentLikes = fn; })
+      .catch(() => {});
+
+    return () => { unsub?.(); unsubComments?.(); unsubCommentLikes?.(); };
   }, [currentCatchId, user?.id]);
 
   const animateLike = () => {
@@ -341,12 +451,94 @@ export default function CatchDetailModal({
     } else await createLike();
   };
 
+  const handlePhotoTap = (uri: string) => {
+    if (photoTapTimeout.current) {
+      clearTimeout(photoTapTimeout.current);
+      photoTapTimeout.current = null;
+      toggleLike();
+      return;
+    }
+
+    photoTapTimeout.current = setTimeout(() => {
+      photoTapTimeout.current = null;
+      setFullscreenPhoto(uri);
+    }, 250);
+  };
+
   const deleteComment = async (commentId: string) => {
     try {
       await pb.collection("comments").delete(commentId);
       setComments((prev) => prev.filter((c) => c.id !== commentId));
       setCommentsInitialized(true);
     } catch {}
+  };
+
+  const toggleCommentLike = async (comment: any) => {
+    if (!requireAuth() || !user) return;
+    if (comment._likeId === "pending") return;
+    const action = comment._likeId ? "delete" : "create";
+    const updateComment = (countDelta: number, likeId: string | null) => {
+      setComments((prev) => prev.map((current) => current.id === comment.id ? {
+        ...current,
+        _likeCount: Math.max(0, (current._likeCount ?? 0) + countDelta),
+        _likeId: likeId,
+      } : current));
+    };
+
+    pendingCommentLikeOps.current[`${comment.id}:${action}`] = Date.now();
+    if (action === "delete") {
+      updateComment(-1, null);
+      try {
+        await pb.collection("comment_likes").delete(comment._likeId);
+      } catch {
+        delete pendingCommentLikeOps.current[`${comment.id}:delete`];
+        updateComment(1, comment._likeId);
+      }
+      return;
+    }
+
+    updateComment(1, "pending");
+    try {
+      const record = await pb.collection("comment_likes").create({ comment_id: comment.id, user_id: user.id });
+      setComments((prev) => prev.map((current) => current.id === comment.id ? { ...current, _likeId: record.id } : current));
+    } catch {
+      delete pendingCommentLikeOps.current[`${comment.id}:create`];
+      updateComment(-1, null);
+    }
+  };
+
+  const renderComment = (comment: any, index: number, isReply = false) => {
+    const isOwn = comment.user_id === user?.id;
+    return (
+      <View key={comment.id || index} style={[styles.commentRow, isOwn && styles.commentRowOwn, isReply && styles.replyRow]}>
+        {!isOwn && (
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${comment.username || "user"}'s profile`}
+            activeOpacity={onUserPress ? 0.7 : 1}
+            disabled={!onUserPress}
+            onPress={() => onUserPress?.(comment.user_id)}
+            style={styles.commentAvatar}
+          >
+            {comment._avatarUrl ? <ExpoImage source={{ uri: comment._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} /> : <Ionicons name="person" size={15} color="#94a3b8" />}
+          </TouchableOpacity>
+        )}
+        <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
+          {!isOwn && <Text style={styles.commentUsername}>{comment.username}</Text>}
+          <Text style={styles.commentText}>{comment.text}</Text>
+          <View style={styles.commentMeta}>
+            {!!formatCommentDate(comment.created ?? comment.created_at) && <Text style={styles.commentDate}>{formatCommentDate(comment.created ?? comment.created_at)}</Text>}
+            <TouchableOpacity onPress={() => toggleCommentLike(comment)} hitSlop={8} style={styles.commentLikeBtn}>
+              <Ionicons name={comment._likeId ? "heart" : "heart-outline"} size={14} color={comment._likeId ? "#ffffff" : "#94a3b8"} />
+              {comment._likeCount > 0 ? <Text style={[styles.commentLikeCount, comment._likeId && styles.commentLikeCountActive]}>{comment._likeCount}</Text> : null}
+            </TouchableOpacity>
+            {!isReply && <TouchableOpacity onPress={() => setReplyToComment(comment)} hitSlop={8} style={styles.replyBtn}><Text style={styles.replyBtnText}>{language === "ru" ? "Ответить" : "Reply"}</Text></TouchableOpacity>}
+            {isOwn && <TouchableOpacity onPress={() => deleteComment(comment.id)} hitSlop={8} style={{ marginLeft: 8 }}><Ionicons name="trash" size={15} color="#f87171" /></TouchableOpacity>}
+            {!isOwn && onReportComment && <TouchableOpacity onPress={() => onReportComment(comment.id, comment.user_id, item?.id ?? null)} hitSlop={8} style={{ marginLeft: 8 }}><Ionicons name="flag-outline" size={15} color="#fbbf24" /></TouchableOpacity>}
+          </View>
+        </View>
+      </View>
+    );
   };
 
   const submitComment = async () => {
@@ -389,10 +581,12 @@ export default function CatchDetailModal({
         user_id: user.id,
         username: user.username || user.name || "",
         text,
+        parent_id: replyToComment?.id ?? "",
       }, { requestKey: null });
       setComments((prev) => upsertComment(prev, { ...record, _avatarUrl: avatarUrlFromUser(user) }));
       setCommentsInitialized(true);
       setNewComment("");
+      setReplyToComment(null);
       onCommentAdded?.(item.id);
       // Push is sent server-side (pb_hooks) in the recipient's saved language.
     } catch (error: any) {
@@ -427,8 +621,34 @@ export default function CatchDetailModal({
     setEditSpecies(item.species ?? null);
     setEditSpeciesTab(getSpeciesHabitat(item.species));
     setEditGear(item.gear ?? null);
+    setEditPhotoCatches(photoCatches.length ? photoCatches : [{ species: item.species, gear: item.gear, length: item.length, weight: item.weight }]);
+    setEditPrimaryPhotoRemoved(false);
+    setEditExistingExtraPhotos(item.extraPhotos ?? []);
+    setEditExtraPhotos([]);
+    const lat = Number(item.lat);
+    const lon = Number(item.lon);
+    const location = Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+    setEditLocation(location);
+    setEditLocationCenter(location ? [location.lon, location.lat] : [37.618423, 55.751244]);
     setShowMenu(false);
     setEditing(true);
+  };
+
+  const pickExtraPhoto = async () => {
+    if (editExistingExtraPhotos.length + editExtraPhotos.length >= 5) return;
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 1,
+      });
+      const asset = result.assets?.[0];
+      if (result.canceled || !asset) return;
+      setEditExtraPhotos((current) => editExistingExtraPhotos.length + current.length < 5 ? [...current, asset.uri] : current);
+    } catch {
+      Alert.alert(t("error"), language === "ru" ? "Не удалось выбрать фото." : "Could not select the photo.");
+    }
   };
 
   const handleSave = async () => {
@@ -448,6 +668,11 @@ export default function CatchDetailModal({
         description: editDescription,
         length: editLength,
         weight: editWeight,
+        extraPhotos: editExtraPhotos,
+        existingExtraPhotos: editExistingExtraPhotos,
+        removePrimaryPhoto: editPrimaryPhotoRemoved,
+        photoCatches: editPhotoCatches.map((details, index) => index === photoIndex ? { species: editSpecies, gear: editGear, length: editLength, weight: editWeight } : details),
+        location: editLocation,
       });
       setEditing(false);
     } catch {
@@ -564,6 +789,7 @@ export default function CatchDetailModal({
             {photos.length > 0 && (
               <View style={styles.photoCarousel}>
                 <ScrollView
+                  ref={photoCarouselRef}
                   horizontal
                   pagingEnabled
                   showsHorizontalScrollIndicator={false}
@@ -572,12 +798,12 @@ export default function CatchDetailModal({
                   onMomentumScrollEnd={(e) => {
                     const nextIndex = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
                     setPhotoLoading(!loadedPhotos[nextIndex]);
-                    setPhotoIndex(nextIndex);
+                    selectPhotoIndex(nextIndex);
                   }}
                     >
                       {photos.map((uri, i) => (
                         <View key={i} style={styles.catchPhotoPage}>
-                        <Pressable onPress={() => setFullscreenPhoto(uri)} style={styles.catchPhotoPressable}>
+                        <Pressable onPress={() => handlePhotoTap(uri)} style={styles.catchPhotoPressable}>
                           <CatchPhoto
                             uri={uri}
                           onLoadingChange={(loading) => {
@@ -589,6 +815,12 @@ export default function CatchDetailModal({
                     </View>
                   ))}
                 </ScrollView>
+                {photoIndex > 0 && <TouchableOpacity style={[styles.photoCarouselArrow, styles.photoCarouselArrowLeft]} onPress={() => photoCarouselRef.current?.scrollTo({ x: (photoIndex - 1) * SCREEN_WIDTH, animated: true })} accessibilityLabel={language === "ru" ? "Предыдущее фото" : "Previous photo"}>
+                  <Ionicons name="chevron-back" size={16} color="#ffffff" />
+                </TouchableOpacity>}
+                {photoIndex < photos.length - 1 && <TouchableOpacity style={[styles.photoCarouselArrow, styles.photoCarouselArrowRight]} onPress={() => photoCarouselRef.current?.scrollTo({ x: (photoIndex + 1) * SCREEN_WIDTH, animated: true })} accessibilityLabel={language === "ru" ? "Следующее фото" : "Next photo"}>
+                  <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+                </TouchableOpacity>}
                 {photos.length > 1 && (
                   <View style={styles.dotRow}>
                     {photos.map((_, i) => (
@@ -609,7 +841,7 @@ export default function CatchDetailModal({
               <TouchableOpacity style={styles.likeBtn} onPress={toggleLike}>
                 <Animated.View style={{ transform: [{ scale: likeScale }] }}>
                   <Ionicons
-                    name={isLiked ? "thumbs-up" : "thumbs-up-outline"}
+                    name={isLiked ? "heart" : "heart-outline"}
                     size={22}
                     color={isLiked ? "#ffffff" : "#64748b"}
                   />
@@ -628,60 +860,26 @@ export default function CatchDetailModal({
             {/* Comments */}
             {showComments && (
               <View style={styles.commentsSection}>
-                {comments.filter((c) => !blockedUserIds.includes(c.user_id)).map((c, i) => {
-                  const isOwn = c.user_id === user?.id;
-                  return (
-                    <View key={c.id || i} style={[styles.commentRow, isOwn && styles.commentRowOwn]}>
-                      {!isOwn && (
-                        <TouchableOpacity
-                          accessibilityRole="button"
-                          accessibilityLabel={`Open ${c.username || "user"}'s profile`}
-                          activeOpacity={onUserPress ? 0.7 : 1}
-                          disabled={!onUserPress}
-                          onPress={() => onUserPress?.(c.user_id)}
-                          style={styles.commentAvatar}
-                        >
-                          {c._avatarUrl ? (
-                            <ExpoImage source={{ uri: c._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} />
-                          ) : (
-                            <Ionicons name="person" size={15} color="#94a3b8" />
-                          )}
-                        </TouchableOpacity>
-                      )}
-                      <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
-                        {!isOwn && (
-                          <Text style={styles.commentUsername}>{c.username}</Text>
-                        )}
-                        <Text style={styles.commentText}>{c.text}</Text>
-                        <View style={styles.commentMeta}>
-                          {!!formatCommentDate(c.created ?? c.created_at) && (
-                            <Text style={styles.commentDate}>{formatCommentDate(c.created ?? c.created_at)}</Text>
-                          )}
-                          {isOwn && (
-                            <TouchableOpacity onPress={() => deleteComment(c.id)} hitSlop={8} style={{ marginLeft: 8 }}>
-                              <Ionicons name="trash" size={15} color="#f87171" />
-                            </TouchableOpacity>
-                          )}
-                          {!isOwn && onReportComment && (
-                            <TouchableOpacity
-                              onPress={() => onReportComment(c.id, c.user_id, item?.id ?? null)}
-                              hitSlop={8}
-                              style={{ marginLeft: 8 }}
-                            >
-                              <Ionicons name="flag-outline" size={15} color="#fbbf24" />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      </View>
+                {comments.filter((c) => !c.parent_id && !blockedUserIds.includes(c.user_id)).map((c, i) => (
+                  <View key={c.id || i}>
+                    {renderComment(c, i)}
+                    <View style={styles.replyThread}>
+                      {comments.filter((reply) => reply.parent_id === c.id).filter((reply) => !blockedUserIds.includes(reply.user_id)).map((reply, replyIndex) => renderComment(reply, replyIndex, true))}
                     </View>
-                  );
-                })}
+                  </View>
+                ))}
+                {replyToComment && (
+                  <View style={styles.replyingTo}>
+                    <Text style={styles.replyingToText}>{language === "ru" ? `Ответ для ${replyToComment.username || ""}` : `Replying to ${replyToComment.username || ""}`}</Text>
+                    <TouchableOpacity onPress={() => setReplyToComment(null)} hitSlop={8}><Ionicons name="close" size={15} color="#94a3b8" /></TouchableOpacity>
+                  </View>
+                )}
                 <View style={styles.commentInputRow}>
                   <TextInput
                     style={styles.commentInput}
                     value={newComment}
                     onChangeText={setNewComment}
-                    placeholder={t("addComment")}
+                    placeholder={replyToComment ? (language === "ru" ? "Написать ответ" : "Write a reply") : t("addComment")}
                     placeholderTextColor="#475569"
                     returnKeyType="send"
                     onSubmitEditing={submitComment}
@@ -720,18 +918,101 @@ export default function CatchDetailModal({
                     </View>
                     <Ionicons name="chevron-forward" size={14} color="#475569" />
                   </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.editPickerRow}
+                    onPress={() => {
+                      if (editLocation) setEditLocationCenter([editLocation.lon, editLocation.lat]);
+                      setEditLocationPickerVisible(true);
+                    }}
+                  >
+                    <Ionicons name="location-outline" size={24} color="#38bdf8" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.editPickerLabel}>{language === "ru" ? "Место улова" : "Catch location"}</Text>
+                      <Text style={styles.editPickerValue}>
+                        {editLocation ? `${editLocation.lat.toFixed(4)}, ${editLocation.lon.toFixed(4)}` : (language === "ru" ? "Укажите на карте" : "Set on map")}
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={14} color="#475569" />
+                  </TouchableOpacity>
+                      <View style={styles.editPhotosRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.editPickerLabel}>{language === "ru" ? "Фото" : "Photos"}</Text>
+                          <Text style={styles.editPickerValue}>{language === "ru" ? "Добавьте до 5 дополнительных фото" : "Add up to 5 extra photos"}</Text>
+                        </View>
+                        {item?.imageUrl && !editPrimaryPhotoRemoved && (
+                          <View style={styles.editPhotoThumbWrap}>
+                            <ExpoImage source={{ uri: item.imageUrl }} contentFit="cover" style={styles.editPhotoThumb} />
+                            <TouchableOpacity
+                              onPress={() => setEditPrimaryPhotoRemoved(true)}
+                              style={styles.editPhotoRemove}
+                              accessibilityLabel={language === "ru" ? "Удалить главное фото" : "Remove main photo"}
+                            >
+                              <Ionicons name="close" size={12} color="#ffffff" />
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                        {editExistingExtraPhotos.map((uri, index) => (
+                          <View key={uri} style={styles.editPhotoThumbWrap}>
+                            <ExpoImage source={{ uri }} contentFit="cover" style={styles.editPhotoThumb} />
+                            <TouchableOpacity
+                              onPress={() => setEditExistingExtraPhotos((current) => current.filter((_, i) => i !== index))}
+                              style={styles.editPhotoRemove}
+                              accessibilityLabel={language === "ru" ? "Удалить фото" : "Remove photo"}
+                            >
+                              <Ionicons name="close" size={12} color="#ffffff" />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                        {editExtraPhotos.map((uri, index) => (
+                      <View key={uri} style={styles.editPhotoThumbWrap}>
+                        <ExpoImage source={{ uri }} contentFit="cover" style={styles.editPhotoThumb} />
+                        <TouchableOpacity
+                          onPress={() => setEditExtraPhotos((current) => current.filter((_, i) => i !== index))}
+                          style={styles.editPhotoRemove}
+                          accessibilityLabel={language === "ru" ? "Удалить выбранное фото" : "Remove selected photo"}
+                        >
+                          <Ionicons name="close" size={12} color="#ffffff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                        {editExistingExtraPhotos.length + editExtraPhotos.length < 5 && (
+                      <TouchableOpacity
+                        onPress={pickExtraPhoto}
+                        style={styles.editPhotoAdd}
+                        accessibilityLabel={language === "ru" ? "Добавить дополнительное фото" : "Add an extra photo"}
+                      >
+                        <Ionicons name="add" size={22} color="#cbd5e1" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 </>
               ) : (
                 <>
-                  <Text style={styles.detailSpecies}>{getSpeciesLabel(item?.species, language)}</Text>
-                  {item?.gear ? (
+                  {item?.description ? <Text style={styles.detailCaption}>{item.description}</Text> : null}
+                  {displayedSpecies ? <View style={styles.detailSpeciesRow}>
+                    {speciesPhotos[displayedSpecies] ? <ExpoImage source={speciesPhotos[displayedSpecies]} style={styles.detailSpeciesThumb} contentFit="contain" /> : null}
+                    <Text style={styles.detailSpecies}>{getSpeciesLabel(displayedSpecies, language)}</Text>
+                  </View> : null}
+                  {displayedGear ? (
                     <View style={styles.detailGearRow}>
-                      {gearPhotos[item.gear] && (
-                        <ExpoImage source={gearPhotos[item.gear]} style={styles.detailGearThumb} contentFit="contain" />
+                      {gearPhotos[displayedGear] && (
+                        <ExpoImage source={gearPhotos[displayedGear]} style={styles.detailGearThumb} contentFit="contain" />
                       )}
-                      <Text style={styles.detailGear}>{getGearLabel(item.gear, language)}</Text>
+                      <Text style={styles.detailGear}>{getGearLabel(displayedGear, language)}</Text>
                     </View>
                   ) : null}
+                  {displayedTackle.length > 0 && (
+                    <View style={styles.tackleRow}>
+                      {displayedTackle.map((entry) => (
+                        <View key={entry.kind} style={styles.tackleItem}>
+                          <View style={styles.tackleText}>
+                            <Text style={styles.tackleLabel}>{getTackleKindLabel(entry.kind, language)}</Text>
+                            <Text style={styles.tackleName} numberOfLines={2}>{entry.name}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </>
               )}
               {item?.waterBodyName ? (
@@ -753,8 +1034,9 @@ export default function CatchDetailModal({
                 </TouchableOpacity>
               ) : null}
 
-              <Text style={styles.label}>{t("description")}</Text>
               {editing ? (
+                <>
+                <Text style={styles.label}>{t("description")}</Text>
                 <TextInput
                   style={styles.input}
                   value={editDescription}
@@ -765,9 +1047,8 @@ export default function CatchDetailModal({
                   placeholderTextColor="#475569"
                   placeholder={t("descriptionPlaceholder")}
                 />
-              ) : (
-                <Text style={styles.value}>{item?.description || t("noDescription")}</Text>
-              )}
+                </>
+              ) : null}
 
               <View style={styles.metricsRow}>
                 <View style={styles.metricItem}>
@@ -783,7 +1064,7 @@ export default function CatchDetailModal({
                       placeholder="cm"
                     />
                   ) : (
-                    <Text style={styles.value}>{item?.length ? `${item.length} cm` : "--"}</Text>
+                    <Text style={styles.value}>{displayedLength ? `${displayedLength} cm` : "--"}</Text>
                   )}
                 </View>
                 <View style={styles.metricItem}>
@@ -799,7 +1080,7 @@ export default function CatchDetailModal({
                       placeholder="kg"
                     />
                   ) : (
-                    <Text style={styles.value}>{item?.weight ? `${item.weight} kg` : "--"}</Text>
+                    <Text style={styles.value}>{displayedWeight ? `${displayedWeight} kg` : "--"}</Text>
                   )}
                 </View>
               </View>
@@ -807,8 +1088,8 @@ export default function CatchDetailModal({
               {onTogglePublic && (
                 <View style={styles.publicRow}>
                   <View>
-                    <Text style={styles.publicLabel}>{t("makePublic")}</Text>
-                    <Text style={styles.publicSub}>{t("makePublicSub")}</Text>
+                        <Text style={styles.publicLabel}>{language === "ru" ? "Показывать место на карте" : "Show location on map"}</Text>
+                        <Text style={styles.publicSub}>{language === "ru" ? "Отчёт остаётся видимым в ленте" : "This report stays visible in feeds"}</Text>
                   </View>
                   <Switch
                     value={!!item?.isPublic}
@@ -834,34 +1115,35 @@ export default function CatchDetailModal({
                       <Text style={styles.btnText}>{t("cancel")}</Text>
                     </TouchableOpacity>
                   </>
-                ) : (
+                ) : item?.isPublic !== false && item?.lat != null && item?.lon != null ? (
                   <TouchableOpacity
                     style={styles.btnMap}
-                      onPress={() => {
-                        if (item?.lat != null && item?.lon != null) {
-                          onShowOnMap?.();
-                          onClose();
-                          InteractionManager.runAfterInteractions(() => {
-                          router.push({
-                            pathname: "/",
-                            params: { focusLat: item.lat, focusLon: item.lon, catchId: item.id },
-                          });
-                        });
-                      } else {
-                        Alert.alert(t("noCoordinates"), t("noCoordinatesMessage"));
-                      }
+                    onPress={() => {
+                      onShowOnMap?.();
+                      onClose();
+                      InteractionManager.runAfterInteractions(() => {
+                              router.push({
+                                pathname: "/",
+                                params: { focusLat: item.lat, focusLon: item.lon, catchId: item.id },
+                              });
+                      });
                     }}
                   >
                     <Ionicons name="location-sharp" size={18} color="#fff" style={{ marginRight: 6 }} />
                     <Text style={styles.btnText}>{t("showOnMap")}</Text>
                   </TouchableOpacity>
+                ) : (
+                  <View style={styles.coordsWithheld}>
+                    <Ionicons name="location-outline" size={16} color="#94a3b8" />
+                    <Text style={styles.coordsWithheldText}>{language === "ru" ? "Пользователь решил не показывать координаты" : "The user chose not to share coordinates"}</Text>
+                  </View>
                 )}
               </View>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
 
-        <Modal visible={!!fullscreenPhoto} transparent animationType="fade" onRequestClose={() => setFullscreenPhoto(null)}>
+            <Modal visible={!!fullscreenPhoto} transparent animationType="fade" onRequestClose={() => setFullscreenPhoto(null)}>
           <View style={styles.fullscreenBackdrop}>
             {fullscreenPhoto ? <ExpoImage source={{ uri: fullscreenPhoto }} contentFit="contain" style={styles.fullscreenImage} /> : null}
             <TouchableOpacity
@@ -872,7 +1154,50 @@ export default function CatchDetailModal({
               <Ionicons name="close" size={24} color="#ffffff" />
             </TouchableOpacity>
           </View>
-        </Modal>
+            </Modal>
+
+            <Modal visible={editLocationPickerVisible} animationType="slide" onRequestClose={() => setEditLocationPickerVisible(false)}>
+              <View style={styles.locationPickerScreen}>
+                <View style={[styles.locationPickerHeader, { paddingTop: safeTop + 12 }]}>
+                  <TouchableOpacity onPress={() => setEditLocationPickerVisible(false)} style={styles.closeBtn} hitSlop={8}>
+                    <Ionicons name="close" size={22} color="#e6eef8" />
+                  </TouchableOpacity>
+                  <Text style={styles.locationPickerTitle}>{language === "ru" ? "Укажите место улова" : "Set catch location"}</Text>
+                  <View style={{ width: 44 }} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  {mapboxReady ? (
+                    <MapboxGL.MapView
+                      style={{ flex: 1 }}
+                      styleURL="mapbox://styles/mapbox/streets-v12"
+                      scaleBarEnabled={false}
+                      localizeLabels={{ locale: language }}
+                      onMapIdle={(state) => {
+                        const [lon, lat] = state.properties.center;
+                        setEditLocation({ lat, lon });
+                      }}
+                    >
+                      <MapboxGL.Camera centerCoordinate={editLocationCenter} zoomLevel={12} animationMode="none" animationDuration={0} />
+                    </MapboxGL.MapView>
+                  ) : (
+                    <View style={styles.locationPickerLoading}><ActivityIndicator color="#ffffff" /></View>
+                  )}
+                  <View pointerEvents="none" style={styles.locationPickerPin}>
+                    <Ionicons name="location-sharp" size={38} color="#ef4444" style={{ marginBottom: 28 }} />
+                  </View>
+                </View>
+                <View style={styles.locationPickerFooter}>
+                  {editLocation ? <Text style={styles.locationPickerCoords}>{editLocation.lat.toFixed(4)}, {editLocation.lon.toFixed(4)}</Text> : null}
+                  <TouchableOpacity
+                    disabled={!editLocation}
+                    onPress={() => setEditLocationPickerVisible(false)}
+                    style={[styles.locationPickerConfirm, !editLocation && styles.locationPickerConfirmDisabled]}
+                  >
+                    <Text style={styles.locationPickerConfirmText}>{t("locationPickerConfirm")}</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </Modal>
 
         {/* Species picker */}
         <Modal
@@ -1027,6 +1352,9 @@ export default function CatchDetailModal({
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.colors.background },
   photoCarousel: { position: "relative" },
+  photoCarouselArrow: { position: "absolute", top: 126, width: 28, height: 28, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.42)", alignItems: "center", justifyContent: "center" },
+  photoCarouselArrowLeft: { left: 10 },
+  photoCarouselArrowRight: { right: 10 },
   catchPhotoPage: { width: SCREEN_WIDTH, height: 280 },
   catchPhotoPressable: { flex: 1 },
   catchPhoto: { flex: 1, backgroundColor: theme.colors.surface, overflow: "hidden" },
@@ -1050,6 +1378,16 @@ const styles = StyleSheet.create({
   fullscreenBackdrop: { flex: 1, backgroundColor: "#000000", alignItems: "center", justifyContent: "center" },
   fullscreenImage: { width: "100%", height: "100%" },
   fullscreenClose: { position: "absolute", right: 16, width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0,0,0,0.4)" },
+  locationPickerScreen: { flex: 1, backgroundColor: theme.colors.background },
+  locationPickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 12, paddingBottom: 12 },
+  locationPickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },
+  locationPickerLoading: { flex: 1, alignItems: "center", justifyContent: "center" },
+  locationPickerPin: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, alignItems: "center", justifyContent: "center" },
+  locationPickerFooter: { padding: 16, gap: 10 },
+  locationPickerCoords: { color: "#cbd5e1", fontSize: 14, textAlign: "center" },
+  locationPickerConfirm: { backgroundColor: theme.colors.primaryDark, borderRadius: theme.radius.control, paddingVertical: 14, alignItems: "center" },
+  locationPickerConfirmDisabled: { opacity: 0.45 },
+  locationPickerConfirmText: { color: "#ffffff", fontWeight: "700", fontSize: 15 },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1127,6 +1465,8 @@ const styles = StyleSheet.create({
   commentRowOwn: {
     justifyContent: "flex-end",
   },
+  replyThread: { marginLeft: 24 },
+  replyRow: { marginBottom: 6 },
   commentBubble: {
     maxWidth: "78%",
     borderRadius: 14,
@@ -1145,6 +1485,13 @@ const styles = StyleSheet.create({
   commentDate: { color: "#94a3b8", fontSize: 10, marginTop: 4 },
   commentText: { color: "#e2e8f0", fontSize: 14 },
   commentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
+  commentLikeBtn: { flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 },
+  commentLikeCount: { color: "#94a3b8", fontSize: 10, fontWeight: "600" },
+  commentLikeCountActive: { color: "#ffffff" },
+  replyBtn: { marginLeft: 8 },
+  replyBtnText: { color: "#94a3b8", fontSize: 10, fontWeight: "600" },
+  replyingTo: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, paddingHorizontal: 4 },
+  replyingToText: { color: "#94a3b8", fontSize: 12 },
   commentInputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1156,10 +1503,18 @@ const styles = StyleSheet.create({
   },
   commentInput: { flex: 1, color: "#e6eef8", fontSize: 14, paddingVertical: 10 },
   body: { paddingHorizontal: 20, paddingTop: 16 },
-  detailSpecies: { color: "#fff", fontSize: 22, fontWeight: "700" },
+  detailCaption: { color: "#ffffff", fontSize: 18, lineHeight: 25, marginBottom: 8 },
+  detailSpeciesRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  detailSpeciesThumb: { width: 56, height: 56 },
+  detailSpecies: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
   detailGearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
   detailGearThumb: { width: 56, height: 56 },
   detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
+  tackleRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4, marginBottom: 8 },
+  tackleItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface },
+  tackleText: { maxWidth: 260 },
+  tackleLabel: { color: "#94a3b8", fontSize: 11, lineHeight: 14 },
+  tackleName: { color: "#e6eef8", fontSize: 14, fontWeight: "600", marginTop: 1 },
   waterBodyRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 8, padding: 12, borderRadius: 10, backgroundColor: "#0c3147" },
   waterBodyText: { flex: 1 },
   waterBodyLabel: { color: "#94a3b8", fontSize: 12 },
@@ -1210,6 +1565,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flex: 1,
   },
+  coordsWithheld: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, flex: 1, paddingVertical: 14 },
+  coordsWithheldText: { color: "#94a3b8", fontSize: 13, textAlign: "center" },
   btnText: { color: "#cbd5e1", fontWeight: "700", fontSize: 15 },
   dropdownMenu: {
     position: "absolute",
@@ -1242,6 +1599,11 @@ const styles = StyleSheet.create({
   editPickerThumb: { width: 44, height: 44 },
   editPickerLabel: { color: "#94a3b8", fontSize: 12, marginBottom: 2 },
   editPickerValue: { color: "#e6eef8", fontSize: 15, fontWeight: "600" },
+  editPhotosRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: theme.colors.surface, borderRadius: 10, padding: 12, marginBottom: 10 },
+  editPhotoThumbWrap: { position: "relative" },
+  editPhotoThumb: { width: 44, height: 44, borderRadius: 6 },
+  editPhotoRemove: { position: "absolute", top: -5, right: -5, width: 18, height: 18, borderRadius: 9, backgroundColor: "#475569", alignItems: "center", justifyContent: "center" },
+  editPhotoAdd: { width: 44, height: 44, borderRadius: 6, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#475569" },
   pickerModal: { flex: 1, backgroundColor: theme.colors.background },
   pickerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14 },
   pickerTitle: { color: "#ffffff", fontSize: 16, fontWeight: "700" },

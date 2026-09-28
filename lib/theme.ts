@@ -13,6 +13,8 @@ export const theme = {
     // Muted so it reads as "selected" without competing with CTAs.
     primaryMuted: '#0c4a6e',
 
+    offwhite: '#e6eef8',
+
     // Structural neutrals (deep-water ladder).
     background: '#0d1a2d',    // app canvas / full-screen containers (darkest)
     surface: '#16233b',       // raised cards, inputs, rows — lighter than canvas
@@ -23,6 +25,7 @@ export const theme = {
       primary: '#e6eef8',
       secondary: '#94a3b8',
       muted: '#64748b',
+      black: '#000000'
     },
 
     // Semantic signals — kept separate from the accent so state reads at a glance.

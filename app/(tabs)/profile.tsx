@@ -1,21 +1,22 @@
-import { getSpeciesLabel } from "@/lib/species";
+import { getCatchSpeciesLabel, getSpeciesLabel } from "@/lib/species";
 import { formatCatchDate } from "@/lib/dateFormat";
 import { theme } from '../../lib/theme';
 import { getGearLabel, getGearOptions } from "@/lib/gear";
-import gearPhotos from "@/lib/gearPhotos";
 import { useLanguage } from "@/lib/language";
 import { pocketbaseThumbUrl } from "@/lib/imageUrls";
-import { canMakeCatchPublic } from "@/lib/catchFormFlow";
 import BadgeChip from "@/components/BadgeChip";
 import { parseBadges } from "@/lib/badges";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { getCatches, deleteCatch, updateCatch, CatchItem } from "@/lib/storage";
+import { syncCatchesFromPB } from "@/lib/sync";
 import { useAuth } from "@/lib/auth";
 import { pb } from "@/lib/pocketbase";
 import CatchDetailModal, { EditableFields } from "@/components/CatchDetailModal";
 import AvatarPreviewModal from "@/components/AvatarPreviewModal";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import { File } from "expo-file-system";
 import { Image as ExpoImage } from "expo-image";
 import ImageWithLoader from "@/components/ImageWithLoader";
 import SignInPrompt from "@/components/SignInPrompt";
@@ -28,6 +29,19 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
 type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
+
+async function prepareBanner(uri: string): Promise<string> {
+  const probe = await ImageManipulator.manipulateAsync(uri, [], {});
+  const longest = Math.max(probe.width, probe.height);
+  const actions: ImageManipulator.Action[] = longest > 1600
+    ? [probe.width >= probe.height ? { resize: { width: 1600 } } : { resize: { height: 1600 } }]
+    : [];
+  const banner = await ImageManipulator.manipulateAsync(uri, actions, {
+    compress: 0.82,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  return banner.uri;
+}
 
 export default function Profile() {
   const router = useRouter();
@@ -173,6 +187,11 @@ export default function Profile() {
 
   const load = async (_opts: { force?: boolean } = {}) => {
     try {
+      if (user) {
+        await syncCatchesFromPB(user.id).catch((error) => {
+          console.warn("Profile catch sync error:", error);
+        });
+      }
       const items = await getCatches();
       setCatches(items as CatchWithExtras[]);
     } catch (e) {
@@ -256,16 +275,13 @@ export default function Profile() {
         aspect: [3, 1],
         quality: 0.82,
       });
-      if (result.canceled || !result.assets?.[0]) return;
+          if (result.canceled || !result.assets?.[0]) return;
 
-      const asset = result.assets[0];
-      setUploadingBanner(true);
-      const formData = new FormData();
-      formData.append("banner", {
-        uri: asset.uri,
-        name: "banner.jpg",
-        type: asset.mimeType || "image/jpeg",
-      } as any);
+          const asset = result.assets[0];
+          setUploadingBanner(true);
+          const bannerUri = await prepareBanner(asset.uri);
+          const formData = new FormData();
+          formData.append("banner", new File(bannerUri));
       const record = await pb.collection("users").update(user.id, formData);
       setBannerFilename(record.banner ?? null);
       pb.authStore.save(pb.authStore.token, { ...pb.authStore.record!, banner: record.banner });
@@ -310,6 +326,67 @@ export default function Profile() {
     if (!selectedCatch) return;
     const parsedLength = parseFloat(fields.length ?? "");
     const parsedWeight = parseFloat(fields.weight ?? "");
+    let extraPhotos = selectedCatch.extraPhotos ?? [];
+    const existingExtraPhotoUrls = new Set(fields.existingExtraPhotos ?? extraPhotos);
+    const photoChanges = fields.removePrimaryPhoto || (fields.extraPhotos ?? []).length > 0 || existingExtraPhotoUrls.size !== extraPhotos.length;
+    let waterBodyId = selectedCatch.waterBodyId;
+    let waterBodyName = selectedCatch.waterBodyName;
+    if (fields.location) {
+      const waterBody = await pb.send<{ id?: string; name?: string }>("/water-bodies/lookup", {
+        method: "POST",
+        body: { latitude: fields.location.lat, longitude: fields.location.lon },
+        requestKey: null,
+      }).catch(() => null);
+      waterBodyId = waterBody?.id;
+      waterBodyName = waterBody?.name;
+    }
+    if (photoChanges) {
+      const currentRecord = await pb.collection('catches').getOne(catchId);
+      const formData = new FormData();
+      formData.append('species', fields.species ?? '');
+      formData.append('gear', fields.gear ?? '');
+      formData.append('description', fields.description ?? '');
+      formData.append('length_cm', isNaN(parsedLength) ? '' : String(parsedLength));
+      formData.append('weight_kg', isNaN(parsedWeight) ? '' : String(parsedWeight));
+      if (fields.location) {
+        formData.append('lat', String(fields.location.lat));
+        formData.append('lon', String(fields.location.lon));
+        formData.append('water_body_id', waterBodyId ?? '');
+        formData.append('water_body_name', waterBodyName ?? '');
+      }
+      if (fields.removePrimaryPhoto) {
+        formData.append('image', '');
+      }
+      (currentRecord.images ?? []).forEach((filename: string) => {
+        if (!existingExtraPhotoUrls.has(pb.files.getURL(currentRecord, filename))) {
+          formData.append('images-', filename);
+        }
+      });
+      fields.extraPhotos!.forEach((uri) => formData.append('images+', new File(uri)));
+      if (fields.photoCatches) formData.append('photo_catches', JSON.stringify(fields.photoCatches));
+      const record = await pb.collection('catches').update(catchId, formData);
+      extraPhotos = record.images.map((filename: string) => pb.files.getURL(record, filename));
+    } else {
+      const update = {
+        species: fields.species ?? '',
+        gear: fields.gear ?? '',
+        description: fields.description ?? '',
+        length_cm: isNaN(parsedLength) ? null : parsedLength,
+        weight_kg: isNaN(parsedWeight) ? null : parsedWeight,
+        lat: fields.location?.lat ?? selectedCatch.lat,
+        lon: fields.location?.lon ?? selectedCatch.lon,
+        water_body_id: waterBodyId ?? '',
+        water_body_name: waterBodyName ?? '',
+        photo_catches: fields.photoCatches ?? selectedCatch.photoCatches,
+      };
+      if (fields.location) {
+        await pb.collection('catches').update(catchId, update);
+      } else {
+      try {
+        await pb.collection('catches').update(catchId, update);
+      } catch (_) {}
+      }
+    }
     const updatedItem: CatchWithExtras = {
       ...selectedCatch,
       description: fields.description ?? "",
@@ -317,75 +394,74 @@ export default function Profile() {
       weight: isNaN(parsedWeight) ? "" : String(parsedWeight),
       species: fields.species ?? undefined,
       gear: fields.gear ?? undefined,
+      image: fields.removePrimaryPhoto ? undefined : selectedCatch.image,
+      imageUrl: fields.removePrimaryPhoto ? undefined : selectedCatch.imageUrl,
+      pbImageUrl: fields.removePrimaryPhoto ? undefined : selectedCatch.pbImageUrl,
+      photoCatches: fields.photoCatches ?? selectedCatch.photoCatches,
+      extraPhotos,
+      lat: fields.location?.lat ?? selectedCatch.lat,
+      lon: fields.location?.lon ?? selectedCatch.lon,
+      waterBodyId,
+      waterBodyName,
     };
     await updateCatch(catchId, updatedItem);
-    try {
-      await pb.collection('catches').update(catchId, {
-        species: fields.species ?? '',
-        gear: fields.gear ?? '',
-        description: fields.description ?? '',
-        length_cm: isNaN(parsedLength) ? null : parsedLength,
-        weight_kg: isNaN(parsedWeight) ? null : parsedWeight,
-      });
-    } catch (_) {}
     setSelectedCatch(updatedItem);
     await load({ force: true });
   };
 
   const handleTogglePublic = async (catchId: string, value: boolean) => {
     if (!selectedCatch) return;
-    if (value && !canMakeCatchPublic({ hasPhoto: !!(selectedCatch.image || selectedCatch.imageUrl || selectedCatch.pbImageUrl) })) {
-      Alert.alert(t("error"), language === "ru" ? "Добавьте фото улова, прежде чем сделать его публичным." : "Add a catch photo before making it public.");
-      return;
-    }
-    const updated = { ...selectedCatch, isPublic: value };
+    const updated = value ? { ...selectedCatch, isPublic: true } : {
+      ...selectedCatch,
+      isPublic: false,
+      lat: null,
+      lon: null,
+      waterBodyId: undefined,
+      waterBodyName: undefined,
+    };
     setSelectedCatch(updated);
     await updateCatch(catchId, updated);
     try {
-      await pb.collection("catches").update(catchId, { is_public: value });
+      await pb.collection("catches").update(catchId, value ? { is_public: true } : {
+        is_public: true,
+        lat: null,
+        lon: null,
+        water_body_id: "",
+        water_body_name: "",
+      });
     } catch (_) {}
     await load();
   };
 
   const renderItem = ({ item }: { item: CatchWithExtras }) => (
-    <Swipeable
-      renderRightActions={() => (
-        <View style={styles.deleteAction}>
-          <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteButton}>
-            <Text style={styles.deleteText}>{t("delete")}</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    >
-      <TouchableOpacity style={styles.item} onPress={() => openCatch(item)}>
-        <ExpoImage
-          source={(item.imageUrl ?? item.pbImageUrl ?? item.image) ? { uri: pocketbaseThumbUrl(item.imageUrl ?? item.pbImageUrl ?? item.image, "200x200")! } : require("../../assets/placeholder.png")}
-          placeholder={require("../../assets/placeholder.png")}
-          cachePolicy="memory-disk"
-          contentFit="cover"
-          style={styles.thumb}
-        />
-        <View style={styles.info}>
-          <Text style={styles.species}>{getSpeciesLabel(item.species, language)}</Text>
-          {item.gear ? (
-            <View style={styles.gearRow}>
-              {gearPhotos[item.gear] && <ExpoImage source={gearPhotos[item.gear]} style={styles.gearThumb} contentFit="contain" />}
-              <Text style={styles.gear}>{getGearLabel(item.gear, language)}</Text>
+    <View style={styles.catchGridCell}>
+      <Swipeable
+        renderRightActions={() => (
+          <View style={styles.deleteAction}>
+            <TouchableOpacity onPress={() => handleDelete(item.id)} style={styles.deleteButton}>
+              <Text style={styles.deleteText}>{t("delete")}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      >
+        <TouchableOpacity style={styles.catchGridItem} onPress={() => openCatch(item)} activeOpacity={0.85}>
+          <ExpoImage
+            source={(item.imageUrl ?? item.pbImageUrl ?? item.image) ? { uri: pocketbaseThumbUrl(item.imageUrl ?? item.pbImageUrl ?? item.image, "400x400")! } : require("../../assets/placeholder.png")}
+            placeholder={require("../../assets/placeholder.png")}
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            style={styles.catchGridPhoto}
+          />
+          <View style={styles.catchGridOverlay}>
+            {getCatchSpeciesLabel(item.photoCatches, item.species, language) ? <Text style={styles.catchGridSpecies} numberOfLines={1}>{getCatchSpeciesLabel(item.photoCatches, item.species, language)}</Text> : null}
+            <View style={styles.catchGridMetaRow}>
+              <Text style={styles.catchGridDate}>{formatDate(item.date)}</Text>
+              {!item.isPublic && <Ionicons name="lock-closed" size={13} color="#ffffff" />}
             </View>
-          ) : null}
-          <Text style={styles.desc} numberOfLines={1}>{item.description || t("noDescription")}</Text>
-          <Text style={styles.meta}>
-            {item.length ? `${item.length} cm` : "--"} • {item.weight ? `${item.weight} kg` : "--"}
-          </Text>
-        </View>
-        <View style={{ alignItems: "flex-end", gap: 18 }}>
-          <Text style={styles.date}>{formatDate(item.date)}</Text>
-          {!item.isPublic && (
-            <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" />
-          )}
-        </View>
-      </TouchableOpacity>
-    </Swipeable>
+          </View>
+        </TouchableOpacity>
+      </Swipeable>
+    </View>
   );
 
   const bannerSource = bannerFilename
@@ -592,8 +668,10 @@ export default function Profile() {
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
       <FlatList
         data={displayedCatches}
+        numColumns={2}
         keyExtractor={(i) => i.id}
         renderItem={renderItem}
+        columnWrapperStyle={styles.catchGridRow}
         ListHeaderComponent={profileHeader}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         keyboardDismissMode="on-drag"
@@ -609,7 +687,7 @@ export default function Profile() {
             </View>
           )
         }
-        contentContainerStyle={{ paddingBottom: 140 }}
+        contentContainerStyle={styles.catchGridContent}
       />
 
       <Modal
@@ -749,6 +827,7 @@ export default function Profile() {
           id: selectedCatch.id,
           imageUrl: pocketbaseThumbUrl(selectedCatch.imageUrl ?? selectedCatch.pbImageUrl, "600x600") ?? selectedCatch.image ?? null,
           extraPhotos: selectedCatch.extraPhotos,
+          photoCatches: selectedCatch.photoCatches,
           species: selectedCatch.species,
           description: selectedCatch.description,
           length: selectedCatch.length,
@@ -765,6 +844,8 @@ export default function Profile() {
           lon: selectedCatch.lon,
           waterBodyId: selectedCatch.waterBodyId,
           waterBodyName: selectedCatch.waterBodyName,
+          rod: selectedCatch.rod,
+          reel: selectedCatch.reel,
           isPublic: selectedCatch.isPublic,
         } : null}
         onClose={closeCatch}
@@ -1010,15 +1091,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   thumb: { width: 72, height: 72, borderRadius: 8, marginRight: 12 },
+  catchGridContent: { paddingBottom: 140 },
+  catchGridRow: { gap: 8, marginBottom: 8, paddingHorizontal: 12 },
+  catchGridCell: { flex: 1, minWidth: 0 },
+  catchGridItem: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface },
+  catchGridPhoto: { width: "100%", aspectRatio: 1 },
+  catchGridOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 10, paddingTop: 20, paddingBottom: 9, backgroundColor: "rgba(7, 24, 40, 0.66)" },
+  catchGridSpecies: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
+  catchGridMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  catchGridDate: { color: "#cbd5e1", fontSize: 11 },
   info: { flex: 1 },
-  species: { color: "#ffffff", fontWeight: "600" },
+  species: { color: "#94a3b8", fontSize: 13, fontWeight: "600", marginTop: 3 },
   gearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, alignSelf: "flex-start" },
   gearThumb: { width: 36, height: 36 },
   gear: { color: "#ffffff", fontSize: 14, fontWeight: "600" },
   detailGearRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 4, marginBottom: 8, alignSelf: "flex-start" },
   detailGearThumb: { width: 56, height: 56 },
   detailGear: { color: "#ffffff", fontSize: 18, fontWeight: "600" },
-  desc: { color: "#94a3b8", fontSize: 13, marginTop: 2 },
+  desc: { color: "#ffffff", fontSize: 15, lineHeight: 20 },
   meta: { color: "#7ea8c9", fontSize: 12, marginTop: 6 },
   date: { color: "#94a3b8", fontSize: 14, marginLeft: 8 },
   deleteAction: { justifyContent: "center" },

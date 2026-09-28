@@ -30,7 +30,7 @@ export default {
   expo: {
     name: "StrikeFeed",
     slug: "fishingapp",
-    version: "1.4.2",
+    version: "1.4.3",
     description: "Track and share your fishing catches with location, photos, and details",
     orientation: "portrait",
     icon: "./assets/images/app-icon.png",
@@ -51,12 +51,12 @@ export default {
         "CAMERA"
       ],
       package: "com.strikefeed.myapp",
-      versionCode: 34,
+      versionCode: 35,
       privacy: "https://sergei4k.github.io/fishingapp/privacy-policy.html"
     },
     ios: {
       bundleIdentifier: "com.strikefeed.myapp",
-      buildNumber: "7",
+      buildNumber: "8",
       usesAppleSignIn: true,
       entitlements: {
         "aps-environment": "production"
@@ -72,7 +72,6 @@ export default {
     plugins: [
       "expo-notifications",
       ["@rnmapbox/maps", {
-        "RNMapboxMapsDownloadToken": process.env.MAPBOX_DOWNLOADS_TOKEN,
         "RNMAPBOX_MAPS_DOWNLOAD_TOKEN": process.env.MAPBOX_DOWNLOADS_TOKEN
       }],
       "expo-router",
@@ -113,7 +112,7 @@ export default {
         projectId: "b4647e00-4478-4b12-b489-a7a8d98f70f4"
       }
     },
-    runtimeVersion: "1.3.0",
+    runtimeVersion: "1.4.0",
     updates: {
       enabled: true,
       fallbackToCacheTimeout: 0,

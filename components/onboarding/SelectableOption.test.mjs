@@ -40,9 +40,9 @@ test("onboarding copy uses the app text renderer and an app body font", () => {
   assert.match(onboardingSource, /subtitle:\s*\{[^}]*fontFamily:\s*theme\.fonts\.body/);
 });
 
-test("the reusable option supports both selection roles while onboarding uses multi-choice styles", () => {
+test("the reusable option supports both selection roles for onboarding steps", () => {
   assert.match(optionSource, /mode === "single" \? "radio" : "checkbox"/);
-  assert.doesNotMatch(onboardingSource, /mode="single"/);
+  assert.match(onboardingSource, /mode="single"/);
 });
 
 test("the onboarding header starts with the question instead of a brand eyebrow", () => {
@@ -54,14 +54,14 @@ test("the continue button keeps its horizontal layout in the native app", () => 
   assert.match(onboardingSource, /style=\{\[screenStyles\.continueButton/);
 });
 
-test("onboarding starts with fishing styles and ends with an optional avatar", () => {
+test("onboarding starts with fishing styles, includes an optional avatar, and ends with referral", () => {
   assert.doesNotMatch(onboardingSource, /What brings you to StrikeFeed|Log my catches|setPrimaryGoal|const goals/);
   assert.match(onboardingSource, /step === 0[\s\S]*What kind of fishing do you enjoy/);
   assert.match(onboardingSource, /ImagePicker\.launchImageLibraryAsync/);
   assert.match(onboardingSource, /formData\.append\("avatar"/);
   assert.match(onboardingSource, /MAX_AVATAR_SIZE_BYTES/);
   assert.match(onboardingSource, /ALLOWED_AVATAR_MIME_TYPES/);
-  assert.match(onboardingSource, /step === 2 \? finishOnboarding : continueFromStep/);
+  assert.match(onboardingSource, /step === 3 \? finishOnboarding : continueFromStep/);
 });
 
 test("the location step clearly discloses that the city is public", () => {
