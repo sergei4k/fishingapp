@@ -63,6 +63,13 @@ test("other-user profile catches use a two-column photo-first grid", () => {
   assert.match(profileModal, /style=\{styles\.userCatchGridPhoto\}/);
 });
 
+test("other-user profiles keep a back button above the scrolling catch grid", () => {
+  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("<CatchDetailModal"));
+
+  assert.match(profileModal, /style=\{\[styles\.userProfileBackButton, \{ top: safeTop \}\]\}/);
+  assert.match(profileModal, /accessibilityLabel=\{language === "ru" \? "Назад" : "Go back"\}/);
+});
+
 test("feed catch descriptions are not bold", () => {
   assert.doesNotMatch(source, /feedCaption: \{[^}]*fontWeight/);
 });

@@ -1938,11 +1938,8 @@ export default function Social() {
                     <Rect x="0" y="0" width="100%" height="100%" fill="url(#other-profile-banner-fade)" />
                   </Svg>
                   <View style={[styles.upHeaderRow, { paddingTop: safeTop }]}>
-                    <TouchableOpacity onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }} style={styles.upHeaderBtn} hitSlop={8}>
-                      <Ionicons name="arrow-back" size={20} color="#e6eef8" />
-                    </TouchableOpacity>
                     {selectedUser && selectedUser.id !== user?.id && (
-                      <View>
+                      <View style={{ marginLeft: "auto" }}>
                         <TouchableOpacity
                           onPress={() => setProfileMenuVisible((visible) => !visible)}
                           style={styles.upHeaderBtn}
@@ -2041,6 +2038,15 @@ export default function Social() {
               </View>
             }
           />
+          <TouchableOpacity
+            onPress={() => { setProfileMenuVisible(false); setSelectedUser(null); }}
+            style={[styles.userProfileBackButton, { top: safeTop }]}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={language === "ru" ? "Назад" : "Go back"}
+          >
+            <Ionicons name="arrow-back" size={24} color="#e6eef8" />
+          </TouchableOpacity>
           <Modal
             visible={userFollowListModal !== null}
             animationType="slide"
@@ -2474,6 +2480,7 @@ const styles = StyleSheet.create({
   catchWaterBody: { flexDirection: "row", alignItems: "baseline", gap: 4, maxWidth: 110, flexShrink: 1, minWidth: 0 },
   catchWaterBodyDot: { color: "#ffffff", fontSize: 15, lineHeight: 12, fontWeight: "900" },
   catchWaterBodyText: { color: "#ffffff", flexShrink: 1, minWidth: 0 },
+  userProfileBackButton: { position: "absolute", left: 12, zIndex: 2, width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(7, 24, 40, 0.82)", alignItems: "center", justifyContent: "center" },
   catchDesc: { color: "#94a3b8", fontSize: 13, marginTop: 3 },
   catchDate: { color: "#94a3b8", fontSize: 12, marginTop: 4 },
   catchCounts: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 12 },
