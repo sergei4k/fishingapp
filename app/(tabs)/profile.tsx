@@ -25,8 +25,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Keyboard, Modal, RefreshControl, ScrollView, Share, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/AppText";
 import Swipeable from "react-native-gesture-handler/Swipeable";
+import { Pressable } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+
 
 type CatchWithExtras = CatchItem & { extraPhotos?: string[] };
 
@@ -444,7 +446,7 @@ export default function Profile() {
           </View>
         )}
       >
-        <TouchableOpacity style={styles.catchGridItem} onPress={() => openCatch(item)} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.catchGridItem} onPress={() => openCatch(item)} activeOpacity={0.5}>
           <ExpoImage
             source={(item.imageUrl ?? item.pbImageUrl ?? item.image) ? { uri: pocketbaseThumbUrl(item.imageUrl ?? item.pbImageUrl ?? item.image, "400x400")! } : require("../../assets/placeholder.png")}
             placeholder={require("../../assets/placeholder.png")}
@@ -453,11 +455,12 @@ export default function Profile() {
             style={styles.catchGridPhoto}
           />
           <View style={styles.catchGridOverlay}>
-            {getCatchSpeciesLabel(item.photoCatches, item.species, language) ? <Text style={styles.catchGridSpecies} numberOfLines={1}>{getCatchSpeciesLabel(item.photoCatches, item.species, language)}</Text> : null}
-            <View style={styles.catchGridMetaRow}>
-              <Text style={styles.catchGridDate}>{formatDate(item.date)}</Text>
-              {!item.isPublic && <Ionicons name="lock-closed" size={13} color="#ffffff" />}
-            </View>
+            {getCatchSpeciesLabel(item.photoCatches, language) ? (
+              <View style={styles.catchGridMetaRow}>
+                <Text style={styles.catchGridDate}>{formatDate(item.date)}</Text>
+                {!item.isPublic && <Ionicons name="lock-closed" size={13} color="#ffffff" />}
+              </View>
+            ) : null}
           </View>
         </TouchableOpacity>
       </Swipeable>
@@ -570,9 +573,7 @@ export default function Profile() {
         <TouchableOpacity style={styles.actionBtn} onPress={() => setStatsVisible(true)}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Статистика" : "View statistics"}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => router.push('/(tabs)/social?openSearch=1')}>
-          <Text style={styles.actionBtnText}>{language === "ru" ? "Найти друзей" : "Find friends"}</Text>
-        </TouchableOpacity>
+
         <TouchableOpacity style={styles.actionBtn} onPress={() => {
           const handle = user?.username ? `@${user.username}` : "someone";
           Share.share({
@@ -583,6 +584,9 @@ export default function Profile() {
         }}>
           <Text style={styles.actionBtnText}>{language === "ru" ? "Поделиться" : "Share"}</Text>
         </TouchableOpacity>
+        <Pressable style={styles.actionBtn} onPress={() => router.push('/(tabs)/journal')}>
+          <Text style={styles.actionBtnText}>{language === "ru" ? "Журнал" : "Journal"}</Text>
+        </Pressable>
       </View>
 
       {/* Catches section header */}
@@ -961,7 +965,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
-  actionBtnText: { color: "#e6eef8", fontSize: 14, fontWeight: "600", textAlign: "center" },
+  actionBtnText: { color: "#e6eef8", fontSize: 14, fontWeight: "600", textAlign: "center", padding: 0 },
 
   statsModalContainer: { flex: 1, backgroundColor: theme.colors.background },
   statsModalHeader: {
@@ -1091,15 +1095,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   thumb: { width: 72, height: 72, borderRadius: 8, marginRight: 12 },
-  catchGridContent: { paddingBottom: 140 },
-  catchGridRow: { gap: 8, marginBottom: 8, paddingHorizontal: 12 },
+  catchGridContent: { paddingBottom: 100 },
+  catchGridRow: { gap: 1, marginBottom: 1, paddingHorizontal: 1 },
   catchGridCell: { flex: 1, minWidth: 0 },
-  catchGridItem: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface },
+  catchGridItem: { overflow: "hidden", backgroundColor: theme.colors.surface },
   catchGridPhoto: { width: "100%", aspectRatio: 1 },
-  catchGridOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 10, paddingTop: 20, paddingBottom: 9, backgroundColor: "rgba(7, 24, 40, 0.66)" },
+  catchGridOverlay: { position: "absolute", left: 0, right: 105, bottom: 0, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 4, borderTopRightRadius: 12, backgroundColor: "rgba(7, 24, 40, 0.66)" },
   catchGridSpecies: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
   catchGridMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
-  catchGridDate: { color: "#cbd5e1", fontSize: 11 },
+  catchGridDate: { color: "#cbd5e1", fontSize: 11.5 },
   info: { flex: 1 },
   species: { color: "#94a3b8", fontSize: 13, fontWeight: "600", marginTop: 3 },
   gearRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, alignSelf: "flex-start" },

@@ -76,6 +76,7 @@ export default {
       }],
       "expo-router",
       "expo-font",
+      "expo-localization",
       "expo-image",
       ["expo-build-properties", { ios: { deploymentTarget: "16.4", enableSceneSupport: true } }],
       [
@@ -108,6 +109,8 @@ export default {
     },
     extra: {
       router: {},
+      posthogProjectToken: process.env.POSTHOG_PROJECT_TOKEN,
+      posthogHost: process.env.POSTHOG_HOST,
       eas: {
         projectId: "b4647e00-4478-4b12-b489-a7a8d98f70f4"
       }

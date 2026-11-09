@@ -11,11 +11,13 @@ import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, ImageBackground, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { Text, TextInput } from '@/components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { usePostHog } from 'posthog-react-native';
 
 export default function Register() {
   const { signUp, signInWithApple } = useAuth();
   const { t, language, setLanguage } = useLanguage();
   const router = useRouter();
+  const posthog = usePostHog();
 
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
@@ -68,6 +70,7 @@ export default function Register() {
         : t('somethingWentWrong');
       Alert.alert(t('error'), msg);
     } else {
+      posthog?.capture('account_registered', { signup_method: 'password' });
       Toast.show({ type: 'success', text1: t('registerSuccess'), position: 'top', visibilityTime: 3000 });
       // Auth state change in _layout.tsx redirects to /(tabs) automatically
     }

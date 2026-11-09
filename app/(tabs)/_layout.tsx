@@ -158,6 +158,13 @@ export default function TabsLayout() {
           }}
         />
         <Tabs.Screen
+          name="journal"
+          options={{
+            title: 'Journal',
+            tabBarButton: () => null,
+          }}
+        />
+        <Tabs.Screen
           name="settings"
           options={{
             title: 'Settings',

@@ -1,36 +1,26 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, Image, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
-
-import { theme } from '@/lib/theme';
+import { Image } from 'expo-image';
+import React, { useEffect, useState } from 'react';
+import { AccessibilityInfo, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 type FishLoaderProps = {
   size?: number;
   style?: StyleProp<ViewStyle>;
 };
 
-/** A compact, animated loading state built around the StrikeFeed fish logo. */
 export default function FishLoader({ size = 108, style }: FishLoaderProps) {
-  const bubbleProgress = useRef([new Animated.Value(0), new Animated.Value(0), new Animated.Value(0)]).current;
+  const [reduceMotion, setReduceMotion] = useState(true);
 
   useEffect(() => {
-    const animation = Animated.loop(
-      Animated.stagger(
-        420,
-        bubbleProgress.map((progress) =>
-          Animated.timing(progress, {
-            toValue: 1,
-            duration: 1100,
-            easing: Easing.out(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ),
-      ),
-      { iterations: -1, resetBeforeIteration: true },
-    );
-
-    animation.start();
-    return () => animation.stop();
-  }, [bubbleProgress]);
+    let active = true;
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
+      if (active) setReduceMotion(enabled);
+    }).catch(() => {});
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
 
   const fishSize = Math.round(size * 0.95);
 
@@ -41,32 +31,14 @@ export default function FishLoader({ size = 108, style }: FishLoaderProps) {
       accessibilityLabel="Loading"
       style={[styles.container, { width: size, height: size }, style]}
     >
-      {bubbleProgress.map((progress, index) => (
-        <Animated.View
-          key={index}
-          style={[
-            styles.bubble,
-            {
-              width: index === 1 ? 10 : 14,
-              height: index === 1 ? 10 : 14,
-              left: size * 0.8 + index * 2,
-              top: size * 0.4 + index * 3,
-              opacity: progress.interpolate({ inputRange: [0, 0.15, 0.75, 1], outputRange: [0, 0.8, 0.55, 0] }),
-              transform: [
-                { translateX: progress.interpolate({ inputRange: [0, 1], outputRange: [0, size * 0.18] }) },
-                { translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [0, -size * 0.28] }) },
-                { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1.15] }) },
-              ],
-            },
-          ]}
-        />
-      ))}
-      <View>
-        <Image source={require('../assets/images/fish-loader-body.png')} style={{ width: fishSize, height: fishSize }} resizeMode="contain" />
-        <View style={styles.tail}>
-          <Image source={require('../assets/images/fish-loader-tail.png')} style={{ width: fishSize, height: fishSize }} resizeMode="contain" />
+      {reduceMotion ? (
+        <View style={{ width: fishSize, height: fishSize }}>
+          <Image source={require('../assets/images/fish-loader-body.png')} style={StyleSheet.absoluteFill} contentFit="contain" />
+          <Image source={require('../assets/images/fish-loader-tail.png')} style={StyleSheet.absoluteFill} contentFit="contain" />
         </View>
-      </View>
+      ) : (
+        <Image source={require('../assets/images/fish-swimming.gif')} style={{ width: fishSize, height: fishSize }} contentFit="contain" />
+      )}
     </View>
   );
 }
@@ -75,13 +47,5 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  bubble: {
-    position: 'absolute',
-    borderRadius: theme.radius.pill,
-    backgroundColor: theme.colors.primary,
-  },
-  tail: {
-    position: 'absolute', top: 0, right: 0, bottom: 0, left: 0,
   },
 });

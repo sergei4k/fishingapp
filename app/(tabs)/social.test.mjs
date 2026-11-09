@@ -5,7 +5,7 @@ import test from "node:test";
 const source = readFileSync(new URL("./social.tsx", import.meta.url), "utf8");
 
 test("following feed loads catches one page at a time", () => {
-  const loadFeed = source.match(/const loadFeed[\s\S]*?\n  \};/)?.[0] ?? "";
+  const loadFeed = source.match(/const loadFeed = [\s\S]*?\n  \};/)?.[0] ?? "";
 
   assert.match(loadFeed, /getList\(page, PAGE_SIZE,/);
   assert.doesNotMatch(loadFeed, /getFullList\(/);
@@ -13,6 +13,14 @@ test("following feed loads catches one page at a time", () => {
 
 test("feed enrichment fetches dependent data concurrently", () => {
   assert.match(source, /const \[users, allLikes, allComments\] = await Promise\.all\(/);
+});
+
+test("catch enrichment still returns catches when optional social metadata fails", () => {
+  const enrichment = source.slice(source.indexOf("async function enrichCatches"), source.indexOf("export default function Social"));
+
+  assert.match(enrichment, /userRequest\.catch\(\(\) => \(\{ items: \[\] as any\[\] \}\)\)/);
+  assert.match(enrichment, /pb\.collection\("likes"\)\.getFullList\([\s\S]*?\.catch\(\(\) => \[\] as any\[\]\)/);
+  assert.match(enrichment, /pb\.collection\("comments"\)\.getFullList\([\s\S]*?\.catch\(\(\) => \[\] as any\[\]\)/);
 });
 
 test("new public catches are inserted into live social lists", () => {
@@ -45,16 +53,16 @@ test("other-user banner fades into the profile background", () => {
   assert.match(source, /upBannerFade: \{ position: "absolute", bottom: 0/);
 });
 
-test("other-user catch details use the same root modal as feed catches", () => {
+test("catch details opened from a profile keep that profile mounted underneath", () => {
   assert.equal((source.match(/<CatchDetailModal/g) ?? []).length, 1);
   assert.match(source, /<CatchDetailModal\s*catch=\{detailCatch\}\s*onClose=\{closeDetail\}\s*onShowOnMap=\{closeOverlaysForMap\}/);
-  assert.match(source, /const \[pendingUserCatch, setPendingUserCatch\] = useState<CatchItem \| null>\(null\);/);
-  assert.match(source, /const openUserCatchDetail = \(item: CatchItem\) => \{\s*setPendingUserCatch\(item\);[\s\S]*?setSelectedUser\(null\);/);
-  assert.match(source, /if \(!pendingUserCatch \|\| selectedUser\) return;[\s\S]*?setDetailCatch\(toCatchDetail\(pendingUserCatch\)\)/);
+  assert.match(source, /const openUserCatchDetail = \(item: CatchItem\) => \{[\s\S]*?openDetail\(item\);\s*\};/);
+  assert.doesNotMatch(source, /pendingUserCatch|profileBeforeCatch/);
+  assert.match(source, /\{selectedUser && renderCatchDetail\(\)\}[\s\S]*?<\/Modal>\s*\{!selectedUser && renderCatchDetail\(\)\}/);
 });
 
 test("other-user profile catches use a two-column photo-first grid", () => {
-  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("<CatchDetailModal"));
+  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("{/* Search fullscreen modal */}"));
 
   assert.match(profileModal, /data=\{loadingUserCatches \? \[\] : userCatches\}/);
   assert.match(profileModal, /numColumns=\{2\}/);
@@ -63,11 +71,31 @@ test("other-user profile catches use a two-column photo-first grid", () => {
   assert.match(profileModal, /style=\{styles\.userCatchGridPhoto\}/);
 });
 
+test("other-user catch grid matches the personal profile's compact styling", () => {
+  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("{/* Search fullscreen modal */}"));
+  assert.match(source, /userCatchGridRow: \{ gap: 1, marginBottom: 1, paddingHorizontal: 1 \}/);
+  assert.match(source, /userCatchGridItem: \{ flex: 1, minWidth: 0, overflow: "hidden"/);
+  assert.match(source, /userCatchGridOverlay: \{[^}]*right: 105[^}]*paddingTop: 4[^}]*borderTopRightRadius: 12/);
+  assert.match(profileModal, /activeOpacity=\{0\.5\}/);
+  assert.doesNotMatch(profileModal, /styles\.userCatchGridSpecies/);
+});
+
 test("other-user profiles keep a back button above the scrolling catch grid", () => {
-  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("<CatchDetailModal"));
+  const profileModal = source.slice(source.indexOf("{/* User profile modal */}"), source.indexOf("{/* Search fullscreen modal */}"));
 
   assert.match(profileModal, /style=\{\[styles\.userProfileBackButton, \{ top: safeTop \}\]\}/);
   assert.match(profileModal, /accessibilityLabel=\{language === "ru" \? "Назад" : "Go back"\}/);
+});
+
+test("other-user profiles append public catches while scrolling", () => {
+  const openUser = source.match(/const openUser = async \(targetUser: any\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+
+  assert.match(openUser, /pb\.collection\("catches"\)\.getList\(1, PAGE_SIZE,/);
+  assert.doesNotMatch(openUser, /pb\.collection\("catches"\)\.getFullList\(/);
+  assert.match(openUser, /setUserCatchesHasMore\(\(publicCatchesResult as any\)\.page < \(publicCatchesResult as any\)\.totalPages\)/);
+  assert.match(source, /const loadMoreUserCatches = async \(\) => \{/);
+  assert.match(source, /getList\(userCatchPage \+ 1, PAGE_SIZE,/);
+  assert.match(source, /onEndReached=\{\(\) => \{ void loadMoreUserCatches\(\); \}\}/);
 });
 
 test("feed catch descriptions are not bold", () => {
@@ -87,6 +115,22 @@ test("social feed cards show the rod and reel saved on a catch", () => {
   assert.match(card, /const activeTackle = \(\["rod", "reel"\] as const\)/);
   assert.match(card, /getTackleKindLabel\(entry\.kind, language\)/);
   assert.match(listCard, /const listedTackle = \(\["rod", "reel"\] as const\)/);
+});
+
+test("feed cards load and render threaded comments without opening catch details", () => {
+  assert.match(source, /const \[feedComments, setFeedComments\] = useState<Record<string, FeedComment\[\]>>\(\{\}\);/);
+  assert.match(source, /const loadFeedComments = useCallback\(async \(catchIds: string\[\]\) =>/);
+  assert.match(source, /pb\.collection\("comments"\)\.getFullList\(/);
+  assert.match(source, /const renderFeedComments = \(item: CatchItem\) =>/);
+  assert.match(source, /reply\.parent_id === comment\.id/);
+  assert.match(source, /parent_id: replyTarget\?\.commentId \?\? ""/);
+  assert.match(source, /const toggleFeedCommentLike = async/);
+});
+
+test("feed comment actions place likes before reply", () => {
+  const comments = source.slice(source.indexOf("const renderFeedComments"), source.indexOf("// ── Feed card"));
+
+  assert.match(comments, /toggleFeedCommentLike\(item\.id, comment\)[\s\S]*?setFeedReplyTarget\(\{ catchId: item\.id, commentId: comment\.id/);
 });
 
 test("opening a social catch refreshes every detail shown in the profile modal", () => {

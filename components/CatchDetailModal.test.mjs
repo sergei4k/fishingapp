@@ -102,6 +102,34 @@ test("comments support threaded replies", () => {
   assert.match(source, /style=\{styles\.replyThread\}/);
 });
 
+test("the detail modal places the comment time beside its username", () => {
+  assert.match(source, /<View style=\{styles\.commentHeader\}>/);
+  assert.match(source, /commentHeader: \{ flexDirection: "row", alignItems: "center", gap: 6/);
+});
+
+test("comment timestamps show elapsed minutes, hours, and days instead of a date", () => {
+  const formatter = source.slice(source.indexOf("const formatCommentDate"), source.indexOf("useEffect(() => {\n    commentCountSyncRef"));
+
+  assert.match(formatter, /const minutes = Math\.floor\(elapsedSeconds \/ 60\);/);
+  assert.match(formatter, /const hours = Math\.floor\(minutes \/ 60\);/);
+  assert.match(formatter, /const days = Math\.floor\(hours \/ 24\);/);
+  assert.doesNotMatch(formatter, /toLocaleString/);
+});
+
+test("the detail modal puts likes before the reply action below a comment", () => {
+  const renderComment = source.slice(source.indexOf("const renderComment"), source.indexOf("const submitComment"));
+
+  assert.match(renderComment, /<TouchableOpacity onPress=\{\(\) => toggleCommentLike\(comment\)\}[\s\S]*?\{!isReply && <TouchableOpacity onPress=\{\(\) => setReplyToComment\(comment\)/);
+  assert.match(source, /replyBtn: \{ marginLeft: 12 \}/);
+});
+
+test("comment reporting is available only through a long press", () => {
+  const renderComment = source.slice(source.indexOf("const renderComment"), source.indexOf("const submitComment"));
+
+  assert.match(renderComment, /onLongPress=\{!isOwn && onReportComment \? \(\) => onReportComment\(comment\.id, comment\.user_id, item\?\.id \?\? null\) : undefined\}/);
+  assert.doesNotMatch(renderComment, /onReportComment && <TouchableOpacity/);
+});
+
 test("the detail view shows the rod and reel saved on the catch", () => {
   assert.match(source, /import \{ getTackleKindLabel \} from "@\/lib\/tackle"/);
   assert.doesNotMatch(source, /TACKLE_KIND_ICON/);

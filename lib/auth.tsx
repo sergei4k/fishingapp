@@ -5,6 +5,7 @@ import { router } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { pb, isNetworkError } from './pocketbase';
+import { posthog, posthogLog } from './posthog';
 import { syncCatchesFromPB, pushPendingCatches } from './sync';
 import { clearCatches } from './storage';
 import { syncPushTokenForUser } from './notifications';
@@ -31,12 +32,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const syncedUserIdRef = useRef<string | null>(null);
   const syncedPushTokenUserIdRef = useRef<string | null>(null);
+  const identifiedUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const unsub = pb.authStore.onChange(() => {
       const record = pb.authStore.record ?? null;
       setUser(record);
       setLoading(false);
+
+      if (record?.id && record.id !== identifiedUserIdRef.current) {
+        if (identifiedUserIdRef.current) posthog?.reset();
+
+        const personProperties: Record<string, string> = {};
+        if (record.email) personProperties.email = record.email;
+        if (record.name) personProperties.name = record.name;
+        if (record.username) personProperties.username = record.username;
+        if (record.language) personProperties.language = record.language;
+
+        posthog?.identify(record.id, { $set: personProperties });
+        posthogLog.info('authenticated_session_ready', { auth_source: 'auth_store' });
+        identifiedUserIdRef.current = record.id;
+      } else if (!record?.id && identifiedUserIdRef.current) {
+        posthog?.reset();
+        identifiedUserIdRef.current = null;
+      }
 
       if (record?.id && record.id !== syncedUserIdRef.current) {
         syncedUserIdRef.current = record.id;

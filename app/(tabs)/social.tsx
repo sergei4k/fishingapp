@@ -32,6 +32,7 @@ import { Alert, Animated, ActivityIndicator, DeviceEventEmitter, Dimensions, Fla
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import { usePostHog } from "posthog-react-native";
 
 const PAGE_SIZE = 15;
 
@@ -148,6 +149,17 @@ type CatchItem = Record<string, any> & {
   image_uri: string | null;
 };
 
+type FeedComment = Record<string, any> & {
+  id: string;
+  catch_id: string;
+  user_id: string;
+  username?: string;
+  text: string;
+  parent_id?: string;
+  _likeCount: number;
+  _likeId: string | null;
+};
+
 function toCatchDetail(item: CatchItem): CatchDetail {
   return {
     id: item.id,
@@ -206,9 +218,9 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
   const idFilter = ids.map((id) => `catch_id = "${id}"`).join(" || ");
 
   const [users, allLikes, allComments] = await Promise.all([
-    userRequest,
-    pb.collection("likes").getFullList({ filter: idFilter, fields: "id,catch_id,user_id", requestKey: null }),
-    pb.collection("comments").getFullList({ filter: idFilter, fields: "catch_id", requestKey: null }),
+    userRequest.catch(() => ({ items: [] as any[] })),
+    pb.collection("likes").getFullList({ filter: idFilter, fields: "id,catch_id,user_id", requestKey: null }).catch(() => [] as any[]),
+    pb.collection("comments").getFullList({ filter: idFilter, fields: "catch_id", requestKey: null }).catch(() => [] as any[]),
   ]);
   for (const u of users.items) {
     userMap[u.id] = {
@@ -257,6 +269,7 @@ async function enrichCatches(items: any[], userId?: string): Promise<CatchItem[]
 
 export default function Social() {
   const { user } = useAuth();
+  const posthog = usePostHog();
   const { isOnline } = useNetwork();
   const requireAuth = useRequireAuth();
   const { language, t } = useLanguage();
@@ -612,6 +625,9 @@ export default function Social() {
   const [userFollowerCount, setUserFollowerCount] = useState(0);
   const [userFollowingCount, setUserFollowingCount] = useState(0);
   const [loadingUserCatches, setLoadingUserCatches] = useState(false);
+  const [loadingMoreUserCatches, setLoadingMoreUserCatches] = useState(false);
+  const [userCatchPage, setUserCatchPage] = useState(1);
+  const [userCatchesHasMore, setUserCatchesHasMore] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [userFollowListModal, setUserFollowListModal] = useState<null | "followers" | "following">(null);
   const [userFollowListData, setUserFollowListData] = useState<any[]>([]);
@@ -637,9 +653,10 @@ export default function Social() {
 
   // Catch detail modal
   const [detailCatch, setDetailCatch] = useState<CatchDetail | null>(null);
-  const [pendingUserCatch, setPendingUserCatch] = useState<CatchItem | null>(null);
-  const [feedCommentTarget, setFeedCommentTarget] = useState<string | null>(null);
+  const [feedComments, setFeedComments] = useState<Record<string, FeedComment[]>>({});
   const [feedCommentDrafts, setFeedCommentDrafts] = useState<Record<string, string>>({});
+  const [feedReplyTarget, setFeedReplyTarget] = useState<{ catchId: string; commentId: string; username: string } | null>(null);
+  const feedCommentLikeInFlight = useRef<Set<string>>(new Set());
 
   const syncCommentCountInLists = useCallback((catchId: string, count: number) => {
     const patch = (items: CatchItem[]) => {
@@ -656,15 +673,93 @@ export default function Social() {
     setUserCatches(patch);
   }, []);
 
+  const loadFeedComments = useCallback(async (catchIds: string[]) => {
+    const ids = [...new Set(catchIds)].filter(Boolean);
+    if (ids.length === 0) return;
+    const catchFilter = ids.map((id) => `catch_id = "${id}"`).join(" || ");
+    try {
+      const comments = await pb.collection("comments").getFullList({ filter: catchFilter, sort: "created", requestKey: null });
+      const commentIds = comments.map((comment: any) => comment.id);
+      const commentLikes = commentIds.length
+        ? await pb.collection("comment_likes").getFullList({ filter: commentIds.map((id: string) => `comment_id = "${id}"`).join(" || "), requestKey: null }).catch(() => [] as any[])
+        : [];
+      const likeStats = new Map<string, { count: number; mine: any | null }>();
+      for (const like of commentLikes as any[]) {
+        const stats = likeStats.get(like.comment_id) ?? { count: 0, mine: null };
+        stats.count += 1;
+        if (like.user_id === user?.id) stats.mine = like;
+        likeStats.set(like.comment_id, stats);
+      }
+      setFeedComments((current) => {
+        const next = { ...current };
+        for (const id of ids) {
+          next[id] = comments
+            .filter((comment: any) => comment.catch_id === id)
+            .map((comment: any) => {
+              const stats = likeStats.get(comment.id) ?? { count: 0, mine: null };
+              return { ...comment, _likeCount: stats.count, _likeId: stats.mine?.id ?? null } as FeedComment;
+            });
+        }
+        return next;
+      });
+    } catch {}
+  }, [user?.id]);
+
+  useEffect(() => {
+    void loadFeedComments([...discoverItems, ...feedItems].map((item) => item.id));
+  }, [discoverItems, feedItems, loadFeedComments]);
+
   const submitFeedComment = async (item: CatchItem) => {
     if (!requireAuth() || !user) return;
     const text = (feedCommentDrafts[item.id] ?? "").trim();
     if (!text || isProfane(text)) return;
+    const replyTarget = feedReplyTarget?.catchId === item.id ? feedReplyTarget : null;
     try {
-      await pb.collection("comments").create({ catch_id: item.id, user_id: user.id, username: user.username || user.name || "", text }, { requestKey: null });
+      pendingCommentOps.current.set(item.id, Date.now());
+      const created = await pb.collection("comments").create({
+        catch_id: item.id,
+        user_id: user.id,
+        username: user.username || user.name || "",
+        text,
+        parent_id: replyTarget?.commentId ?? "",
+      }, { requestKey: null });
+      setFeedComments((current) => ({
+        ...current,
+        [item.id]: [...(current[item.id] ?? []), { ...created, _likeCount: 0, _likeId: null }],
+      }));
       setFeedCommentDrafts((current) => ({ ...current, [item.id]: "" }));
-      setFeedCommentTarget(null);
-    } catch {}
+      setFeedReplyTarget(null);
+      posthog?.capture("comment_created", { is_reply: Boolean(replyTarget) });
+    } catch {
+      pendingCommentOps.current.delete(item.id);
+    }
+  };
+
+  const toggleFeedCommentLike = async (catchId: string, comment: FeedComment) => {
+    if (!requireAuth() || !user || feedCommentLikeInFlight.current.has(comment.id)) return;
+    feedCommentLikeInFlight.current.add(comment.id);
+    const update = (countDelta: number, likeId: string | null) => {
+      setFeedComments((current) => ({
+        ...current,
+        [catchId]: (current[catchId] ?? []).map((entry) => entry.id === comment.id
+          ? { ...entry, _likeCount: Math.max(0, entry._likeCount + countDelta), _likeId: likeId }
+          : entry),
+      }));
+    };
+    try {
+      if (comment._likeId) {
+        update(-1, null);
+        await pb.collection("comment_likes").delete(comment._likeId, { requestKey: null });
+      } else {
+        update(1, "pending");
+        const created = await pb.collection("comment_likes").create({ comment_id: comment.id, user_id: user.id }, { requestKey: null });
+        update(0, created.id);
+      }
+    } catch {
+      void loadFeedComments([catchId]);
+    } finally {
+      feedCommentLikeInFlight.current.delete(comment.id);
+    }
   };
 
   // ── Discover ──────────────────────────────────────────────────────────────
@@ -750,12 +845,34 @@ export default function Social() {
         setDiscoverItems(patch);
         setFeedItems(patch);
         setUserCatches(patch);
+        setFeedComments((current) => {
+          const comments = current[catchId];
+          if (!comments || comments.some((comment) => comment.id === e.record.id)) return current;
+          return {
+            ...current,
+            [catchId]: [...comments, { ...e.record, _likeCount: 0, _likeId: null }],
+          };
+        });
       } else if (e.action === "delete") {
         const patch = (items: CatchItem[]) =>
           items.map((c) => c.id === catchId ? { ...c, _commentCount: Math.max(0, c._commentCount - 1) } : c);
         setDiscoverItems(patch);
         setFeedItems(patch);
         setUserCatches(patch);
+        setFeedComments((current) => {
+          const comments = current[catchId];
+          if (!comments) return current;
+          return { ...current, [catchId]: comments.filter((comment) => comment.id !== e.record.id) };
+        });
+      } else if (e.action === "update") {
+        setFeedComments((current) => {
+          const comments = current[catchId];
+          if (!comments) return current;
+          return {
+            ...current,
+            [catchId]: comments.map((comment) => comment.id === e.record.id ? { ...comment, ...e.record } : comment),
+          };
+        });
       }
     }, { requestKey: null } as any).catch(() => {});
     return () => { pb.collection("comments").unsubscribe("*"); };
@@ -907,6 +1024,7 @@ export default function Social() {
           items.map((c) => (c.id === item.id ? { ...c, _likeId: record.id } : c));
         setDiscoverItems(setId);
         setFeedItems(setId);
+        posthog?.capture("catch_liked");
         // Push is sent server-side (pb_hooks) in the recipient's saved language.
       }
     } catch {
@@ -940,22 +1058,12 @@ export default function Social() {
       .catch(() => {});
   };
   const openUserCatchDetail = (item: CatchItem) => {
-    setPendingUserCatch(item);
     setProfileMenuVisible(false);
     setUserFollowListModal(null);
     setAvatarPreviewVisible(false);
-    setSelectedUser(null);
+    openDetail(item);
   };
   const closeDetail = () => setDetailCatch(null);
-
-  useEffect(() => {
-    if (!pendingUserCatch || selectedUser) return;
-    const timer = setTimeout(() => {
-      setDetailCatch(toCatchDetail(pendingUserCatch));
-      setPendingUserCatch(null);
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [pendingUserCatch, selectedUser]);
 
   const pruneBlockedUser = useCallback((blockedId: string) => {
     const remove = (items: CatchItem[]) => items.filter((item) => item.user_id !== blockedId);
@@ -1204,6 +1312,7 @@ export default function Social() {
       setNewGroupDesc("");
       setGroups((prev) => [group, ...prev]);
       setSelectedGroup(group);
+      posthog?.capture("group_created");
     } catch (e) {
       console.warn("create group error:", e);
     } finally {
@@ -1279,6 +1388,7 @@ export default function Social() {
           following_id: targetUser.id,
         });
         setMyFollows((prev) => [...prev, record]);
+        posthog?.capture("user_followed");
         // Push is sent server-side (pb_hooks) in the recipient's saved language.
       } catch (e) { console.warn("follow error:", e); }
       finally { followInFlight.current.delete(targetUser.id); }
@@ -1307,20 +1417,18 @@ export default function Social() {
     setUserCatchCount(0);
     setUserFollowerCount(0);
     setUserFollowingCount(0);
+    setUserCatchPage(1);
+    setUserCatchesHasMore(false);
     setLoadingUserCatches(true);
     try {
-      const [fullUser, records, publicCatchCount, catchCountResult, followersResult, followingResult] = await Promise.all([
+      const [fullUser, publicCatchesResult, publicCatchCount, followersResult, followingResult] = await Promise.all([
         pb.collection("users").getOne(targetUser.id, { requestKey: null }).catch(() => null),
-        pb.collection("catches").getFullList({
-          filter: `user_id = "${targetUser.id}"`,
+        pb.collection("catches").getList(1, PAGE_SIZE, {
+          filter: `is_public = true && user_id = "${targetUser.id}"`,
           sort: "-created_at",
           requestKey: null,
-        }).catch(() => [] as any[]),
+        }).catch(() => ({ items: [] as any[], totalItems: 0, totalPages: 0 })),
         fetchPublicProfileCatchCount(targetUser.id),
-        pb.collection("catches").getList(1, 1, {
-          filter: `user_id = "${targetUser.id}"`,
-          requestKey: null,
-        }).catch(() => ({ totalItems: 0 })),
         pb.collection("follows").getList(1, 1, {
           filter: `following_id = "${targetUser.id}"`,
           requestKey: null,
@@ -1350,12 +1458,34 @@ export default function Social() {
           };
         });
       }
-      setUserCatches(await enrichCatches((records as any[]).filter((item: any) => !blockedUserIdSet.has(item.user_id)), user?.id));
-      setUserCatchCount(publicCatchCount ?? (catchCountResult as any).totalItems ?? (records as any[]).length);
+      const publicCatches = (publicCatchesResult as any).items ?? [];
+      setUserCatches(await enrichCatches(publicCatches.filter((item: any) => !blockedUserIdSet.has(item.user_id)), user?.id));
+      setUserCatchCount(publicCatchCount ?? (publicCatchesResult as any).totalItems ?? publicCatches.length);
+      setUserCatchesHasMore((publicCatchesResult as any).page < (publicCatchesResult as any).totalPages);
       setUserFollowerCount((followersResult as any).totalItems ?? 0);
       setUserFollowingCount((followingResult as any).totalItems ?? 0);
     } catch (e) { console.warn("openUser error:", e); }
     finally { setLoadingUserCatches(false); }
+  };
+
+  const loadMoreUserCatches = async () => {
+    if (!selectedUser || loadingUserCatches || loadingMoreUserCatches || !userCatchesHasMore) return;
+    setLoadingMoreUserCatches(true);
+    try {
+      const result = await pb.collection("catches").getList(userCatchPage + 1, PAGE_SIZE, {
+        filter: `is_public = true && user_id = "${selectedUser.id}"`,
+        sort: "-created_at",
+        requestKey: null,
+      });
+      const items = await enrichCatches(result.items.filter((item: any) => !blockedUserIdSet.has(item.user_id)), user?.id);
+      setUserCatches((current) => [...current, ...items.filter((item) => !current.some((existing) => existing.id === item.id))]);
+      setUserCatchPage(result.page);
+      setUserCatchesHasMore(result.page < result.totalPages);
+    } catch (e) {
+      if (!isNetworkError(e)) console.warn("loadMoreUserCatches error:", e);
+    } finally {
+      setLoadingMoreUserCatches(false);
+    }
   };
 
   const openUserFollowList = async (type: "followers" | "following") => {
@@ -1405,6 +1535,60 @@ export default function Social() {
     const date = formatCatchDate(val, language);
     if (!date) return "";
     return language === "ru" ? `С ${date}` : `Joined ${date}`;
+  };
+
+  const renderFeedComments = (item: CatchItem) => {
+    const comments = feedComments[item.id] ?? [];
+    const roots = comments.filter((comment) => !comment.parent_id && !blockedUserIdSet.has(comment.user_id));
+    const activeReplyTarget = feedReplyTarget?.catchId === item.id ? feedReplyTarget : null;
+    const renderComment = (comment: FeedComment, isReply = false) => {
+      const replies = comments.filter((reply) => reply.parent_id === comment.id && !blockedUserIdSet.has(reply.user_id));
+      return (
+        <View key={comment.id} style={[styles.feedComment, isReply && styles.feedCommentReply]}>
+          <Text style={styles.feedCommentText}>
+            <Text style={styles.feedCommentUsername}>{comment.username || "User"}</Text>{" "}{comment.text}
+          </Text>
+          <View style={styles.feedCommentActions}>
+            <TouchableOpacity style={styles.feedCommentLike} onPress={() => toggleFeedCommentLike(item.id, comment)} accessibilityLabel={language === "ru" ? "Нравится комментарий" : "Like comment"}>
+              <Ionicons name={comment._likeId ? "heart" : "heart-outline"} size={15} color={comment._likeId ? "#ef4444" : "#64748b"} />
+              {comment._likeCount > 0 ? <Text style={styles.feedCommentActionText}>{comment._likeCount}</Text> : null}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setFeedReplyTarget({ catchId: item.id, commentId: comment.id, username: comment.username || "User" })}>
+              <Text style={styles.feedCommentActionText}>{language === "ru" ? "Ответить" : "Reply"}</Text>
+            </TouchableOpacity>
+          </View>
+          {!isReply && replies.map((reply) => renderComment(reply, true))}
+        </View>
+      );
+    };
+
+    return (
+      <View style={styles.feedComments}>
+        {roots.map((comment) => renderComment(comment))}
+        {activeReplyTarget ? (
+          <View style={styles.feedReplyingRow}>
+            <Text style={styles.feedReplyingText}>{language === "ru" ? `Ответ для ${activeReplyTarget.username}` : `Replying to ${activeReplyTarget.username}`}</Text>
+            <TouchableOpacity onPress={() => setFeedReplyTarget(null)}><Ionicons name="close" size={16} color="#94a3b8" /></TouchableOpacity>
+          </View>
+        ) : null}
+        <View style={styles.feedCommentInputRow}>
+          <TextInput
+            style={styles.feedCommentInput}
+            value={feedCommentDrafts[item.id] ?? ""}
+            onChangeText={(text) => setFeedCommentDrafts((current) => ({ ...current, [item.id]: text }))}
+            placeholder={activeReplyTarget
+              ? (language === "ru" ? "Напишите ответ" : "Write a reply")
+              : (language === "ru" ? "Напишите комментарий" : "Write a comment")}
+            placeholderTextColor="#64748b"
+            returnKeyType="send"
+            onSubmitEditing={() => submitFeedComment(item)}
+          />
+          <TouchableOpacity onPress={() => submitFeedComment(item)} style={styles.feedCommentSend} accessibilityLabel={language === "ru" ? "Отправить комментарий" : "Post comment"}>
+            <Ionicons name="send" size={17} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   // ── Feed card (Fishbrain-style) ───────────────────────────────────────────
@@ -1472,6 +1656,7 @@ export default function Social() {
             .map((kind) => ({ kind, name: item[kind] ?? "" }))
             .filter((entry) => entry.name !== "");
           return (
+            <>
             <TouchableOpacity activeOpacity={0.95} onPress={() => openDetail(item)}>
               <View style={styles.feedCardBody}>
                 {item.description ? <Text style={styles.feedCaption} numberOfLines={3}>{item.description}</Text> : null}
@@ -1507,27 +1692,15 @@ export default function Social() {
                     <LikeButton isLiked={item._isLiked} onPress={() => toggleLike(item)} size={20} />
                     <Text style={[styles.feedActionText, item._isLiked && { color: "#ffffff" }]}>{item._likeCount}</Text>
                   </View>
-                  <TouchableOpacity style={styles.feedActionBtn} onPress={() => setFeedCommentTarget(item.id)}>
+                  <View style={styles.feedActionBtn}>
                     <Ionicons name="chatbubble-outline" size={20} color="#64748b" />
                     <Text style={styles.feedActionText}>{item._commentCount}</Text>
-                  </TouchableOpacity>
+                  </View>
                 </View>
-                {feedCommentTarget === item.id && <View style={styles.feedCommentInputRow}>
-                  <TextInput
-                    style={styles.feedCommentInput}
-                    value={feedCommentDrafts[item.id] ?? ""}
-                    onChangeText={(text) => setFeedCommentDrafts((current) => ({ ...current, [item.id]: text }))}
-                    placeholder={language === "ru" ? "Напишите комментарий" : "Write a comment"}
-                    placeholderTextColor="#64748b"
-                    returnKeyType="send"
-                    onSubmitEditing={() => submitFeedComment(item)}
-                  />
-                  <TouchableOpacity onPress={() => submitFeedComment(item)} style={styles.feedCommentSend} accessibilityLabel={language === "ru" ? "Отправить комментарий" : "Post comment"}>
-                    <Ionicons name="send" size={17} color="#ffffff" />
-                  </TouchableOpacity>
-                </View>}
               </View>
             </TouchableOpacity>
+            {renderFeedComments(item)}
+            </>
           );
         }}
       </FeedPhotoSection>
@@ -1635,6 +1808,26 @@ export default function Social() {
     if (type === "like") return <Ionicons name="heart" size={15} color="#f43f5e" />;
     return <Ionicons name="chatbubble" size={15} color="#a78bfa" />;
   };
+
+  const renderCatchDetail = () => (
+    <CatchDetailModal
+      catch={detailCatch}
+      onClose={closeDetail}
+      onShowOnMap={closeOverlaysForMap}
+      onLikeChange={applyLikeToLists}
+      onCommentAdded={applyCommentToLists}
+      onCommentCountSynced={syncCommentCountInLists}
+      onReportCatch={handleReportCatch}
+      onReportComment={handleReportComment}
+      onBlockUser={handleBlockUser}
+      blockedUserIds={blockedUserIds}
+      onUserPress={(userId) => {
+        closeDetail();
+        const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
+        openUser({ id: userId, username: item?._username ?? "", name: "", avatarUrl: item?._avatarUrl ?? null, badges: item?._badges ?? [] });
+      }}
+    />
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "left", "right"]}>
@@ -1897,7 +2090,7 @@ export default function Social() {
             numColumns={2}
             keyExtractor={(i) => i.id}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.userCatchGridItem} onPress={() => openUserCatchDetail(item)} activeOpacity={0.85}>
+              <TouchableOpacity style={styles.userCatchGridItem} onPress={() => openUserCatchDetail(item)} activeOpacity={0.5}>
                 {item.image_uri ? (
                   <ImageWithLoader source={{ uri: pocketbaseThumbUrl(item.image_uri, "400x400")! }} style={styles.userCatchGridPhoto} contentFit="cover" />
                 ) : (
@@ -1906,13 +2099,17 @@ export default function Social() {
                   </View>
                 )}
                 <View style={styles.userCatchGridOverlay}>
-                  {getCatchSpeciesLabel(item.photo_catches, item.species, language) ? <Text style={styles.userCatchGridSpecies} numberOfLines={1}>{getCatchSpeciesLabel(item.photo_catches, item.species, language)}</Text> : null}
-                  <Text style={styles.userCatchGridDate}>{formatDate(item.created_at)}</Text>
+                  <View style={styles.userCatchGridMetaRow}>
+                    <Text style={styles.userCatchGridDate}>{formatDate(item.created_at)}</Text>
+                  </View>
                 </View>
               </TouchableOpacity>
             )}
             columnWrapperStyle={styles.userCatchGridRow}
             contentContainerStyle={styles.userCatchGridContent}
+            onEndReached={() => { void loadMoreUserCatches(); }}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={loadingMoreUserCatches ? <ActivityIndicator color="#ffffff" style={styles.userCatchGridFooter} /> : null}
             ListEmptyComponent={
               !loadingUserCatches ? (
                 <Text style={styles.emptyText}>{t("noPublicCatches")}</Text>
@@ -2158,26 +2355,11 @@ export default function Social() {
             uri={selectedAvatarUri}
             onClose={() => setAvatarPreviewVisible(false)}
           />
+          {selectedUser && renderCatchDetail()}
         </SafeAreaView>
       </Modal>
 
-      <CatchDetailModal
-        catch={detailCatch}
-        onClose={closeDetail}
-        onShowOnMap={closeOverlaysForMap}
-        onLikeChange={applyLikeToLists}
-        onCommentAdded={applyCommentToLists}
-        onCommentCountSynced={syncCommentCountInLists}
-        onReportCatch={handleReportCatch}
-        onReportComment={handleReportComment}
-        onBlockUser={handleBlockUser}
-        blockedUserIds={blockedUserIds}
-        onUserPress={(userId) => {
-          closeDetail();
-          const item = [...discoverItems, ...feedItems, ...userCatches].find((c) => c.user_id === userId);
-          openUser({ id: userId, username: item?._username ?? "", name: "", avatarUrl: item?._avatarUrl ?? null, badges: item?._badges ?? [] });
-        }}
-      />
+      {!selectedUser && renderCatchDetail()}
 
       {/* Search fullscreen modal */}
       <Modal visible={searchVisible} animationType="slide" onRequestClose={closeSearch}>
@@ -2446,6 +2628,16 @@ const styles = StyleSheet.create({
   feedCommentInputRow: { flexDirection: "row", alignItems: "center", backgroundColor: theme.colors.surface, borderRadius: 10, paddingLeft: 12, marginBottom: 10 },
   feedCommentInput: { flex: 1, color: "#ffffff", fontSize: 14, paddingVertical: 10 },
   feedCommentSend: { padding: 10 },
+  feedComments: { paddingHorizontal: 14, paddingBottom: 2 },
+  feedComment: { paddingVertical: 7 },
+  feedCommentReply: { paddingLeft: 14, paddingTop: 8 },
+  feedCommentText: { color: "#e2e8f0", fontSize: 14, lineHeight: 19 },
+  feedCommentUsername: { color: "#ffffff", fontWeight: "700" },
+  feedCommentActions: { flexDirection: "row", alignItems: "center", gap: 14, marginTop: 4 },
+  feedCommentActionText: { color: "#94a3b8", fontSize: 12, fontWeight: "600" },
+  feedCommentLike: { flexDirection: "row", alignItems: "center", gap: 4 },
+  feedReplyingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 5 },
+  feedReplyingText: { color: "#94a3b8", fontSize: 12 },
   feedActionBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
   feedActionText: { color: "#94a3b8", fontSize: 14, fontWeight: "600" },
 
@@ -2480,19 +2672,20 @@ const styles = StyleSheet.create({
   catchWaterBody: { flexDirection: "row", alignItems: "baseline", gap: 4, maxWidth: 110, flexShrink: 1, minWidth: 0 },
   catchWaterBodyDot: { color: "#ffffff", fontSize: 15, lineHeight: 12, fontWeight: "900" },
   catchWaterBodyText: { color: "#ffffff", flexShrink: 1, minWidth: 0 },
-  userProfileBackButton: { position: "absolute", left: 12, zIndex: 2, width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(7, 24, 40, 0.82)", alignItems: "center", justifyContent: "center" },
   catchDesc: { color: "#94a3b8", fontSize: 13, marginTop: 3 },
   catchDate: { color: "#94a3b8", fontSize: 12, marginTop: 4 },
   catchCounts: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 12 },
   catchCountBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   catchCountText: { color: "#94a3b8", fontSize: 12 },
   userCatchGridContent: { paddingBottom: 100 },
-  userCatchGridRow: { gap: 8, marginBottom: 8, paddingHorizontal: 12 },
-  userCatchGridItem: { flex: 1, minWidth: 0, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface },
+  userCatchGridFooter: { marginVertical: 16 },
+  userProfileBackButton: { position: "absolute", left: 12, zIndex: 2, width: 48, height: 48, borderRadius: 24, backgroundColor: "rgba(7, 24, 40, 0.82)", alignItems: "center", justifyContent: "center" },
+  userCatchGridRow: { gap: 1, marginBottom: 1, paddingHorizontal: 1 },
+  userCatchGridItem: { flex: 1, minWidth: 0, overflow: "hidden", backgroundColor: theme.colors.surface },
   userCatchGridPhoto: { width: "100%", aspectRatio: 1 },
-  userCatchGridOverlay: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 10, paddingTop: 20, paddingBottom: 9, backgroundColor: "rgba(7, 24, 40, 0.66)" },
-  userCatchGridSpecies: { color: "#ffffff", fontSize: 13, fontWeight: "700" },
-  userCatchGridDate: { color: "#cbd5e1", fontSize: 11, marginTop: 2 },
+  userCatchGridOverlay: { position: "absolute", left: 0, right: 105, bottom: 0, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 9, borderTopRightRadius: 12, backgroundColor: "rgba(7, 24, 40, 0.66)" },
+  userCatchGridMetaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 2 },
+  userCatchGridDate: { color: "#cbd5e1", fontSize: 11 },
 
   // Comments sheet
   sheetOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },

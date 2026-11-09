@@ -11,6 +11,8 @@ import { requiresUpdate, updateStoreUrl } from '@/lib/appVersion';
 import Toast, { BaseToastProps } from 'react-native-toast-message';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import { PostHogProvider } from 'posthog-react-native';
+import { posthog } from '@/lib/posthog';
 import { useRouter, usePathname, useRootNavigationState, Slot } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, AppState, Image, Linking, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
@@ -205,6 +207,10 @@ function SplashLoading() {
   );
 }
 
+function PostHogRoot({ children }: { children: React.ReactNode }) {
+  return posthog ? <PostHogProvider client={posthog}>{children}</PostHogProvider> : children;
+}
+
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     Inter_300Light,
@@ -229,16 +235,18 @@ export default function RootLayout() {
 
   return (
     <SafeAreaProvider>
-      <AuthProvider>
-        <PurchasesProvider>
-          <LanguageProvider>
-            <NetworkProvider>
-              <RootNavigator />
-              <SafeToast />
-            </NetworkProvider>
-          </LanguageProvider>
-        </PurchasesProvider>
-      </AuthProvider>
+      <PostHogRoot>
+        <AuthProvider>
+          <PurchasesProvider>
+            <LanguageProvider>
+              <NetworkProvider>
+                <RootNavigator />
+                <SafeToast />
+              </NetworkProvider>
+            </LanguageProvider>
+          </PurchasesProvider>
+        </AuthProvider>
+      </PostHogRoot>
     </SafeAreaProvider>
   );
 }

@@ -3,6 +3,7 @@ import { theme } from '../../lib/theme';
 import { useAuth } from "@/lib/auth";
 import { parseBadges } from "@/lib/badges";
 import { addCatch } from "@/lib/storage";
+import { posthogLog } from "@/lib/posthog";
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -46,6 +47,7 @@ import gearPhotos from "@/lib/gearPhotos";
 import { ActivityIndicator, Alert, DeviceEventEmitter, Dimensions, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePostHog } from "posthog-react-native";
 
 import speciesPhotoMap from "@/lib/speciesPhotos";
 
@@ -127,6 +129,7 @@ export default function Add() {
   const { language, t } = useLanguage();
   const { user } = useAuth();
   const { isOnline } = useNetwork();
+  const posthog = usePostHog();
   const mapboxReady = useMapboxReady();
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
@@ -953,6 +956,17 @@ export default function Add() {
         pendingSync: savedOffline,
       });
 
+      posthog?.capture("catch_saved", {
+        sync_status: savedOffline ? "queued" : "synced",
+        photo_count: photoUris.length,
+        has_species: Boolean(primaryPhotoCatch.species),
+        has_location: Boolean(shareLocation),
+        has_water_body: Boolean(shareLocation && waterBody?.id),
+      });
+      posthogLog.info('catch_saved_locally', {
+        sync_status: savedOffline ? 'queued' : 'synced',
+        photo_count: photoUris.length,
+      });
       Toast.show({ type: "catchSaved", text1: savedOffline ? t("catchSavedOffline") : t("catchSaved"), position: "top", visibilityTime: 3000 });
       resetForm();
       router.push("/profile");

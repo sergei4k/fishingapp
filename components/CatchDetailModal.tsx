@@ -231,12 +231,14 @@ export default function CatchDetailModal({
     if (!value) return "";
     const date = new Date(typeof value === "number" ? value : String(value));
     if (Number.isNaN(date.getTime())) return "";
-    return date.toLocaleString(language === "ru" ? "ru-RU" : "en-US", {
-      day: "numeric",
-      month: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+    if (elapsedSeconds < 60) return language === "ru" ? "сейчас" : "now";
+    const minutes = Math.floor(elapsedSeconds / 60);
+    if (minutes < 60) return language === "ru" ? `${minutes} мин` : `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return language === "ru" ? `${hours} ч` : `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return language === "ru" ? `${days} дн` : `${days}d`;
   };
 
   useEffect(() => {
@@ -523,20 +525,25 @@ export default function CatchDetailModal({
             {comment._avatarUrl ? <ExpoImage source={{ uri: comment._avatarUrl }} contentFit="cover" style={styles.commentAvatarImg} /> : <Ionicons name="person" size={15} color="#94a3b8" />}
           </TouchableOpacity>
         )}
-        <View style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}>
-          {!isOwn && <Text style={styles.commentUsername}>{comment.username}</Text>}
+        <Pressable
+          style={[styles.commentBubble, isOwn ? styles.commentBubbleOwn : styles.commentBubbleOther]}
+          onLongPress={!isOwn && onReportComment ? () => onReportComment(comment.id, comment.user_id, item?.id ?? null) : undefined}
+          delayLongPress={500}
+        >
+          <View style={styles.commentHeader}>
+            {!isOwn && <Text style={styles.commentUsername}>{comment.username}</Text>}
+            {!!formatCommentDate(comment.created ?? comment.created_at) && <Text style={styles.commentDate}>{formatCommentDate(comment.created ?? comment.created_at)}</Text>}
+          </View>
           <Text style={styles.commentText}>{comment.text}</Text>
           <View style={styles.commentMeta}>
-            {!!formatCommentDate(comment.created ?? comment.created_at) && <Text style={styles.commentDate}>{formatCommentDate(comment.created ?? comment.created_at)}</Text>}
             <TouchableOpacity onPress={() => toggleCommentLike(comment)} hitSlop={8} style={styles.commentLikeBtn}>
               <Ionicons name={comment._likeId ? "heart" : "heart-outline"} size={14} color={comment._likeId ? "#ffffff" : "#94a3b8"} />
               {comment._likeCount > 0 ? <Text style={[styles.commentLikeCount, comment._likeId && styles.commentLikeCountActive]}>{comment._likeCount}</Text> : null}
             </TouchableOpacity>
             {!isReply && <TouchableOpacity onPress={() => setReplyToComment(comment)} hitSlop={8} style={styles.replyBtn}><Text style={styles.replyBtnText}>{language === "ru" ? "Ответить" : "Reply"}</Text></TouchableOpacity>}
             {isOwn && <TouchableOpacity onPress={() => deleteComment(comment.id)} hitSlop={8} style={{ marginLeft: 8 }}><Ionicons name="trash" size={15} color="#f87171" /></TouchableOpacity>}
-            {!isOwn && onReportComment && <TouchableOpacity onPress={() => onReportComment(comment.id, comment.user_id, item?.id ?? null)} hitSlop={8} style={{ marginLeft: 8 }}><Ionicons name="flag-outline" size={15} color="#fbbf24" /></TouchableOpacity>}
           </View>
-        </View>
+        </Pressable>
       </View>
     );
   };
@@ -1481,14 +1488,15 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.primaryDark,
     borderBottomRightRadius: 4,
   },
-  commentUsername: { color: "#cbd5e1", fontSize: 11, fontWeight: "600", marginBottom: 2 },
-  commentDate: { color: "#94a3b8", fontSize: 10, marginTop: 4 },
+  commentHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  commentUsername: { color: "#cbd5e1", fontSize: 11, fontWeight: "600" },
+  commentDate: { color: "#94a3b8", fontSize: 10 },
   commentText: { color: "#e2e8f0", fontSize: 14 },
-  commentMeta: { flexDirection: "row", alignItems: "center", justifyContent: "flex-end" },
-  commentLikeBtn: { flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 8 },
+  commentMeta: { flexDirection: "row", alignItems: "center", marginTop: 4 },
+  commentLikeBtn: { flexDirection: "row", alignItems: "center", gap: 3 },
   commentLikeCount: { color: "#94a3b8", fontSize: 10, fontWeight: "600" },
   commentLikeCountActive: { color: "#ffffff" },
-  replyBtn: { marginLeft: 8 },
+  replyBtn: { marginLeft: 12 },
   replyBtnText: { color: "#94a3b8", fontSize: 10, fontWeight: "600" },
   replyingTo: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 10, paddingHorizontal: 4 },
   replyingToText: { color: "#94a3b8", fontSize: 12 },

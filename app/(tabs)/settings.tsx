@@ -17,6 +17,7 @@ import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Linking, Modal, Platform, ScrollView, StyleSheet, Switch, TouchableOpacity, View } from "react-native";
 import { Text, TextInput } from "@/components/AppText";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { usePostHog } from "posthog-react-native";
 
 type LocationResult = {
   id: string;
@@ -29,6 +30,7 @@ type LocationResult = {
 export default function Settings() {
   const { language, setLanguage, t } = useLanguage();
   const { signOut, user } = useAuth();
+  const posthog = usePostHog();
   const { enabled: purchasesEnabled, isPro, presentPaywall, restore, manageSubscription } = usePurchases();
   const insets = useSafeAreaInsets();
   const safeTop = insets.top;
@@ -332,6 +334,9 @@ export default function Settings() {
         message,
         platform: Platform.OS,
         app_version: currentVersion,
+      });
+      posthog?.capture("feedback_submitted", {
+        platform: Platform.OS,
       });
       setFeedback("");
       setFeedbackSent(true);

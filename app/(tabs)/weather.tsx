@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { theme } from '../../lib/theme';
 import * as Location from "expo-location";
-import React, { useEffect, useState } from "react";
-import { ActivityIndicator, Platform, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useState } from "react";
+import { ActivityIndicator, AppState, Platform, RefreshControl, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { Text } from "@/components/AppText";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Svg, { Path, Line } from "react-native-svg";
@@ -19,6 +20,7 @@ type WeatherData = {
     temperature_2m: number;
     wind_speed_10m: number;
     wind_direction_10m: number;
+    wind_gusts_10m?: number;
     weather_code: number;
     precipitation: number;
     relative_humidity_2m: number;
@@ -32,6 +34,19 @@ type WeatherData = {
     pressure_msl: number[];
     wind_speed_10m: number[];
     wind_direction_10m: number[];
+    wind_gusts_10m?: number[];
+  };
+  daily: {
+    time: string[];
+    weather_code: number[];
+    temperature_2m_max: number[];
+    temperature_2m_min: number[];
+    wind_speed_10m_max: number[];
+    wind_gusts_10m_max: number[];
+    precipitation_sum: number[];
+    sunrise: string[];
+    sunset: string[];
+    uv_index_max: number[];
   };
 };
 
@@ -76,42 +91,53 @@ function windDir(deg: number): string {
   return dirs[Math.round(deg / 45) % 8];
 }
 
-function pressureTrend(hourly: WeatherData["hourly"], t: (k: any) => string): { icon: string; label: string; color: string } {
-  const now = new Date();
-  const idx = hourly.time.findIndex(t => new Date(t) >= now);
-  if (idx < 3) return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
-  const delta = hourly.pressure_msl[idx] - hourly.pressure_msl[idx - 3];
-  if (delta >= 1.5) return { icon: "trending-up-outline", label: t("pressureRising"), color: "#5cab6e" };
-  if (delta <= -1.5) return { icon: "trending-down-outline", label: t("pressureFalling"), color: "#ef4444" };
-  return { icon: "arrow-forward-outline", label: t("pressureSteady"), color: "#94a3b8" };
+function locationNowString(utcOffsetSeconds: number, timestamp = Date.now()): string {
+  const localNow = new Date(timestamp + utcOffsetSeconds * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
 }
 
-function pressureFishLabel(hpa: number, t: (k: any) => string): { label: string; color: string } {
-  if (hpa < 1014) return { label: t("fishFeedingActive"), color: "#5cab6e" };
-  return { label: t("fishNormalActivity"), color: "#94a3b8" };
+function pressureDelta(hourly: WeatherData["hourly"], utcOffsetSeconds: number): number {
+  const idx = hourly.time.findIndex((time) => time >= locationNowString(utcOffsetSeconds));
+  if (idx < 3) return 0;
+  return hourly.pressure_msl[idx] - hourly.pressure_msl[idx - 3];
 }
 
-function fishingScore(wind: number, precip: number, code: number, pressure: number, t: (k: any) => string): { score: number; label: string; color: string } {
+function pressureTrend(hourly: WeatherData["hourly"], utcOffsetSeconds: number, t: (k: any) => string): { icon: string; label: string } {
+  const delta = pressureDelta(hourly, utcOffsetSeconds);
+  if (delta >= 1.5) return { icon: "trending-up-outline", label: t("pressureRising") };
+  if (delta <= -1.5) return { icon: "trending-down-outline", label: t("pressureFalling") };
+  return { icon: "arrow-forward-outline", label: t("pressureSteady") };
+}
+
+function fishingScore(wind: number, gust: number, precip: number, code: number, pressureChange: number, t: (k: any) => string): { score: number; label: string; dialColor: string; reasons: string[] } {
   let score = 10;
+  const reasons: string[] = [];
   if (wind > 20) score -= 4; else if (wind > 10) score -= 2;
+  if (wind > 10) reasons.push(t("weatherWind"));
+  if (gust > 35) { score -= 2; reasons.push(t("weatherGusts")); }
   if (precip > 5) score -= 3; else if (precip > 1) score -= 1;
+  if (precip > 0) reasons.push(t("weatherPrecip"));
   if (code >= 95) score -= 4; else if (code >= 80) score -= 2;
-  if (pressure < 1009) score -= 2; else if (pressure >= 1020) score += 1;
+  if (code >= 80) reasons.push(t("weatherStorm"));
+  if (pressureChange <= -1.5) { score -= 2; reasons.push(t("pressureFalling")); }
+  if (pressureChange >= 1.5) { score += 1; reasons.push(t("pressureRising")); }
   score = Math.max(1, Math.min(10, score));
-  if (score >= 8) return { score, label: t("fishingExcellent"), color: "#5cab6e" };
-  if (score >= 6) return { score, label: t("fishingGood"), color: "#9cbf5e" };
-  if (score >= 4) return { score, label: t("fishingFair"), color: "#f59e0b" };
-  return { score, label: t("fishingPoor"), color: "#ef4444" };
+  if (reasons.length === 0) reasons.push(t("weatherStable"));
+  if (score >= 8) return { score, label: t("fishingExcellent"), dialColor: "#5cab6e", reasons };
+  if (score >= 6) return { score, label: t("fishingGood"), dialColor: "#9cbf5e", reasons };
+  if (score >= 4) return { score, label: t("fishingFair"), dialColor: "#f59e0b", reasons };
+  return { score, label: t("fishingPoor"), dialColor: "#ef4444", reasons };
 }
 
 // Per-hour version of the score, using the hourly fields the API returns
 // (precipitation probability instead of amount).
-function hourlyBiteScore(wind: number, pop: number, code: number, pressure: number): number {
+function hourlyBiteScore(wind: number, pop: number, code: number, pressureChange: number): number {
   let s = 10;
   if (wind > 20) s -= 4; else if (wind > 10) s -= 2;
   if (pop > 60) s -= 3; else if (pop > 30) s -= 1;
   if (code >= 95) s -= 4; else if (code >= 80) s -= 2;
-  if (pressure < 1009) s -= 2; else if (pressure >= 1020) s += 1;
+  if (pressureChange <= -1.5) s -= 2; else if (pressureChange >= 1.5) s += 1;
   return Math.max(1, Math.min(10, s));
 }
 
@@ -126,7 +152,7 @@ function bestBiteWindow(hourly: WeatherData["hourly"], utcOffsetSeconds: number)
     .map((time, i) => ({
       hour: Number(time.slice(11, 13)),
       time,
-      score: hourlyBiteScore(hourly.wind_speed_10m[i], hourly.precipitation_probability[i], hourly.weather_code[i], hourly.pressure_msl[i]),
+      score: hourlyBiteScore(hourly.wind_speed_10m[i], hourly.precipitation_probability[i], hourly.weather_code[i], i >= 3 ? hourly.pressure_msl[i] - hourly.pressure_msl[i - 3] : 0),
     }))
     .filter((r) => r.time >= nowStr)
     .slice(0, 18);
@@ -178,11 +204,7 @@ function smoothPath(pts: { x: number; y: number }[]): string {
 }
 
 function HourlyChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; language: string }) {
-  // Compute the current local time AT THE LOCATION using the API-supplied UTC offset.
-  // This is correct regardless of what timezone the device is set to.
-  const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
+  const nowStr = locationNowString(utcOffsetSeconds);
 
   const data = hourly.time
     .map((time, i) => ({
@@ -401,9 +423,7 @@ const WIND_DIR_H = 34;
 const WIND_TIME_H = 28;
 
 function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData["hourly"]; utcOffsetSeconds: number; language: string }) {
-  const localNow = new Date(Date.now() + utcOffsetSeconds * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const nowStr = `${localNow.getUTCFullYear()}-${pad(localNow.getUTCMonth() + 1)}-${pad(localNow.getUTCDate())}T${pad(localNow.getUTCHours())}:00`;
+  const nowStr = locationNowString(utcOffsetSeconds);
 
   const data = hourly.time
     .map((time, i) => ({
@@ -556,7 +576,7 @@ function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData
                         transform: [{ rotate: `${h.dir}deg` }],
                       }}
                     >
-                      <Ionicons name="arrow-up-outline" size={12} color="#22d3ee" />
+                      <Ionicons name="arrow-up-outline" size={12} color="#ffffff" />
                     </View>
                     <Text
                       style={{
@@ -602,13 +622,71 @@ function WindChart({ hourly, utcOffsetSeconds, language }: { hourly: WeatherData
   );
 }
 
-function FactorRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+function FactorRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.factorRow}>
       <Text style={styles.factorLabel}>{label}</Text>
-      <Text style={[styles.factorValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
+      <Text style={styles.factorValue}>{value}</Text>
     </View>
   );
+}
+
+function DaylightSummary({ daily, language }: { daily: WeatherData["daily"]; language: string }) {
+  const sunrise = daily.sunrise?.[0]?.slice(11, 16);
+  const sunset = daily.sunset?.[0]?.slice(11, 16);
+  const uv = daily.uv_index_max?.[0];
+  if (!sunrise || !sunset || uv === undefined) return null;
+
+  return (
+    <View style={styles.daylightRow}>
+      <View style={styles.daylightItem}>
+        <Ionicons name="sunny-outline" size={16} color="#ffffff" />
+        <View><Text style={styles.daylightLabel}>{language === "ru" ? "Рассвет" : "Sunrise"}</Text><Text style={styles.daylightValue}>{sunrise}</Text></View>
+      </View>
+      <View style={styles.daylightItem}>
+        <Ionicons name="moon-outline" size={16} color="#ffffff" />
+        <View><Text style={styles.daylightLabel}>{language === "ru" ? "Закат" : "Sunset"}</Text><Text style={styles.daylightValue}>{sunset}</Text></View>
+      </View>
+      <View style={styles.daylightItem}>
+        <Ionicons name="shield-outline" size={16} color="#ffffff" />
+        <View><Text style={styles.daylightLabel}>UV</Text><Text style={styles.daylightValue}>{Math.round(uv)}</Text></View>
+      </View>
+    </View>
+  );
+}
+
+function WeeklyForecast({ daily, language }: { daily: WeatherData["daily"]; language: string }) {
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.weeklyList}>
+      {daily.time.slice(0, 7).map((time, index) => {
+        const label = index === 0
+          ? (language === "ru" ? "Сегодня" : "Today")
+          : formatDayLabel(`${time}T12:00`, language).split(",")[0];
+        return (
+          <View key={time} style={styles.dayCard}>
+            <Text style={styles.dayLabel}>{label}</Text>
+            <Ionicons name={wmoIcon(daily.weather_code[index]) as any} size={20} color="#ffffff" />
+            <Text style={styles.dayTemp}>{Math.round(daily.temperature_2m_max[index])}°</Text>
+            <Text style={styles.dayLow}>{Math.round(daily.temperature_2m_min[index])}°</Text>
+            <Text style={styles.dayWind}>{Math.round(daily.wind_gusts_10m_max[index])} km/h</Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+function SafetyAlert({ current, daily, language }: { current: WeatherData["current"]; daily: WeatherData["daily"]; language: string }) {
+  const gust = current.wind_gusts_10m ?? current.wind_speed_10m;
+  const storm = current.weather_code >= 95;
+  const highUv = daily.uv_index_max?.[0] >= 8;
+  if (!storm && gust < 45 && !highUv) return null;
+  const message = storm
+    ? (language === "ru" ? "Гроза поблизости. Не выходите на воду." : "Thunderstorm nearby. Stay off the water.")
+    : gust >= 45
+      ? (language === "ru" ? "Сильные порывы ветра. Проверьте условия на воде." : "Strong wind gusts. Check water conditions.")
+      : (language === "ru" ? "Высокий UV. Возьмите защиту от солнца." : "High UV. Bring sun protection.");
+  return <View style={styles.safetyAlert}><Ionicons name="warning-outline" size={18} color="#ffffff" /><Text style={styles.safetyText}>{message}</Text></View>;
 }
 
 // The bite score as a fishfinder-style dial: ten ticks around a 270° arc, lit up
@@ -635,7 +713,7 @@ function SonarDial({ score, color }: { score: number; color: string }) {
         ))}
       </Svg>
       <View style={{ alignItems: "center" }}>
-        <Text style={[styles.biteScore, { color }]}>{score}</Text>
+        <Text style={styles.biteScore}>{score}</Text>
         <Text style={styles.biteDialMax}>/ 10</Text>
       </View>
     </View>
@@ -655,8 +733,8 @@ function BiteForecast({
   language: string;
   upgradeCopy: ReturnType<typeof getUpgradeCopy>;
 }) {
-  const fish = fishingScore(current.wind_speed_10m, current.precipitation, current.weather_code, current.pressure_msl, t);
-  const trend = pressureTrend(hourly, t);
+  const trend = pressureTrend(hourly, utcOffsetSeconds, t);
+  const fish = fishingScore(current.wind_speed_10m, current.wind_gusts_10m ?? current.wind_speed_10m, current.precipitation, current.weather_code, pressureDelta(hourly, utcOffsetSeconds), t);
   const win = bestBiteWindow(hourly, utcOffsetSeconds);
   const pad = (n: number) => String(n).padStart(2, "0");
   const windowLabel = win
@@ -668,14 +746,15 @@ function BiteForecast({
       <Text style={styles.sectionTitle}>{language === "ru" ? "Прогноз клёва" : "Bite Forecast"}</Text>
       <View style={styles.biteCard}>
         {unlocked ? (
-          <View style={styles.biteRow}>
-            <SonarDial score={fish.score} color={fish.color} />
+              <View style={styles.biteRow}>
+            <SonarDial score={fish.score} color={fish.dialColor} />
             <View style={styles.biteInfo}>
-              <Text style={[styles.biteVerdict, { color: fish.color }]}>{fish.label}</Text>
-              {windowLabel ? <Text style={styles.biteWindow}>{windowLabel}</Text> : null}
+                  <Text style={styles.biteVerdict}>{fish.label}</Text>
+                  {windowLabel ? <Text style={styles.biteWindow}>{windowLabel}</Text> : null}
+                  <Text style={styles.biteReasons} numberOfLines={2}>{fish.reasons.join(" · ")}</Text>
               <View style={styles.factorList}>
-                <FactorRow label={language === "ru" ? "Ветер" : "Wind"} value={`${Math.round(current.wind_speed_10m)} km/h`} />
-                <FactorRow label={language === "ru" ? "Давление" : "Pressure"} value={trend.label} valueColor={trend.color} />
+                    <FactorRow label={language === "ru" ? "Ветер" : "Wind"} value={`${Math.round(current.wind_speed_10m)} / ${Math.round(current.wind_gusts_10m ?? current.wind_speed_10m)} km/h`} />
+                <FactorRow label={language === "ru" ? "Давление" : "Pressure"} value={trend.label} />
                 <FactorRow label={language === "ru" ? "Осадки" : "Precip"} value={`${current.precipitation} mm`} />
               </View>
             </View>
@@ -683,7 +762,7 @@ function BiteForecast({
         ) : (
           <TouchableOpacity activeOpacity={0.85} onPress={onUnlock} style={styles.biteLocked}>
             <View style={styles.biteLockIcon}>
-              <Ionicons name="lock-closed" size={22} color="#f59e0b" />
+              <Ionicons name="lock-closed" size={22} color="#ffffff" />
             </View>
             <Text style={styles.biteLockedTitle}>
               {upgradeCopy.biteTitle}
@@ -692,7 +771,7 @@ function BiteForecast({
               {upgradeCopy.biteSub}
             </Text>
             <View style={styles.biteUnlockBtn}>
-              <Ionicons name="star" size={14} color="#0f172a" />
+              <Ionicons name="star" size={14} color="#ffffff" />
               <Text style={styles.biteUnlockText}>{upgradeCopy.biteButton}</Text>
             </View>
           </TouchableOpacity>
@@ -714,6 +793,7 @@ export default function Weather() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationName, setLocationName] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchWeather = async () => {
@@ -737,16 +817,18 @@ export default function Weather() {
           Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
           15000,
           t("locationPermission")
-        );
+        ).catch(() => { throw new Error(language === "ru" ? "Не удалось определить местоположение. Проверьте настройки геолокации." : "Unable to determine your location. Check your location settings."); });
       }
       const { latitude, longitude } = loc.coords;
 
       const weatherRes = await withTimeout(
         fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
-          `&current=temperature_2m,wind_speed_10m,wind_direction_10m,weather_code,precipitation,relative_humidity_2m,pressure_msl` +
-          `&hourly=temperature_2m,precipitation_probability,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m` +
-          `&timezone=auto&forecast_days=2`
+          `&current=temperature_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code,precipitation,relative_humidity_2m,pressure_msl` +
+          `&hourly=temperature_2m,precipitation_probability,weather_code,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+          `&daily=weather_code,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,wind_gusts_10m_max,precipitation_sum,sunrise,sunset,uv_index_max` +
+          `&timezone=auto&forecast_days=7`,
+          { cache: "no-store" }
         ),
         12000,
         t("error")
@@ -754,8 +836,13 @@ export default function Weather() {
 
       if (!weatherRes.ok) throw new Error(`${weatherRes.status}`);
       const data = await weatherRes.json();
-      if (!data?.current) throw new Error(t("error"));
+      if (!data?.current || !data?.daily || !Array.isArray(data?.hourly?.time) ||
+          data.hourly.time.filter((time: string) => time >= locationNowString(data.utc_offset_seconds)).length < 2) {
+        throw new Error(t("error"));
+      }
       setWeather(data);
+      const fetchedAt = Date.now();
+      setUpdatedAt(fetchedAt);
 
       try {
         const geoRes = await withTimeout(
@@ -767,7 +854,9 @@ export default function Weather() {
         );
         const geo = geoRes.ok ? await geoRes.json() : null;
         const place = geo?.features?.[0]?.text;
-        if (place) setLocationName(place);
+        if (place) {
+          setLocationName(place);
+        }
       } catch {}
 
     } catch (e: any) {
@@ -778,7 +867,17 @@ export default function Weather() {
     }
   };
 
-  useEffect(() => { fetchWeather(); }, []);
+  useFocusEffect(useCallback(() => {
+    setLoading(true);
+    void fetchWeather();
+    const interval = setInterval(() => { void fetchWeather(); }, 15 * 60 * 1000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") { setLoading(true); void fetchWeather(); }
+    });
+    return () => { clearInterval(interval); subscription.remove(); };
+  // Fetch again when the tab gains focus, not on every render.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []));
   const onRefresh = () => { setRefreshing(true); fetchWeather(); };
 
   if (loading) {
@@ -797,7 +896,7 @@ export default function Weather() {
     return (
       <SafeAreaView style={styles.container}>
         {offline && (
-          <Ionicons name="cloud-offline-outline" size={40} color="#64748b" style={{ alignSelf: "center", marginBottom: 12 }} />
+            <Ionicons name="cloud-offline-outline" size={40} color="#ffffff" style={{ alignSelf: "center", marginBottom: 12 }} />
         )}
         <Text style={styles.errorText}>
           {offline
@@ -817,8 +916,7 @@ export default function Weather() {
   }
 
   const c = weather.current;
-  const trend = pressureTrend(weather.hourly, t);
-  const pressurefish = pressureFishLabel(c.pressure_msl, t);
+  const trend = pressureTrend(weather.hourly, weather.utc_offset_seconds, t);
 
 
 
@@ -830,13 +928,14 @@ export default function Weather() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#ffffff" />}
       >
         {/* Header */}
-        <View style={styles.header}>
-          <Ionicons name="location-sharp" size={14} color="#94a3b8" />
-          <Text style={styles.locationText}>{locationName ?? t("currentLocation")}</Text>
-        </View>
+            <View style={styles.header}>
+              <Ionicons name="location-sharp" size={14} color="#ffffff" />
+              <Text style={styles.locationText}>{locationName ?? t("currentLocation")}</Text>
+              {updatedAt ? <Text style={styles.updatedText}>{new Date(updatedAt).toLocaleTimeString(language === "ru" ? "ru-RU" : "en-US", { hour: "2-digit", minute: "2-digit" })}</Text> : null}
+            </View>
 
         {/* Current weather */}
-        <View style={styles.currentCard}>
+          <View style={styles.currentCard}>
           <View style={styles.currentTop}>
             <View>
               <Text style={styles.currentTemp}>{Math.round(c.temperature_2m)}°</Text>
@@ -845,43 +944,44 @@ export default function Weather() {
             <Ionicons name={wmoIcon(c.weather_code) as any} size={64} color="#ffffff" />
           </View>
           <View style={styles.currentStats}>
-            <View style={styles.statItem}>
-              <Ionicons name="navigate-outline" size={14} color="#94a3b8" />
-              <Text style={styles.statText}>{Math.round(c.wind_speed_10m)} km/h {windDir(c.wind_direction_10m)}</Text>
+              <View style={styles.statItem}>
+                <Ionicons name="navigate-outline" size={14} color="#ffffff" />
+                <Text style={styles.statText}>{Math.round(c.wind_speed_10m)} km/h {language === "ru" ? "с" : "from"} {windDir(c.wind_direction_10m)}</Text>
             </View>
             <View style={styles.statItem}>
-              <Ionicons name="water-outline" size={14} color="#94a3b8" />
+              <Ionicons name="water-outline" size={14} color="#ffffff" />
               <Text style={styles.statText}>{c.relative_humidity_2m}%</Text>
             </View>
             <View style={styles.statItem}>
-              <Ionicons name="rainy-outline" size={14} color="#94a3b8" />
+              <Ionicons name="rainy-outline" size={14} color="#ffffff" />
               <Text style={styles.statText}>{c.precipitation} mm</Text>
             </View>
           </View>
-        </View>
+          </View>
+
+        <SafetyAlert current={c} daily={weather.daily} language={language} />
+        <DaylightSummary daily={weather.daily} language={language} />
 
         {/* Barometric pressure */}
         <View style={styles.infoRow}>
           <View style={[styles.infoCard, { flex: 1 }]}>
             <View style={styles.infoCardHeader}>
-              <Ionicons name="speedometer-outline" size={14} color="#94a3b8" />
+              <Ionicons name="speedometer-outline" size={14} color="#ffffff" />
               <Text style={styles.infoCardTitle}>{t("pressure")}</Text>
             </View>
             <View style={styles.pressureRow}>
               <Text style={styles.pressureValue}>{Math.round(c.pressure_msl)}</Text>
               <Text style={styles.pressureUnit}>hPa</Text>
-              <Ionicons name={trend.icon as any} size={16} color={trend.color} style={{ marginLeft: 6 }} />
+              <Ionicons name={trend.icon as any} size={16} color="#ffffff" style={{ marginLeft: 6 }} />
             </View>
-            <Text style={styles.pressureTrendLabel} numberOfLines={1}>
-              <Text style={{ color: trend.color }}>{trend.label}</Text>
-              {"  ·  "}
-              <Text style={{ color: pressurefish.color }}>{pressurefish.label}</Text>
-            </Text>
+                <Text style={styles.pressureTrendLabel} numberOfLines={1}>
+                  <Text style={{ color: "#ffffff" }}>{trend.label}</Text>
+                </Text>
           </View>
         </View>
 
         {/* Bite forecast */}
-        <BiteForecast
+          <BiteForecast
           current={c}
           hourly={weather.hourly}
           utcOffsetSeconds={weather.utc_offset_seconds}
@@ -890,11 +990,14 @@ export default function Weather() {
           t={t}
           language={language}
           upgradeCopy={upgradeCopy}
-        />
+          />
 
         {/* Hourly chart: temperature + precipitation */}
         <Text style={styles.sectionTitle}>{t("hourlyForecast")}</Text>
         <HourlyChart hourly={weather.hourly} utcOffsetSeconds={weather.utc_offset_seconds} language={language} />
+
+        <Text style={styles.sectionTitle}>{language === "ru" ? "План на 7 дней" : "7-Day Plan"}</Text>
+        <WeeklyForecast daily={weather.daily} language={language} />
 
         {/* Hourly wind chart */}
         <Text style={styles.sectionTitle}>{t("windForecast")}</Text>
@@ -909,6 +1012,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   header: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   locationText: { color: "#94a3b8", fontSize: 14 },
+  updatedText: { color: theme.colors.text.muted, fontSize: 12, marginLeft: "auto" },
   currentCard: {
     paddingVertical: 12,
     marginHorizontal: 16, marginBottom: 12,
@@ -921,6 +1025,28 @@ const styles = StyleSheet.create({
   statText: { color: "#94a3b8", fontSize: 13 },
   hourlyScroll: { marginHorizontal: 16 },
 
+  safetyAlert: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginHorizontal: 16, marginBottom: 12,
+    padding: 12, borderRadius: theme.radius.control, backgroundColor: "rgba(245,158,11,0.12)",
+  },
+  safetyText: { flex: 1, color: "#ffffff", fontSize: 13, lineHeight: 18 },
+  daylightRow: {
+    flexDirection: "row", justifyContent: "space-between", marginHorizontal: 16, marginBottom: 16,
+    paddingVertical: 12, backgroundColor: theme.colors.surface, borderRadius: theme.radius.control, paddingHorizontal: 12,
+  },
+  daylightItem: { flexDirection: "row", alignItems: "center", gap: 8 },
+  daylightLabel: { color: theme.colors.text.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: 0.3 },
+  daylightValue: { color: theme.colors.offwhite, fontSize: 14, fontFamily: theme.fonts.bodySemibold, marginTop: 2 },
+  weeklyList: { gap: 8, paddingHorizontal: 16, paddingBottom: 24 },
+  dayCard: {
+    width: 76, minHeight: 134, alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 6,
+    backgroundColor: theme.colors.surface, borderRadius: theme.radius.control,
+  },
+  dayLabel: { color: theme.colors.text.secondary, fontSize: 11, fontFamily: theme.fonts.bodySemibold },
+  dayTemp: { color: theme.colors.offwhite, fontSize: 19, fontFamily: theme.fonts.displaySemibold },
+  dayLow: { color: theme.colors.text.secondary, fontSize: 12, marginTop: -7 },
+  dayWind: { color: theme.colors.text.muted, fontSize: 10, marginTop: 4 },
+
   infoRow: { flexDirection: "row", marginHorizontal: 16, gap: 10, marginBottom: 16 },
   infoCard: {
     paddingVertical: 6,
@@ -932,27 +1058,24 @@ const styles = StyleSheet.create({
   pressureUnit: { color: "#94a3b8", fontSize: 13 },
   pressureTrendLabel: { color: "#94a3b8", fontSize: 12 },
 
-  fishingBadge: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 8 },
-  fishingBadgeText: { fontSize: 13, fontWeight: "600" },
   biteCard: {
     backgroundColor: theme.colors.surface,
     borderRadius: theme.radius.card,
-    borderWidth: 1,
-    borderColor: theme.colors.border,
     paddingVertical: 18,
     paddingHorizontal: 18,
     marginHorizontal: 16, marginBottom: 24,
   },
   biteRow: { flexDirection: "row", alignItems: "center", gap: 18 },
   biteInfo: { flex: 1 },
-  biteScore: { fontSize: 46, fontFamily: theme.fonts.displayBold },
+  biteScore: { color: "#ffffff", fontSize: 46, fontFamily: theme.fonts.displayBold },
   biteDialMax: { color: "#94a3b8", fontSize: 12, fontWeight: "600", marginTop: -4 },
-  biteVerdict: { fontSize: 21, fontFamily: theme.fonts.displaySemibold, marginBottom: 2 },
+  biteVerdict: { color: "#ffffff", fontSize: 21, fontFamily: theme.fonts.displaySemibold, marginBottom: 2 },
   biteWindow: { color: "#94a3b8", fontSize: 13, marginBottom: 12 },
-  factorList: {},
+  biteReasons: { color: theme.colors.text.secondary, fontSize: 12, lineHeight: 17, marginBottom: 8 },
+  factorList: { gap: 4 },
   factorRow: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-    paddingVertical: 7, borderTopWidth: 1, borderTopColor: theme.colors.border,
+    paddingVertical: 7,
   },
   factorLabel: { color: "#94a3b8", fontSize: 13 },
   factorValue: { color: "#e6eef8", fontSize: 13, fontWeight: "600" },
@@ -968,7 +1091,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: "#f59e0b", borderRadius: 10, paddingVertical: 10, paddingHorizontal: 20,
   },
-  biteUnlockText: { color: "#0f172a", fontSize: 14, fontWeight: "700" },
+  biteUnlockText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
 
   sectionTitle: {
     color: "#94a3b8", fontSize: 13, fontWeight: "600", textTransform: "uppercase",
@@ -976,5 +1099,5 @@ const styles = StyleSheet.create({
   },
   hourlyTime: { color: "#94a3b8", fontSize: 12 },
   hourlyTemp: { color: "#e6eef8", fontSize: 14, fontWeight: "600" },
-  errorText: { color: "#ef4444", textAlign: "center", marginTop: 60, fontSize: 16 },
+  errorText: { color: "#ffffff", textAlign: "center", marginTop: 60, fontSize: 16 },
 });

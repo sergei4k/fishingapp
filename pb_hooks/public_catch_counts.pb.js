@@ -14,7 +14,7 @@ routerAdd("GET", "/public/users/{userId}/catch-count", (e) => {
 
   try {
     const safeUserId = String(userId).replace(/[^A-Za-z0-9_-]/g, "");
-    const records = e.app.findRecordsByFilter("catches", `user_id = "${safeUserId}"`, "", 10000, 0);
+    const records = e.app.findRecordsByFilter("catches", `is_public = true && user_id = "${safeUserId}"`, "", 10000, 0);
     return e.json(200, { total: records.length });
   } catch (err) {
     console.log("[catch-count] failed:", err);

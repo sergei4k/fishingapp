@@ -28,6 +28,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { usePostHog } from "posthog-react-native";
 
 type LocationResult = OnboardingLocation & {
   id: string;
@@ -57,6 +58,7 @@ export default function Onboarding() {
   const { user } = useAuth();
   const { language } = useLanguage();
   const router = useRouter();
+  const posthog = usePostHog();
   const ru = language === "ru";
   const [step, setStep] = useState(0);
   const [fishingStyles, setFishingStyles] = useState<FishingStyle[]>([]);
@@ -264,6 +266,12 @@ export default function Onboarding() {
 
       const updatedUser = userResult.value;
       pb.authStore.save(pb.authStore.token, updatedUser);
+      posthog?.capture("onboarding_completed", {
+        fishing_style_count: preferences.fishingStyles.length,
+        has_location: Boolean(preferences.location.city || preferences.location.region || preferences.location.country),
+        has_avatar: Boolean(avatar),
+        referral_source: preferences.referralSource,
+      });
       router.replace("/(tabs)" as any);
     } catch {
       Alert.alert(

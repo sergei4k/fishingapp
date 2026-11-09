@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "./auth";
 import { pb } from "./pocketbase";
 import { parseBadges } from "./badges";
+import { usePostHog } from "posthog-react-native";
 
 // The entitlement identifier configured in the RevenueCat dashboard.
 export const PRO_ENTITLEMENT = "pro";
@@ -84,6 +85,7 @@ async function grantVerifiedBadge(): Promise<void> {
 
 export function PurchasesProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const posthog = usePostHog();
   const insets = useSafeAreaInsets();
   const [ready, setReady] = useState(false);
   const [entitled, setEntitled] = useState(false);
@@ -263,6 +265,7 @@ export function PurchasesProvider({ children }: { children: React.ReactNode }) {
               applyInfo(customerInfo);
               setEntitled(true);
               await grantVerifiedBadge();
+              posthog?.capture("premium_purchase_completed", { purchase_source: "paywall" });
               await closePaywall(true);
             }}
             onRestoreCompleted={async ({ customerInfo }) => {
