@@ -7,11 +7,16 @@ import Animated, { FadeIn, FadeInRight, useReducedMotion } from "react-native-re
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Text } from "@/components/AppText";
+import { getJournalDescription, getTypicalAdultSizeCm } from "@/assets/journaldesc";
+import { useAuth } from "@/lib/auth";
+import { parseBadges } from "@/lib/badges";
 import { useLanguage } from "@/lib/language";
 import { parsePhotoCatches } from "@/lib/photoCatches";
 import { getSpeciesOptions } from "@/lib/species";
 import speciesPhotos from "@/lib/speciesPhotos";
 import { getCatches, type CatchItem } from "@/lib/storage";
+import CatchDetailModal, { type CatchDetail } from "@/components/CatchDetailModal";
+import { pb } from "@/lib/pocketbase";
 
 type Chapter = "index" | "freshwater" | "saltwater" | "unknown";
 type SpeciesGroup = { id: string; label: string; scientificName: string; habitat: Exclude<Chapter, "index">; catches: CatchItem[] };
@@ -21,11 +26,13 @@ export default function Journal() {
   const { language } = useLanguage();
   const ru = language === "ru";
   const reducedMotion = useReducedMotion();
+  const { user } = useAuth();
   const [catches, setCatches] = useState<CatchItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [chapter, setChapter] = useState<Chapter>("index");
   const [caughtOnly, setCaughtOnly] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [detailCatch, setDetailCatch] = useState<CatchDetail | null>(null);
 
   useFocusEffect(useCallback(() => {
     const entry = StatusBar.pushStackEntry({ barStyle: "dark-content" });
@@ -61,6 +68,9 @@ export default function Journal() {
   }, [catches, language, ru]);
 
   const selectedGroup = groups.find((group) => group.id === selected);
+  const selectedSpeciesArt = selectedGroup ? speciesPhotos[selectedGroup.id] : undefined;
+  const selectedSpeciesDescription = getJournalDescription(selectedGroup?.id, language);
+  const selectedSpeciesSize = getTypicalAdultSizeCm(selectedGroup?.id);
   const visibleGroups = groups.filter((group) => (chapter === "index" || group.habitat === chapter) && (!caughtOnly || group.catches.length > 0));
   const goBack = useCallback(() => {
     if (selected) { setSelected(null); return true; }
@@ -73,13 +83,42 @@ export default function Journal() {
     return () => subscription.remove();
   }, [goBack]));
 
-  const title = selectedGroup?.habitat === "freshwater" ? (ru ? "Пресная вода" : "Freshwater") : selectedGroup?.habitat === "saltwater" ? (ru ? "Морская вода" : "Saltwater") : (ru ? "Без определения" : "Unidentified");
-  const imageUri = (item: CatchItem) => item.imageUrl ?? item.pbImageUrl ?? item.image;
+  const imageUri = (item: CatchItem) => item.imageUrl ?? item.pbImageUrl ?? item.image_uri ?? item.image;
   const dateLabel = (value: string) => {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString(ru ? "ru-RU" : "en-US", { day: "numeric", month: "short", year: "numeric" });
   };
-  const countLabel = (count: number) => ru ? `Уловов: ${count}` : `${count} ${count === 1 ? "catch" : "catches"}`;
+  const countLabel = (count: number) => ru ? `Поймано: ${count}` : `${count} ${count === 1 ? "catch" : "catches"}`;
+
+  function toCatchDetail(item: CatchItem): CatchDetail {
+    return {
+      id: item.id,
+      userId: item.user_id ?? user?.id,
+      imageUrl: imageUri(item),
+      extraPhotos: item.extraPhotos ?? [],
+      photoCatches: item.photo_catches ?? item.photoCatches,
+      species: item.species,
+      description: item.description,
+      length: item.length_cm != null ? String(item.length_cm) : item.length ?? "",
+      weight: item.weight_kg != null ? String(item.weight_kg) : item.weight ?? "",
+      date: item.created_at ?? item.date,
+      gear: item.gear ?? item.gear_id ?? item.gearId,
+      username: item._username ?? user?.username,
+      name: item._name ?? user?.name,
+      verified: item._badges ? item._badges.includes("verified") : parseBadges(user?.badges).includes("verified"),
+      avatarUrl: item._avatarUrl ?? (user?.avatar ? `${pb.baseURL}/api/files/_pb_users_auth_/${user.id}/${user.avatar}?thumb=200x200` : undefined),
+      lat: item.lat ?? null,
+      lon: item.lon ?? null,
+      waterBodyId: item.water_body_id ?? item.waterBodyId,
+      waterBodyName: item.water_body_name ?? item.waterBodyName,
+      rod: item.rod ?? null,
+      reel: item.reel ?? null,
+      isPublic: item.is_public ?? item.isPublic,
+    };
+  }
+
+  const openDetail = (item: CatchItem) => { setDetailCatch(toCatchDetail(item)); };
+  const closeDetail = () => setDetailCatch(null);
 
   return (
     <SafeAreaView style={styles.screen} edges={["top", "left", "right"]}>
@@ -91,26 +130,33 @@ export default function Journal() {
       <View style={styles.book}>
         <Animated.View key={`${chapter}:${selected ?? ""}`} entering={reducedMotion ? FadeIn.duration(120) : FadeInRight.duration(260)} style={styles.page}>
           <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.pageContent}>
-            <View style={styles.eyebrowRow}><Text style={styles.eyebrow}>{ru ? "ПОЛЕВЫЕ ЗАМЕТКИ" : "FIELD NOTES"}</Text><Text style={styles.eyebrow}>{selected ? "03" : chapter === "index" ? "01" : "02"}</Text></View>
             {loading ? <ActivityIndicator color="#665a43" style={styles.loader} /> : selectedGroup ? (
               <>
-                <Text style={styles.kicker}>{title}</Text>
                 <Text style={styles.heading}>{selectedGroup.label}</Text>
                 {!!selectedGroup.scientificName && <Text style={styles.scientific}>{selectedGroup.scientificName}</Text>}
+                {selectedSpeciesArt && <Image source={selectedSpeciesArt} style={styles.selectedSpeciesArt} contentFit="contain" accessibilityLabel={selectedGroup.label} />}
+                {selectedSpeciesDescription && <>
+                  <Text style={styles.speciesDescriptionLabel}>{ru ? "ГДЕ ИСКАТЬ · ЧЕМ ПИТАЕТСЯ · КАК ЛОВИТЬ" : "WHERE TO FIND IT · DIET · HOW TO FISH"}</Text>
+                  <Text style={styles.speciesDescriptionText}>{selectedSpeciesDescription}</Text>
+                  {selectedSpeciesSize && <Text style={styles.fishstats}>{ru ? `Длина: ${selectedSpeciesSize} см` : `Length: ${selectedSpeciesSize} cm`}</Text>
+                  }
+                </>}
+                <Text style={styles.fishstats}>{ru ? `Вес: ${selectedSpeciesSize} см` : `Weight: ${selectedSpeciesSize} cm`}</Text>
+
                 <View style={styles.rule} />
-                <Text style={styles.body}>{countLabel(selectedGroup.catches.length)}</Text>
+                <Text style={styles.body}>{selectedGroup.catches.length ? countLabel(selectedGroup.catches.length) : (ru ? "Этот вид ещё не пойман." : "This species has not been caught yet.")}</Text>
                 <Text style={styles.sectionLabel}>{ru ? "ЗАПИСИ ОБ УЛОВАХ" : "CATCH RECORDS"}</Text>
+                {!selectedGroup.catches.length && <Text style={styles.empty}>{ru ? "Поймайте этого представителя, чтобы добавить первую запись." : "Catch one to add the first record to this page."}</Text>}
                 {selectedGroup.catches.map((item) => (
-                  <View key={item.id} style={styles.record}>
+                  <Pressable key={item.id} accessibilityRole="button" onPress={() => openDetail(item)} style={styles.record}>
                     {imageUri(item) ? <Image source={{ uri: imageUri(item) }} style={styles.recordPhoto} contentFit="cover" /> : <View style={[styles.recordPhoto, styles.photoEmpty]}><Ionicons name="image-outline" size={22} color="#81765f" /></View>}
                     <View style={styles.recordInfo}><Text style={styles.recordDate}>{dateLabel(item.date) || (ru ? "Дата не указана" : "Date unavailable")}</Text><Text style={styles.body}>{[item.length ? `${item.length} cm` : "", item.weight ? `${item.weight} kg` : ""].filter(Boolean).join("  ·  ") || (ru ? "Запись в журнале" : "A catch in your journal")}</Text></View>
-                  </View>
+                  </Pressable>
                 ))}
               </>
             ) : (
               <>
-                <View style={styles.rule} />
-                <View style={styles.stats}><View><Text style={styles.statNumber}>{visibleGroups.length}</Text><Text style={styles.statLabel}>{ru ? "ВИДОВ" : "SPECIES"}</Text></View><View style={styles.statDivider} /><View><Text style={styles.statNumber}>{catches.length}</Text><Text style={styles.statLabel}>{ru ? "УЛОВОВ" : "CATCHES"}</Text></View></View>
+                <View style={styles.stats}><View><Text style={styles.statNumber}>{visibleGroups.length}</Text><Text style={styles.statLabel}>{ru ? "ВИДОВ" : "SPECIES"}</Text></View><View style={styles.statDivider} /><View><Text style={styles.statNumber}>{catches.length}</Text><Text style={styles.statLabel}>{ru ? "ПОЙМАНО" : "CAUGHT"}</Text></View></View>
                 <Text style={styles.sectionLabel}>{ru ? "КОЛЛЕКЦИЯ ВИДОВ" : "SPECIES COLLECTION"}</Text>
                 <View style={styles.filters}>
                   {(["index", "freshwater", "saltwater"] as const).map((filter) => (
@@ -127,7 +173,7 @@ export default function Journal() {
                   const caught = group.catches.length > 0;
                   const art = speciesPhotos[group.id];
                   const hasSilhouette = art && group.id !== "atlantic_wolffish";
-                  return <Pressable key={group.id} accessibilityRole="button" accessibilityState={{ disabled: !caught }} accessibilityLabel={`${group.label}, ${caught ? countLabel(group.catches.length) : (ru ? "ещё не пойман" : "not caught yet")}`} disabled={!group.catches.length} onPress={() => setSelected(group.id)} style={styles.speciesRow}>
+                   return <Pressable key={group.id} accessibilityRole="button" accessibilityState={{ disabled: false }} accessibilityLabel={`${group.label}, ${caught ? countLabel(group.catches.length) : (ru ? "ещё не пойман" : "not caught yet")}`} accessibilityHint={caught ? undefined : (ru ? "Открыть информацию о виде" : "Open species details")} onPress={() => setSelected(group.id)} style={styles.speciesRow}>
                     <View style={styles.speciesArt}>{hasSilhouette || (art && caught) ? <Image source={art} style={[styles.fishImage, !caught && { tintColor: "#817b6e", opacity: 0.62 }]} contentFit="contain" /> : <Ionicons name="fish" size={36} color={caught ? "#716247" : "#a19a8c"} />}</View>
                     <Text style={[styles.speciesName, !caught && styles.uncaughtText]} numberOfLines={2}>{group.label}</Text><Text style={styles.speciesStatus}>{caught ? countLabel(group.catches.length) : (ru ? "Не пойман" : "Not caught")}</Text>
                   </Pressable>;
@@ -139,6 +185,12 @@ export default function Journal() {
           </ScrollView>
         </Animated.View>
       </View>
+      {detailCatch && (
+        <CatchDetailModal
+          catch={detailCatch}
+          onClose={closeDetail}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -151,26 +203,18 @@ const styles = StyleSheet.create({
   book: { flex: 1 },
   page: { flex: 1, backgroundColor: "#eee5d1", overflow: "hidden" },
   pageContent: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 28, paddingBottom: 28 },
-  eyebrowRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 34 },
-  eyebrow: { color: "#8a7a60", fontSize: 9, letterSpacing: 1.8, fontWeight: "700" },
-  kicker: { color: "#8a7655", fontSize: 10, fontWeight: "700", letterSpacing: 1.5, marginBottom: 12 },
   heading: { color: "#302c25", fontFamily: "Georgia", fontSize: 38, lineHeight: 44 },
-  intro: { color: "#6d6353", fontSize: 14, lineHeight: 21, marginTop: 14, maxWidth: 270 },
   scientific: { color: "#82745d", fontFamily: "Georgia", fontStyle: "italic", fontSize: 15, marginTop: 6 },
-  scientificSmall: { color: "#82745d", fontFamily: "Georgia", fontStyle: "italic", fontSize: 12, marginTop: 3 },
+  selectedSpeciesArt: { width: 160, height: 96, alignSelf: "center", marginTop: 16 },
+  speciesDescriptionLabel: { color: "#8a7a60", fontSize: 9, fontWeight: "700", letterSpacing: 1.4, marginTop: 22, marginBottom: 7 },
+  speciesDescriptionText: { color: "#5f5749", fontSize: 14, lineHeight: 21 },
+  fishstats: {fontSize: 16, color: "#5f5749", padding: 12},
   rule: { height: 1, backgroundColor: "#c8baa0", marginVertical: 24 },
   stats: { flexDirection: "row", alignItems: "center", gap: 30 },
   statNumber: { color: "#39352c", fontFamily: "Georgia", fontSize: 30 },
   statLabel: { color: "#8a7a60", fontSize: 9, fontWeight: "700", letterSpacing: 1.4, marginTop: 4 },
   statDivider: { height: 38, width: 1, backgroundColor: "#c8baa0" },
   sectionLabel: { color: "#8a7a60", fontSize: 10, fontWeight: "700", letterSpacing: 1.6, marginTop: 38, marginBottom: 12 },
-  chapterRow: { minHeight: 78, borderBottomWidth: 1, borderColor: "#d5c9b2", flexDirection: "row", alignItems: "center", gap: 12 },
-  chapterNumber: { color: "#aa9b80", fontFamily: "Georgia", fontSize: 12 },
-  chapterIcon: { width: 42, height: 42, borderWidth: 1, borderColor: "#c6b99f", alignItems: "center", justifyContent: "center", borderRadius: 21 },
-  chapterText: { flex: 1, minWidth: 0 },
-  chapterTitle: { color: "#39352c", fontFamily: "Georgia", fontSize: 18 },
-  chapterSub: { color: "#82745d", fontSize: 12, marginTop: 5 },
-  chapterCount: { color: "#82745d", fontFamily: "Georgia", fontSize: 16 },
   filters: { flexDirection: "row", gap: 6, marginBottom: 12 },
   filter: { flexGrow: 1, minHeight: 44, paddingHorizontal: 8, justifyContent: "center", alignItems: "center", borderWidth: 1, borderColor: "#c8baa0", borderRadius: 4 },
   filterSelected: { backgroundColor: "#5c604b", borderColor: "#5c604b" },
@@ -183,7 +227,6 @@ const styles = StyleSheet.create({
   speciesArt: { width: 82, height: 64, alignItems: "center", justifyContent: "center" },
   fishImage: { width: 82, height: 64 },
   uncaughtText: { color: "#8a8376" },
-  speciesPhoto: { width: 76, height: 76, borderWidth: 4, borderColor: "#faf5e9" },
   photoEmpty: { backgroundColor: "#ded2ba", alignItems: "center", justifyContent: "center" },
   body: { color: "#6d6353", fontSize: 13, lineHeight: 19 },
   record: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 12, borderBottomWidth: 1, borderColor: "#d5c9b2" },
